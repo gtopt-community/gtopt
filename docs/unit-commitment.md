@@ -221,9 +221,9 @@ generator $g$ and time period $t$:
 
 | Variable | Type | Domain | Meaning |
 |----------|------|--------|---------|
-| $u_{g,t}$ | Binary | $\{0, 1\}$ | **Status**: 1 if generator $g$ is online at time $t$ |
-| $v_{g,t}$ | Binary (see below) | $\{0, 1\}$ | **Startup**: 1 if generator $g$ starts up at time $t$ |
-| $w_{g,t}$ | Binary (see below) | $\{0, 1\}$ | **Shutdown**: 1 if generator $g$ shuts down at time $t$ |
+| $u_{g,t}$ | Binary | $\lbrace 0, 1\rbrace$ | **Status**: 1 if generator $g$ is online at time $t$ |
+| $v_{g,t}$ | Binary (see below) | $\lbrace 0, 1\rbrace$ | **Startup**: 1 if generator $g$ starts up at time $t$ |
+| $w_{g,t}$ | Binary (see below) | $\lbrace 0, 1\rbrace$ | **Shutdown**: 1 if generator $g$ shuts down at time $t$ |
 
 $u$ is always declared integer on a MIP build.  The integrality of $v$
 and $w$ is selected by `transition_integrality` (per unit, else
@@ -319,7 +319,7 @@ the transition status rows above: with binary $v$, $w$ they are
 redundant in the MIP, and PCP's ramping units carried most of them.
 In a relaxed run (`relax`, `--no-mip`, continuous phases) a fractional
 $v = w$ with $u$ unchanged can again buy start / stop ramp room
-($SU\,v$, $SD\,w$) for a fraction of the start cost — a weaker but
+($`SU\,v`$, $`SD\,w`$) for a fraction of the start cost — a weaker but
 valid relaxation.
 
 ### 4.3 Ramp Constraints (C4–C5)
@@ -359,7 +359,9 @@ These constraints prevent short cycling of thermal units.
 
 #### C6: Minimum Up Time
 
-$$\sum_{\tau=t}^{\min(t + UT_g - 1,\, T)} u_{g,\tau} \geq UT_g \cdot v_{g,t}$$
+```math
+\sum_{\tau=t}^{\min(t + UT_g - 1,\, T)} u_{g,\tau} \geq UT_g \cdot v_{g,t}
+```
 
 If a unit starts up at time $t$ ($v_t = 1$), it must remain online for at
 least $UT_g$ consecutive periods.  The implementation counts periods (not
@@ -368,7 +370,9 @@ blocks) and accumulates durations to find how many periods cover
 
 #### C7: Minimum Down Time
 
-$$\sum_{\tau=t}^{\min(t + DT_g - 1,\, T)} (1 - u_{g,\tau}) \geq DT_g \cdot w_{g,t}$$
+```math
+\sum_{\tau=t}^{\min(t + DT_g - 1,\, T)} (1 - u_{g,\tau}) \geq DT_g \cdot w_{g,t}
+```
 
 Equivalently:
 
@@ -411,19 +415,23 @@ Each startup is exactly one tier.
 
 #### C9: Hot Start Window
 
-$$y^{\text{hot}}_{g,t} \leq \sum_{q :\, D_{q,t} < T^{\text{hot}}} w_{g,q}$$
+```math
+y^{\text{hot}}_{g,t} \leq \sum_{q :\, D_{q,t} < T^{\text{hot}}} w_{g,q}
+```
 
 where $D_{q,t} = \sum_{k=q}^{t-1} \Delta_k$ is the offline time of a
 start at $t$ after a shutdown in period $q$ ($w_{g,q} = 1$: off from the
 start of $q$).  With hourly blocks the window is
-$q \in [\,t - T^{\text{hot}} + 1,\, t - 1\,]$.  A hot start is only
+$`q \in [\,t - T^{\text{hot}} + 1,\, t - 1\,]`$.  A hot start is only
 possible after a shutdown less than `hot_start_time` hours earlier.
 
 #### C10: Warm Start Window
 
-$$y^{\text{warm}}_{g,t} \leq \sum_{q :\, T^{\text{hot}} \leq D_{q,t} < T^{\text{cold}}} w_{g,q}$$
+```math
+y^{\text{warm}}_{g,t} \leq \sum_{q :\, T^{\text{hot}} \leq D_{q,t} < T^{\text{cold}}} w_{g,q}
+```
 
-(hourly: $q \in [\,t - T^{\text{cold}} + 1,\, t - T^{\text{hot}}\,]$).
+(hourly: $`q \in [\,t - T^{\text{cold}} + 1,\, t - T^{\text{hot}}\,]`$).
 A warm start requires a shutdown in the warm window (between hot and cold
 thresholds).  A shutdown exactly `hot_start_time` (`cold_start_time`)
 hours before the start is warm (cold), the same thresholds as the
@@ -489,7 +497,7 @@ $F_b$ below), which is the `"boundary"` semantics.  Repeating the
 allowance on every block of a period (the energy-block option
 `"period"`) would let the boundary power jump by SU again inside the period.
 A boundary that ends period $k$ carries
-$\underline P\,(u_k + v_{k+1}) = \underline P\,(u_{k+1} + w_{k+1})$: the unit
+$`\underline P\,(u_k + v_{k+1}) = \underline P\,(u_{k+1} + w_{k+1})`$: the unit
 is at its minimum there if it is up on either side.  Let $E_b = 1$ when
 $\tau_b$ ends a period (the last block of period $k(b)$) and $F_b = 1$ when block $b$ starts one, and
 let $k^+(b) = k(b) + 1$ be the next period (wrapped on cyclic stages).
@@ -500,23 +508,23 @@ let $k^+(b) = k(b) + 1$ be the next period (wrapped on cyclic stages).
 - $\hat p_b$: total power at $\tau_b$, including the start-up and
   shut-down trajectories [MW] (output `power`);
 - the existing generation column $g_b$ of block $b$ becomes the
-  **average power** of the block, energy $= g_b\,\Delta_b$.
+  **average power** of the block, energy $`= g_b\,\Delta_b`$.
 
 **PB1 — total power at a boundary** (OR Spectrum [5], eqs. 12/14 and 29/30,
 with the events moved to the commitment grid):
 
-$$
+```math
 \hat p_b = \underline P_b\,\bigl(u_{k(b)} + E_b\,v_{k^+(b)}\bigr) + p_b
  {}+ \sum_{s} f^{SU}\!\bigl(T_s - \tau_b\bigr)\,v_s
  {}+ \sum_{d} f^{SD}\!\bigl(\tau_b - T_d\bigr)\,w_d .
-$$
+```
 
 Here $T_k$ is the start instant of period $k$.  $f^{SU}(\delta)$, for
 $\delta > 0$ hours before the start, is the piecewise-linear start-up
 trajectory through $(0, \underline P)$ and
-$(j\,h, P^{SU}\_{S^U+1-j})$, $j = 1..S^U$, and $0$ beyond $S^U h$.
+$`(j\,h, P^{SU}_{S^U+1-j})`$, $j = 1..S^U$, and $0$ beyond $S^U h$.
 $f^{SD}(\delta)$, for $\delta > 0$ hours after the shut-down, passes through
-$(0, \underline P)$ and $(j\,h, P^{SD}\_{j+1})$, $j = 1..S^D$, and is $0$
+$(0, \underline P)$ and $`(j\,h, P^{SD}_{j+1})`$, $j = 1..S^D$, and is $0$
 beyond $S^D h$.  The trajectories are `startup_trajectory`
 $= [P^{SU}\_1, \dots, P^{SU}\_{S^U}]$ and `shutdown_trajectory`
 $= [P^{SD}\_2, \dots, P^{SD}\_{S^D+1}]$, sampled every $h$ =
@@ -531,9 +539,9 @@ cyclic stages wrap.
 **PB2 — block energy is the trapezoid of the boundary powers** ([5],
 eq. 31):
 
-$$
+```math
 g_b = \tfrac12\,\bigl(\hat p_{b-1} + \hat p_b\bigr), \qquad b = 1..B .
-$$
+```
 
 $g_b$ is the column that every other element reads: the bus balance,
 generation costs, fuel offtake, emissions, the water drawn by a hydro
@@ -547,13 +555,13 @@ balance power at the boundaries (eq. 19 of [5]).
 **PB3 / PB4 — power-capacity limits with reserves** ([5], eqs. 4–6
 and 26; TSTE 2016 [6], eqs. 13–14):
 
-$$
+```math
 p_b + \sum_i r^{+}_{i,b} \le (\overline P_b - \underline P_b)\,u_{k(b)}
  {}- E_b\,(\overline P_b - SD)\,w_{k^+(b)}
  {}+ E_b\,(SU - \underline P_b)\,v_{k^+(b)},
 \qquad
 p_b - r^{-}_{i,b} \ge 0 .
-$$
+```
 
 The last boundary of a non-cyclic stage has no next period ($E_B$ terms
 vanish, eq. 5 of [5]).  $r^{\pm}_{i,b}$ are the up / down provisions of
@@ -565,14 +573,14 @@ with a start-up (shut-down) trajectory uses $SU = \underline P$
 **PB5 / PB6 — instantaneous ramps and ramp capability** ([6], eqs.
 15–16, with the ramp rate times the boundary spacing):
 
-$$
+```math
 p_b - p_{b-1} + \sum_i r^{+}_{i,b} \le RU\,\Delta_b\,u_{k(b)}
  {}+ E_b\,(SU - \underline P_b)\,v_{k^+(b)},
-$$
-$$
+```
+```math
 p_{b-1} - p_b + \sum_i r^{-}_{i,b} \le RD\,\Delta_b\,u_{k(b)}
  {}+ F_b\,(SD - \underline P_b)\,w_{k(b)} .
-$$
+```
 
 The power is linear between the boundaries.  Inside the up state
 $\hat p_b - \hat p_{b-1} = p_b - p_{b-1}$, so the rows bound the
@@ -589,15 +597,15 @@ $SU = SD = \overline P$ a unit could then cycle off for one block, keep
 its output, skip its no-load cost and bypass its ramp limit.  Two rows
 force both boundaries of such an outage to $\hat p = \underline P$:
 
-$$
+```math
 p_b + (SU - \underline P)\,w_k - (\overline P - \underline P)\,u_k
  \le SU - \underline P,
-$$
-$$
+```
+```math
 p_{b-1} - (\overline P - \underline P)\,u_{k-1}
  {}+ (\overline P - \underline P)\,w_k + (SD - \underline P)\,v_{k^+}
  \le SD - \underline P .
-$$
+```
 
 Both rows are redundant in every other state of $(u_{k-1}, u_k, v, w)$
 and are only written when $SU > \underline P$ ($SD > \underline P$).
@@ -611,12 +619,12 @@ an instantaneous power, not the previous hour's average.  A unit that is
 off with zero output then cannot be up in the first period: it first
 needs its start-up block or trajectory.  Otherwise $\hat p_0$ is free within PB1 / PB3
 at $\tau_0$: an on unit anywhere in $[\underline P, \overline P]$, an off
-unit at $\underline P\,v_0$ (the start-up boundary).  On a cyclic stage
+unit at $`\underline P\,v_0`$ (the start-up boundary).  On a cyclic stage
 (`cycle = "stage"`) boundary 0 is boundary $B$.
 
-**Costs.**  The energy cost is charged on $g_b\,\Delta_b$, i.e. on the
+**Costs.**  The energy cost is charged on $`g_b\,\Delta_b`$, i.e. on the
 trapezoid energy, and the trajectory energy is paid at the unit's
-variable cost.  The no-load cost stays $C^{NL}\,u_k$ per hour of the
+variable cost.  The no-load cost stays $`C^{NL}\,u_k`$ per hour of the
 period.  To charge the no-load cost during the start-up / shut-down
 process ([5], eqs. 16a–16b), add $C^{NL} S^U h$ ($C^{NL} S^D h$) to
 `startup_cost` (`shutdown_cost`).
@@ -667,7 +675,9 @@ $$p_{g,t} - s_{g,k,t} \leq \bar{P}_{k-1}$$
 
 When the generator has a `Commitment`, the kink row is retro-fitted to
 
-$$p_{g,t} - s_{g,k,t} - \bar{P}_{k-1} \, u_{g,t} \leq 0$$
+```math
+p_{g,t} - s_{g,k,t} - \bar{P}_{k-1} \, u_{g,t} \leq 0
+```
 
 so that a fractional $u$ in the LP relaxation also shrinks the cheap
 segments.  Convexity ($h_1 < h_2 < \cdots < h_K$) lets the LP fill the
@@ -678,9 +688,11 @@ segments in order without binaries or SOS2.
 With fuel price $c^{\text{fuel}}$ (`Fuel.price`) and variable O&M
 $c^{\text{gen}}$ (`Generator.gcost`), the per-MWh costs are:
 
-$$c_{g,1} = c^{\text{fuel}} \, h_1 + c^{\text{gen}}, \qquad
+```math
+c_{g,1} = c^{\text{fuel}} \, h_1 + c^{\text{gen}}, \qquad
   c_{g,k}^{\text{slack}} = c^{\text{fuel}} \, (h_k - h_{k-1}),
-  \quad k = 2, \ldots, K$$
+  \quad k = 2, \ldots, K
+```
 
 so dispatch above $\bar{P}_{k-1}$ pays the marginal heat rate $h_k$.
 
@@ -746,10 +758,12 @@ baskets, regional zones, local pollutants, marginal emissions) is in
 For source $\nu$ (generator $g$, zone $z$, pollutant $\epsilon$), the
 emission per MW of dispatch in block $b$ is
 
-$$\alpha^{\text{em}}_{\nu,t,b} = \mu_{z,\epsilon} \,
+```math
+\alpha^{\text{em}}_{\nu,t,b} = \mu_{z,\epsilon} \,
   (1 - \eta^{\text{cap}}_{g,\epsilon}) \,
   (f_{\nu,t} + f^{\text{up}}_{\nu,t}) \, \Delta_b
-  \quad [\text{t/MW}]$$
+  \quad [\text{t/MW}]
+```
 
 where $\mu_{z,\epsilon}$ is the zone weight (GWP; 1 for a
 single-pollutant zone), $\eta^{\text{cap}}_{g,\epsilon}$ the capture
@@ -760,12 +774,14 @@ fraction, $f$ the combustion `rate` and $f^{\text{up}}$ the
 ### 6.1 Emission Price (Carbon Tax)
 
 Set `price` $c^{\text{em}}\_{z,t}$ (\$/t) on a zone.  Every source in the
-zone adds $c^{\text{em}}\_{z,t} \, \alpha^{\text{em}}\_{\nu,t,b} / \Delta_b$
+zone adds $`c^{\text{em}}_{z,t} \, \alpha^{\text{em}}_{\nu,t,b} / \Delta_b`$
 (\$/MWh) to the cost of its generator's dispatch, weighted by duration,
 probability and discount like any other energy cost.  For a
 single-pollutant CO₂ zone this is
 
-$$c_{g,t}^{\text{effective}} = c_{g,t}^{\text{gen}} + c^{\text{em}}_{z,t} \, f_{g,t}$$
+```math
+c_{g,t}^{\text{effective}} = c_{g,t}^{\text{gen}} + c^{\text{em}}_{z,t} \, f_{g,t}
+```
 
 No row is added; the price applies to every block of the stage.
 
@@ -775,8 +791,10 @@ Set `cap` $\overline{E}_{z,t}$ (t per stage) on a zone.  One row per
 (scenario, stage) sums the emissions of all its sources over the blocks
 of the stage:
 
-$$\sum_{b} \sum_{\nu \in z} \alpha^{\text{em}}_{\nu,t,b} \, p_{g(\nu),b}
-  \;-\; s^{\text{cap}}_{z,t} \leq \overline{E}_{z,t}$$
+```math
+\sum_{b} \sum_{\nu \in z} \alpha^{\text{em}}_{\nu,t,b} \, p_{g(\nu),b}
+  \;-\; s^{\text{cap}}_{z,t} \leq \overline{E}_{z,t}
+```
 
 - **Hard cap**: `cap` only; the slack $s^{\text{cap}}$ does not exist.
 - **Soft cap**: `cap` + `cap_cost` $c^{\text{cap}}\_{z,t}$ (\$/t); the
@@ -1035,7 +1053,7 @@ SDDP study.
 ### Per-Element Relaxation
 
 Set `relax: true` on a `Commitment` entry to make its $u$, $v$, $w$ variables
-continuous in $[0, 1]$ instead of binary $\{0, 1\}$:
+continuous in $[0, 1]$ instead of binary $\lbrace 0, 1\rbrace$:
 
 ```json
 {

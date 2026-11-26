@@ -11,7 +11,7 @@
 ## 1. Configuration
 
 - `markov_states`: array of $N$ integers — scene $s$ is assigned the
-  Markov state $m(s) \in \{0, \dots, M-1\}$.  Static per scene (v1);
+  Markov state $m(s) \in \lbrace 0, \dots, M-1\rbrace$.  Static per scene (v1);
   per-phase assignments are future work.
 - `markov_transition`: row-major $M \times M$ row-stochastic matrix
   $P$ ($P_{m m'} \ge 0$, $\sum_{m'} P_{m m'} = 1$ per row, tolerance
@@ -28,9 +28,9 @@ Let $p_s$ be scene-$s$'s probability (sum of its scenarios'
 `probability_factor`s; scale-invariant below, so no normalization is
 required) and
 
-$$
+```math
 \pi_{m} \;=\; \sum_{r \,:\, m(r) = m} p_r
-$$
+```
 
 the state mass.
 
@@ -50,38 +50,38 @@ $p_{r|m} = p_r / \pi_m$ (over $m(r) = m$), realize scene-$r$'s stage
 data, then transition to $m' \sim P_{m\cdot}$.  Define the post-draw
 value $U_r^{(t)}$ and the pre-draw state value $W_m^{(t)}$:
 
-$$
+```math
 U_r^{(t)}(x) = \min_u \Big[ c_r(u) +
   \sum_{m'} P_{m(r)\,m'}\, W_{m'}^{(t+1)}(x') \Big],
 \qquad
 W_m^{(t)}(x) = \sum_{r : m(r)=m} p_{r|m}\, U_r^{(t)}(x).
-$$
+```
 
 **What $\varphi_{m'}$ stands for.**  A scene-$r$ backward cut supports
 scene-$r$'s **folded** LP value $\widehat V_r^{(t+1)}$ (Theorem O1),
 which by induction underestimates $p_r U_r^{(t+1)}$.  Define the
 folded state aggregate
 
-$$
+```math
 \Phi_{m'}^{(t+1)}(x) \;=\; \sum_{r : m(r)=m'} p_r\, U_r^{(t+1)}(x)
   \;=\; \pi_{m'}\, W_{m'}^{(t+1)}(x).
-$$
+```
 
 $\varphi_{m'}$ is the LP's estimator of $\Phi_{m'}^{(t+1)}$.  The
 Bellman recursion above, folded by $p_s$ on scene-$s$'s LP, is
 
-$$
+```math
 V_s^{(t)}(x) = p_s U_s^{(t)}(x)
   = \min_u \Big[ p_s c_s(u) +
   \sum_{m'} \frac{p_s\, P_{m(s)\,m'}}{\pi_{m'}}\,
     \Phi_{m'}^{(t+1)}(x') \Big],
-$$
+```
 
 which fixes the pricing weight of $\varphi_{m'}$ in scene-$s$'s LP:
 
-$$
+```math
 \boxed{\; w_{s,m'} \;=\; \frac{p_s \, P_{m(s)\,m'}}{\pi_{m'}} \;}
-$$
+```
 
 (scale-invariant in the total probability mass: one $p$ factor above,
 one below).
@@ -92,10 +92,10 @@ scene; no extra assumption for singleton states.  Then every installed
 cut on $\varphi_{m'}$ underestimates $\Phi_{m'}$, every scene-LP value
 satisfies $\widehat V_s^{(t)} \le p_s U_s^{(t)}$, and*
 
-$$
+```math
 LB \;=\; \sum_s \widehat V_s^{(0)}(x_0)
   \;\le\; \sum_s p_s\, U_s^{(0)}(x_0),
-$$
+```
 
 *the expected optimum of the Markov-modulated process with the initial
 (scene, state) drawn from $p$.*
@@ -135,7 +135,7 @@ expectation.  Consequences (do not hand-wave these):
   deliberately not shipped in v1.
 
 **v1 verdict**: the *certified and exact* configuration is
-$|\{s : m(s) = m'\}| = 1$ for every state ($M = N$ up to relabeling).
+$|\lbrace s : m(s) = m'\rbrace| = 1$ for every state ($M = N$ up to relabeling).
 Multi-scene states are accepted but WARN at SDDP setup: the LB is
 valid-but-loose under A2 only, and within-state scenes should be
 either split into their own states or understood as indistinguishable
@@ -145,7 +145,7 @@ below.
 ## 4. Degenerate equivalences (tested)
 
 1. **$M = N$, one scene per state, $P$ rows $=$ normalized scene
-   probabilities** ($P_{m(s)\,m(r)} = p_r$): $\pi_{m(r)} = p_r$, so
+   probabilities** ($`P_{m(s)\,m(r)} = p_r`$): $\pi_{m(r)} = p_r$, so
    $w_{s,m'} = p_s p_r / p_r = p_s$ for every column — exactly the
    corrected multicut pricing of Proposition M4
    (`sddp-cut-validity.md` §8), with identical cut routing
@@ -200,7 +200,7 @@ setup).  A Markov-aware conditional draw is future work (§7).
   scene→state routing at load time.
 - **Forward UB strip**: the realized-opex strip removes the full
   priced future term
-  $\sum_{m} w_{s,m}\, \varphi_m \cdot \text{scale\_alpha}$ (same shape as the multicut
+  $`\sum_{m} w_{s,m}\, \varphi_m \cdot \text{scale_alpha}`$ (same shape as the multicut
   $\sum_r w_r \varphi_r$ strip).  Both the strip and the column
   pricing read the weights from the single mode-aware accessor
   `alpha_col_weights` (which delegates to `markov_alpha_weights` for

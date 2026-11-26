@@ -138,6 +138,23 @@ def test_text_escape_in_verbatim_math(tmp_path: Path) -> None:
     assert not _diags(tmp_path, "$\\text{a\\_b}$\n")
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Space $`a \\, b`$ here.\n",  # verbatim: GitHub keeps the backslash
+        "```math\na \\; b \\{c\\}\n```\n",
+        "Set $\\lbrace 0, 1\\rbrace$ and $\\Vert x \\Vert$.\n",
+        "| a | $`\\Vert x\\Vert \\, y`$ |\n|---|---|\n",
+    ],
+)
+def test_github_safe_forms(tmp_path: Path, text: str) -> None:
+    md = tmp_path / "doc.md"
+    md.write_text(text, encoding="utf-8")
+    diags, warns = clm.check_files([md], use_mathjax=False)
+    assert not diags
+    assert not warns
+
+
 def test_github_view_strips_escapes() -> None:
     assert clm.github_view(r"a \, b \{c\} \_ d") == "a , b {c} _ d"
     # "\\" survives right before a newline, not mid-line.
@@ -148,12 +165,13 @@ def test_github_view_strips_escapes() -> None:
 def test_github_escapes_modes(tmp_path: Path) -> None:
     md = tmp_path / "doc.md"
     md.write_text("Space $a \\, b$ here.\n", encoding="utf-8")
-    diags, warns = clm.check_files([md], use_mathjax=False)
+    diags, warns = clm.check_files([md], use_mathjax=False)  # default: error
+    assert _checks(diags) == ["github-escape"]
+    assert not warns
+    diags, warns = clm.check_files([md], use_mathjax=False, github_escapes="warn")
     assert not diags
     assert len(warns) == 1
     assert "1 math span" in warns[0]
-    diags, _ = clm.check_files([md], use_mathjax=False, github_escapes="error")
-    assert _checks(diags) == ["github-escape"]
     diags, warns = clm.check_files([md], use_mathjax=False, github_escapes="off")
     assert not diags
     assert not warns

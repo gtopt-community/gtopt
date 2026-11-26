@@ -85,9 +85,9 @@ and spinning reserve constraints.
 The problem is formulated as a **sparse linear program** (LP) over a
 three-level time hierarchy:
 
-$$
+```math
 \text{Scenario} \;\supset\; \text{Stage} \;\supset\; \text{Block}
-$$
+```
 
 - **Block** $b \in \mathcal{B}$ — smallest time unit (typically 1 hour) with
   duration $\Delta_b$ in hours.
@@ -219,48 +219,48 @@ scenarios, stages, and blocks.
 
 | Symbol | Description | Bounds |
 |--------|-------------|--------|
-| $p_{g,s,t,b}$ | Generator $g$ output | $[\underline{P}_g,\; \overline{P}_g]$ |
-| $\ell_{d,s,t,b}$ | Served load at demand $d$ | $[0,\; \overline{L}_d]$ |
+| $p_{g,s,t,b}$ | Generator $g$ output | $`[\underline{P}_g,\; \overline{P}_g]`$ |
+| $\ell_{d,s,t,b}$ | Served load at demand $d$ | $`[0,\; \overline{L}_d]`$ |
 | $q_{d,s,t,b}$ | Unserved load (curtailment) at demand $d$ | $\geq 0$ |
-| $f_{l,s,t,b}^+$ | Line $l$ forward power flow ($a \to b$) | $[0,\; \overline{F}_l^{ab}]$ |
-| $f_{l,s,t,b}^-$ | Line $l$ reverse power flow ($b \to a$) | $[0,\; \overline{F}_l^{ba}]$ |
-| $\theta_{n,s,t,b}$ | Voltage angle at bus $n$ (Kirchhoff mode, LP units $\sigma_\theta \cdot$ rad) | $[-\theta_{\max} \sigma_\theta,\; \theta_{\max} \sigma_\theta]$ |
-| $e_{e,s,t,b}$ | Battery $e$ energy (state of charge) | $[\underline{E}_e,\; \overline{E}_e]$ |
+| $f_{l,s,t,b}^+$ | Line $l$ forward power flow ($a \to b$) | $`[0,\; \overline{F}_l^{ab}]`$ |
+| $f_{l,s,t,b}^-$ | Line $l$ reverse power flow ($b \to a$) | $`[0,\; \overline{F}_l^{ba}]`$ |
+| $\theta_{n,s,t,b}$ | Voltage angle at bus $n$ (Kirchhoff mode, LP units $\sigma_\theta \cdot$ rad) | $`[-\theta_{\max} \sigma_\theta,\; \theta_{\max} \sigma_\theta]`$ |
+| $e_{e,s,t,b}$ | Battery $e$ energy (state of charge) | $`[\underline{E}_e,\; \overline{E}_e]`$ |
 | $p_{e,s,t,b}^{\text{in}}$ | Battery $e$ charging power | $\geq 0$ |
 | $p_{e,s,t,b}^{\text{out}}$ | Battery $e$ discharging power | $\geq 0$ |
-| $\bar{C}_{g,t}$ | Installed capacity of generator $g$ at stage $t$ | $[\bar{C}_g^0,\; \bar{C}_g^{\max}]$ |
-| $m_{g,t}$ | Expansion modules built at stage $t$ | $[0,\; \overline{m}_g]$ |
+| $\bar{C}_{g,t}$ | Installed capacity of generator $g$ at stage $t$ | $`[\bar{C}_g^0,\; \bar{C}_g^{\max}]`$ |
+| $m_{g,t}$ | Expansion modules built at stage $t$ | $`[0,\; \overline{m}_g]`$ |
 | $r_{p,s,t,b}^{\text{up}}$ | Up-reserve provision $p$ | $\geq 0$ |
 | $r_{p,s,t,b}^{\text{dn}}$ | Down-reserve provision $p$ | $\geq 0$ |
 | $q_z^{\text{up}}$ | Unserved up-reserve at zone $z$ | $\geq 0$ |
 | $q_z^{\text{dn}}$ | Unserved down-reserve at zone $z$ | $\geq 0$ |
-| $\varphi_{w,s,t,b}$ | Waterway $w$ water flow | $[\underline{Q}_w,\; \overline{Q}_w]$ |
-| $v_{r,s,t,b}$ | Reservoir $r$ volume | $[\underline{V}_r,\; \overline{V}_r]$ |
+| $\varphi_{w,s,t,b}$ | Waterway $w$ water flow | $`[\underline{Q}_w,\; \overline{Q}_w]`$ |
+| $v_{r,s,t,b}$ | Reservoir $r$ volume | $`[\underline{V}_r,\; \overline{V}_r]`$ |
 | $\text{spill}_{r,s,t,b}$ | Reservoir $r$ spillway discharge | $\geq 0$ |
-| $\ell_{d,s,t,b}^{\text{man}}$ | Mandatory served load at demand $d$ (min-energy) | $[0,\; E_d^{\min}/\Delta_b]$ |
+| $\ell_{d,s,t,b}^{\text{man}}$ | Mandatory served load at demand $d$ (min-energy) | $`[0,\; E_d^{\min}/\Delta_b]`$ |
 | $\text{spill}_{g,s,t,b}$ | Generator $g$ profile curtailment | $\geq 0$ |
 | $q_{d,s,t,b}^{\text{prof}}$ | Demand-profile unserved (spillover) slack | $\geq 0$ |
 | $q^{\ell}_{s,t}$ | Reservoir-discharge-limit stage-average flow (`qeh`) | free |
-| $\xi_{i,s,t,b}$ | FlowRight extraction flow | $[\underline{\xi}_i,\; \overline{\xi}_i]$ |
+| $\xi_{i,s,t,b}$ | FlowRight extraction flow | $`[\underline{\xi}_i,\; \overline{\xi}_i]`$ |
 | $\delta_{i,s,t,b}$ | FlowRight per-block deficit | $\geq 0$ |
 | $\bar{\xi}_{i,s,t}^{h}$ | FlowRight stage-average hourly flow (`qeh`) | free |
-| $\xi_{o,s,t,b}^{\text{in}}$ | VolumeRight extraction rate | $[0,\; \overline{F}_o]$ |
+| $\xi_{o,s,t,b}^{\text{in}}$ | VolumeRight extraction rate | $`[0,\; \overline{F}_o]`$ |
 | $\xi_{o,s,t,b}^{\text{sav}}$ | VolumeRight saving (deposit) rate | $\geq 0$ |
-| $\nu_{o,s,t,b}$ | VolumeRight remaining rights volume (state) | $[0,\; \overline{V}_o]$ |
+| $\nu_{o,s,t,b}$ | VolumeRight remaining rights volume (state) | $`[0,\; \overline{V}_o]`$ |
 | $q_{o,s,t}^{\text{fail}}$ | VolumeRight demand deficit | $\geq 0$ |
-| $e\_{\tau,s,t,b}^{\text{lng}}$ | LNG tank volume | $[\underline{V}\_\tau,\; \overline{V}\_\tau]$ |
+| $e\_{\tau,s,t,b}^{\text{lng}}$ | LNG tank volume | $`[\underline{V}_\tau,\; \overline{V}_\tau]`$ |
 | $d_{\tau,s,t,b}^{\text{lng}}$ | LNG delivery (inflow to tank) | $\geq 0$ |
-| $u_{g,s,t,p}$ | UC binary status of generator $g$ over period $p$ | $\{0,1\}$ |
-| $v_{g,s,t,p}$ | UC binary startup of generator $g$ | $\{0,1\}$ |
-| $w_{g,s,t,p}$ | UC binary shutdown of generator $g$ | $\{0,1\}$ |
-| $u_{g,s,t,b}^{\text{sc}}$ | Simple-commitment binary status | $\{0,1\}$ |
-| $r_{p,s,t,b}^{H}$ | Inertia provision (MW dedicated for inertia) | $[0,\; \overline{R}_p^{H}]$ |
-| $q_{z,s,t,b}^{H}$ | Inertia-zone requirement slack | $[0,\; \overline{R}_{z,t,b}^{H}]$ |
+| $u_{g,s,t,p}$ | UC binary status of generator $g$ over period $p$ | $\lbrace 0,1\rbrace$ |
+| $v_{g,s,t,p}$ | UC binary startup of generator $g$ | $\lbrace 0,1\rbrace$ |
+| $w_{g,s,t,p}$ | UC binary shutdown of generator $g$ | $\lbrace 0,1\rbrace$ |
+| $u_{g,s,t,b}^{\text{sc}}$ | Simple-commitment binary status | $\lbrace 0,1\rbrace$ |
+| $r_{p,s,t,b}^{H}$ | Inertia provision (MW dedicated for inertia) | $`[0,\; \overline{R}_p^{H}]`$ |
+| $q_{z,s,t,b}^{H}$ | Inertia-zone requirement slack | $`[0,\; \overline{R}_{z,t,b}^{H}]`$ |
 
 > **Note on line flows**: When `use_line_losses` is enabled and
 > $\lambda_l > 0$, the solver creates separate forward ($f^+$) and reverse
 > ($f^-$) flow variables. When $\lambda_l = 0$, a single bidirectional
-> variable $f_l \in [-\overline{F}_l^{ba},\; \overline{F}_l^{ab}]$ is used.
+> variable $`f_l \in [-\overline{F}_l^{ba},\; \overline{F}_l^{ab}]`$ is used.
 
 ---
 
@@ -270,7 +270,7 @@ The following compact formulation follows the standard GTEP LP structure
 [[1]](#ref1) [[3]](#ref3) [[10]](#ref10), extended with the FESOP
 enhancements for renewable integration and storage [[4]](#ref4):
 
-$$
+```math
 \min_{p, \ell, q, f, \theta, e, \bar{C}, m, \ldots}
 \quad
 \underbrace{
@@ -286,13 +286,13 @@ $$
 \underbrace{
 \sum_{g} \sum_{t} \omega_t^{\text{cap}} \, K_g^{\text{cap}} \, m_{g,t}
 }_{\text{CAPEX}}
-$$
+```
 
 where the combined weighting factor is:
 
-$$
+```math
 \omega_{s,t,b} \;=\; \frac{\pi_s \cdot \delta_t \cdot \Delta_b}{\sigma}
-$$
+```
 
 subject to:
 
@@ -347,7 +347,7 @@ discount factor (default 1.0).
 
 ### 4.2 Operational Costs (OPEX)
 
-$$
+```math
 z_{\text{OPEX}} = \sum_{s \in \mathcal{S}} \sum_{t \in \mathcal{T}}
 \sum_{b \in \mathcal{B}_t} \omega_{s,t,b}
 \Bigg[
@@ -355,23 +355,23 @@ z_{\text{OPEX}} = \sum_{s \in \mathcal{S}} \sum_{t \in \mathcal{T}}
   \underbrace{\sum_{d \in \mathcal{D}} c_{d,t}^{\text{fail}} \; q_{d,s,t,b}}_{\text{Curtailment cost}} +
   \underbrace{\sum_{l \in \mathcal{L}} c_{l,t} \left( f_{l,s,t,b}^{+} + f_{l,s,t,b}^{-} \right)}_{\text{Transfer cost}}
 \Bigg]
-$$
+```
 
 Additional OPEX terms may include:
 
 - **Reserve failure cost**: $\sum_{z} c_z^{\text{rfail}} (q_{z,s,t,b}^{\text{up}} + q_{z,s,t,b}^{\text{dn}})$
-- **Reserve provision cost**: $\sum_{p} \bigl( c_{p,t}^{\text{ur}} \; r_{p,s,t,b}^{\text{up}} + c_{p,t}^{\text{dr}} \; r_{p,s,t,b}^{\text{dn}} \bigr)$
-- **Spillway cost**: $\sum_{r} c_{r,t}^{\text{spill}} \; \text{spill}_{r,s,t,b}$
-- **Junction drain cost**: $\sum_{j} c_{j}^{\text{drain}} \; \delta_{j,s,t,b}$ (§5.10)
-- **Emission price and CCS cost**: $\sum\_{\nu} c^{\text{em}}\_{z(\nu),t} \, (\alpha^{\text{em}}\_{\nu,t,b} / \Delta_b) \, p\_{g(\nu),s,t,b}$ plus capture cost (§5.14 bis); soft emission-cap slack $c^{\text{cap}}\_{z,t} \, s^{\text{cap}}\_{z,s,t}$ is weighted by $\pi_s \delta_t / \sigma$ only
-- **Generator profile spillover cost**: $\sum_{g} c_{g,t}^{\text{spill}} \; \text{spill}_{g,s,t,b}$
+- **Reserve provision cost**: $`\sum_{p} \bigl( c_{p,t}^{\text{ur}} \; r_{p,s,t,b}^{\text{up}} + c_{p,t}^{\text{dr}} \; r_{p,s,t,b}^{\text{dn}} \bigr)`$
+- **Spillway cost**: $`\sum_{r} c_{r,t}^{\text{spill}} \; \text{spill}_{r,s,t,b}`$
+- **Junction drain cost**: $`\sum_{j} c_{j}^{\text{drain}} \; \delta_{j,s,t,b}`$ (§5.10)
+- **Emission price and CCS cost**: $`\sum_{\nu} c^{\text{em}}_{z(\nu),t} \, (\alpha^{\text{em}}_{\nu,t,b} / \Delta_b) \, p_{g(\nu),s,t,b}`$ plus capture cost (§5.14 bis); soft emission-cap slack $`c^{\text{cap}}_{z,t} \, s^{\text{cap}}_{z,s,t}`$ is weighted by $\pi_s \delta_t / \sigma$ only
+- **Generator profile spillover cost**: $`\sum_{g} c_{g,t}^{\text{spill}} \; \text{spill}_{g,s,t,b}`$
 
 ### 4.3 Investment Costs (CAPEX)
 
-$$
+```math
 z_{\text{CAPEX}} = \sum_{g} \sum_{t \in \mathcal{T}}
 \omega_t^{\text{cap}} \; K_g^{\text{cap}} \; m_{g,t}
-$$
+```
 
 where the investment cost weight is:
 
@@ -404,14 +404,14 @@ $$
 The power balance at each bus $n$ ensures that total injection equals total
 withdrawal (Kirchhoff's Current Law) [[11]](#ref11):
 
-$$
+```math
 \sum_{g \in \mathcal{G}_n} (1 - \lambda_g) \; p_{g,s,t,b}
 \;-\; \sum_{d \in \mathcal{D}_n} (1 + \lambda_d) \; \ell_{d,s,t,b}
 \;+\; \sum_{l \in \mathcal{L}_n^+} f_{l,s,t,b}^{\text{net,in}}
 \;-\; \sum_{l \in \mathcal{L}_n^-} f_{l,s,t,b}^{\text{net,out}}
 \;=\; 0
 \qquad \forall \; n, s, t, b
-$$
+```
 
 where:
 - $(1 - \lambda_g)$ accounts for generator injection losses
@@ -426,19 +426,19 @@ The **dual variable** of this constraint is the **Locational Marginal Price
 
 #### Output Bounds
 
-$$
+```math
 \underline{P}_{g,t,b} \;\leq\; p_{g,s,t,b} \;\leq\; \overline{P}_{g,t,b}
 \qquad \forall \; g, s, t, b
-$$
+```
 
 The effective bounds at each block depend on stage-specific and
 block-specific parameters:
 
-$$
+```math
 \overline{P}_{g,t,b} = \min\bigl(\overline{P}_{g,t}(b),\; \bar{C}_{g,t}\bigr)
 \qquad
 \underline{P}_{g,t,b} = \max\bigl(\underline{P}_{g,t}(b),\; 0\bigr)
-$$
+```
 
 where $\overline{P}\_{g,t}(b)$ and $\underline{P}\_{g,t}(b)$ are the
 block-level schedule values of `pmax` and `pmin` respectively, and
@@ -457,10 +457,10 @@ $$
 
 When capacity expansion is enabled for generator $g$:
 
-$$
+```math
 p_{g,s,t,b} \;\leq\; \bar{C}_{g,t}
 \qquad \forall \; s, t, b
-$$
+```
 
 This constraint links the operational variable to the investment variable
 (see [Section 5.11](#511-capacity-expansion-constraints)).
@@ -473,9 +473,9 @@ a **per-unit factor of the capacity** $\bar{C}_{g,t}$, not MW.  The
 available energy is capped by the generation range, so curtailment can
 never exceed what the unit could physically produce:
 
-$$
+```math
 A_{g,s,t,b} = \min\!\left(\phi_g(s,t,b)\,\bar{C}_{g,t},\; \bar{P}_{g,t,b}\right)
-$$
+```
 
 where $\bar{P}_{g,t,b}$ is the upper bound of the generation column (block
 `pmax`, already capped by a fixed capacity).
@@ -483,17 +483,17 @@ where $\bar{P}_{g,t,b}$ is the upper bound of the generation column (block
 **Slack-free form** (default: no spillover cost, $c_g^{\text{spill}} = 0$).
 No spillover column is created; the profile row is an inequality:
 
-$$
+```math
 p_{g,s,t,b} \;\le\; A_{g,s,t,b} \qquad \forall \; s, t, b
-$$
+```
 
 With an expansion (capacity) column the row reads
-$p_{g,s,t,b} - \min(\phi_g, 1)\,C_{g,t} \le 0$: a profile above 1 is clipped
+$`p_{g,s,t,b} - \min(\phi_g, 1)\,C_{g,t} \le 0`$: a profile above 1 is clipped
 (with a warning) so the unit never produces more than its built capacity.
 
 Curtailment is reconstructed after the solve,
-$\text{spill}\_{g,s,t,b} = \max(0,\, A\_{g,s,t,b} - p\_{g,s,t,b})$ (with a
-capacity column $A = \min(\min(\phi_g,1)\,C^\star\_{g,t}, \bar{P}\_{g,t,b})$),
+$`\text{spill}_{g,s,t,b} = \max(0,\, A_{g,s,t,b} - p_{g,s,t,b})`$ (with a
+capacity column $`A = \min(\min(\phi_g,1)\,C^\star_{g,t}, \bar{P}_{g,t,b})`$),
 and written to `GeneratorProfile/spillover_sol`.  `spillover_dual` is the
 dual of the $\le$ row (same sign convention as the equality row it
 replaces: $\partial z / \partial A \le 0$), and `spillover_cost` is the
@@ -508,8 +508,8 @@ p_{g,s,t,b} + \text{spill}_{g,s,t,b} = A_{g,s,t,b},
 $$
 
 (with a capacity column:
-$p + \text{spill} - \min(\phi_g,1)\,C\_{g,t} = 0$,
-$\text{spill} \le \min(\phi_g,1)\,\bar{C}^{\max}\_{g,t}$), costed at
+$`p + \text{spill} - \min(\phi_g,1)\,C_{g,t} = 0`$,
+$`\text{spill} \le \min(\phi_g,1)\,\bar{C}^{\max}_{g,t}`$), costed at
 $c_g^{\text{spill}} \cdot \omega\_{s,t,b}$.
 
 > **Why slack-free.** The spillover column is a column singleton in an
@@ -527,17 +527,17 @@ $c_g^{\text{spill}} \cdot \omega\_{s,t,b}$.
 
 When curtailment is allowed (every demand not marked `forced`):
 
-$$
+```math
 \ell_{d,s,t,b} + q_{d,s,t,b} = \overline{L}_{d,t,b}
 \qquad \forall \; d, s, t, b
-$$
+```
 
 For a hard demand (`forced = true`), the load is fixed:
 
-$$
+```math
 \ell_{d,s,t,b} = \overline{L}_{d,t,b}
 \qquad \forall \; d, s, t, b
-$$
+```
 
 where $\overline{L}_{d,t,b}$ is the scheduled demand at stage $t$, block $b$,
 incorporating any demand profile scaling.
@@ -564,11 +564,11 @@ where $\lambda_d$ is the demand-side loss factor.
 #### Stepwise Curtailment Cost (`fail_segments`)
 
 A demand may carry a stepwise value-of-lost-load curve with $K$ segments
-$\{(f\_{d,k},\, c\_{d,k,t})\}\_{k=1}^{K}$ — `Demand.fail_segments`, or the
+$`\{(f_{d,k},\, c_{d,k,t})\}_{k=1}^{K}`$ — `Demand.fail_segments`, or the
 global default `model_options.demand_fail_segments` for demands without
 `fcost` / `fail_segments` (typical sources: PLP `FALLA_<bus>_1..4`, SDDP
 `deficit_segments`, CNE CFLD 0–5/5–10/10–20/>20 %, PLEXOS `VoLL` +
-`Internal VoLL`/`Level`).  Segment $k$ covers $f\_{d,k}\,\overline{L}\_{d,t,b}$
+`Internal VoLL`/`Level`).  Segment $k$ covers $`f_{d,k}\,\overline{L}_{d,t,b}`$
 MW of curtailment priced at $c\_{d,k,t}$ (per-stage schedule).  An open last
 segment takes the residual $f\_{d,K} = 1 - \sum\_{k<K} f\_{d,k}$; when all
 fractions are explicit and sum to less than one, the remainder
@@ -577,12 +577,12 @@ $\phi_d = 1 - \sum_k f\_{d,k}$ is **firm** (non-curtailable) load.
 The served load is split into $K$ tranche variables with plain column
 bounds — no extra rows:
 
-$$
+```math
 \ell_{d,s,t,b} = \sum_{k=1}^{K} \ell_{d,k,s,t,b}, \qquad
 \underline{\ell}_{d,k,t,b} \;\le\; \ell_{d,k,s,t,b} \;\le\; u_{d,k,t,b},
 \qquad u_{d,k,t,b} = f_{d,k}\,\overline{L}_{d,t,b}
 \;\bigl(+\,\phi_d\,\overline{L}_{d,t,b}\ \text{for}\ k = k^\star\bigr)
-$$
+```
 
 where $k^\star$ is the most expensive segment, so
 $\sum_k u\_{d,k,t,b} = \overline{L}\_{d,t,b}$.  The per-segment curtailment
@@ -592,15 +592,15 @@ $q\_{d,s,t,b} = \sum_k q\_{d,k,s,t,b}$.  Each tranche enters the bus balance
 and its objective contribution is the per-tranche substitution of the
 curtailment cost:
 
-$$
+```math
 \sum_{k=1}^{K} c_{d,k,t}\,\omega_{s,t,b}\, q_{d,k,s,t,b}
 \;=\;
 \underbrace{\sum_{k} c_{d,k,t}\,\omega_{s,t,b}\, u_{d,k,t,b}}_{\text{objective constant}}
 \;-\; \sum_{k} c_{d,k,t}\,\omega_{s,t,b}\, \ell_{d,k,s,t,b} .
-$$
+```
 
 The served-load floor
-$F\_{d,t,b} = \max\bigl(L^{\min}\_{d,t,b},\ \phi_d\,\overline{L}\_{d,t,b}\bigr)$
+$`F_{d,t,b} = \max\bigl(L^{\min}_{d,t,b},\ \phi_d\,\overline{L}_{d,t,b}\bigr)`$
 is distributed greedily over the tranche lower bounds
 $\underline{\ell}\_{d,k,t,b}$ in decreasing cost order.  With
 non-decreasing costs $c\_{d,1,t} \le \dots \le c\_{d,K,t}$ (convex curve)
@@ -618,10 +618,10 @@ Precedence per demand: `forced` (no curtailment) > `Demand.fail_segments`
 
 When a minimum energy requirement $E_d^{\min}$ is specified:
 
-$$
+```math
 \sum_{b \in \mathcal{B}_t} \ell_{d,s,t,b}^{\text{man}} \cdot \Delta_b \;\geq\; E_d^{\min}
 \qquad \forall \; d, s, t
-$$
+```
 
 ### 5.4 bis Demand Profile Constraints
 
@@ -634,7 +634,7 @@ row per block).  Unlike generator spillover, the unserved slack is always
 kept (it carries the curtailment semantics and usually a cost) and the
 available amount is **not** capped by the load limit `lmax`: profile
 demand above `lmax` remains unserved.  The slack is bounded by
-$0 \le q^{\text{prof}} \le \phi_d\,\overline{L}_{d,t}$ (no-capacity-column
+$`0 \le q^{\text{prof}} \le \phi_d\,\overline{L}_{d,t}`$ (no-capacity-column
 form).  A profile value above 1 triggers the same per-unit warning.
 
 #### Profile Row — With Capacity Column
@@ -643,12 +643,12 @@ When the parent `Demand` carries an explicit capacity column $\bar{C}_{d,t}$
 (either a constant capacity or an expansion variable), the profile ties
 served load plus spillover to the scaled capacity:
 
-$$
+```math
 \begin{aligned}
 \ell_{d,s,t,b} \;+\; q_{d,s,t,b}^{\text{prof}} \;-\; \phi_d(s,t,b)\,\bar{C}_{d,t} \;=\; 0
 \qquad \forall \; s,t,b
 \end{aligned}
-$$
+```
 <!-- source: include/gtopt/profile_object_lp.hpp:118-123 -->
 
 #### Profile Row — Without Capacity Column
@@ -656,12 +656,12 @@ $$
 When no capacity column exists, the profile row uses the stage capacity
 $\overline{L}_{d,t}$ on the RHS:
 
-$$
+```math
 \begin{aligned}
 \ell_{d,s,t,b} \;+\; q_{d,s,t,b}^{\text{prof}} \;=\; \phi_d(s,t,b) \cdot \overline{L}_{d,t}
 \qquad \forall \; s,t,b
 \end{aligned}
-$$
+```
 <!-- source: include/gtopt/profile_object_lp.hpp:125-126 -->
 
 #### Spillover Cost
@@ -685,9 +685,10 @@ $$
 
 A single bidirectional flow variable $f_l$ is created:
 
-$$ -\overline{F}_l^{ba} \;\leq\; f_{l,s,t,b} \;\leq\; \overline{F}_l^{ab}
+```math
+-\overline{F}_l^{ba} \;\leq\; f_{l,s,t,b} \;\leq\; \overline{F}_l^{ab}
 \qquad \forall \; l, s, t, b
-$$
+```
 
 Bus balance contributions (line from bus $a$ to bus $b$):
 
@@ -701,27 +702,27 @@ $$
 
 Separate forward and reverse flow variables are created:
 
-$$
+```math
 0 \;\leq\; f_{l,s,t,b}^{+} \;\leq\; \overline{F}_l^{ab}
 \qquad
 0 \;\leq\; f_{l,s,t,b}^{-} \;\leq\; \overline{F}_l^{ba}
-$$
+```
 
 Bus balance contributions for forward flow ($a \to b$):
 
-$$
+```math
 \text{At bus } a: \quad -f_{l,s,t,b}^{+}
 \qquad
 \text{At bus } b: \quad +(1 - \lambda_l) \, f_{l,s,t,b}^{+}
-$$
+```
 
 Bus balance contributions for reverse flow ($b \to a$):
 
-$$
+```math
 \text{At bus } b: \quad -f_{l,s,t,b}^{-}
 \qquad
 \text{At bus } a: \quad +(1 - \lambda_l) \, f_{l,s,t,b}^{-}
-$$
+```
 
 Losses are allocated at the receiving bus: the power arriving is
 $(1 - \lambda_l)$ times the power sent.
@@ -743,8 +744,10 @@ $$ \ell(f) = c_l \cdot f^2, \qquad c_l = R_l / V_l^2 $$
 
 with $K$ TANGENT inequalities forming a piecewise-affine LOWER envelope:
 
-$$ \ell_{l,s,t,b} \;\geq\; 2 \, c_l \, f_l^{(k)} \, f_{l,s,t,b}
-   \;-\; c_l \, (f_l^{(k)})^2, \qquad k = 1, \dots, K $$
+```math
+\ell_{l,s,t,b} \;\geq\; 2 \, c_l \, f_l^{(k)} \, f_{l,s,t,b}
+   \;-\; c_l \, (f_l^{(k)})^2, \qquad k = 1, \dots, K
+```
 
 at $K$ tangent points $f_l^{(k)} = \overline{F}_l \cdot (2k - K - 1) / K$
 spread on $(-\overline{F}_l, +\overline{F}_l)$.
@@ -754,12 +757,16 @@ arbitrage scenarios with negative LMPs), an auxiliary
 $|f|$-envelope variable $v_l \geq |f_l|$ encodes the absolute value
 via two inequalities
 
-$$ v_{l,s,t,b} \;\geq\; +f_{l,s,t,b}, \qquad
-   v_{l,s,t,b} \;\geq\; -f_{l,s,t,b} $$
+```math
+v_{l,s,t,b} \;\geq\; +f_{l,s,t,b}, \qquad
+   v_{l,s,t,b} \;\geq\; -f_{l,s,t,b}
+```
 
 and a single secant chord bounds the loss column
 
-$$ \ell_{l,s,t,b} \;\leq\; (c_l \, \overline{F}_l) \cdot v_{l,s,t,b}. $$
+```math
+\ell_{l,s,t,b} \;\leq\; (c_l \, \overline{F}_l) \cdot v_{l,s,t,b}.
+```
 
 #### Loss Pricing $\varepsilon$ and the Negative-LMP Arbitrage Guard
 
@@ -774,19 +781,23 @@ per-MWh loss price $\varepsilon_l$ (JSON `loss_cost_eps`, per line or
 via the `model_options` default, which is $0.1$ \$/MWh when unset;
 an explicit `0` disables it) is stamped **on the loss column only**:
 
-$$ \Delta\,\text{OPEX}_{l,s,t,b}
-   \;=\; \varepsilon_l \cdot \omega_{s,t,b} \cdot \ell_{l,s,t,b}. $$
+```math
+\Delta\,\text{OPEX}_{l,s,t,b}
+   \;=\; \varepsilon_l \cdot \omega_{s,t,b} \cdot \ell_{l,s,t,b}.
+```
 
 Because $v_l$ never enters a bus balance, pricing the loss column
 alone closes both the idle-line sink and the chord residual.  Loss
 dumping earns $|\pi_a + \pi_b| / 2$ per MWh, so the guard is sized
 
-$$ \varepsilon_l \;\geq\; \tfrac{1}{2}\,
+```math
+\varepsilon_l \;\geq\; \tfrac{1}{2}\,
    \bigl| \text{worst credible } (\pi_a + \pi_b) \bigr|
-   \quad (+\,\text{margin}), $$
+   \quad (+\,\text{margin}),
+```
 
 after which the arbitrage is blocked.  Its incidence on legitimate
-operation is *loss*-scaled (overhead $\approx 2\lambda_l\,\varepsilon_l$
+operation is *loss*-scaled (overhead $`\approx 2\lambda_l\,\varepsilon_l`$
 per marginal MWh, $\lambda_l = R_l \overline{F}_l / V_l^2$ — a few
 percent), **not** a per-MWh toll on flow.  Set $\varepsilon_l$ on
 flagged corridors and re-run: the sink migrates to the next unguarded
@@ -804,7 +815,7 @@ lossy line, so iterate until no new flags.
 > so the nodal-price difference across each lossy line shifts by at
 > most $\approx \varepsilon^{\text{pin}}\_l$ (0.001 \$/MWh by default;
 > a path through $n$ lossy lines by at most
-> $\approx n\,\varepsilon^{\text{pin}}$).  The value must survive
+> $`\approx n\,\varepsilon^{\text{pin}}`$).  The value must survive
 > `scale_objective`: the former internal constant $10^{-6}$ \$/MWh
 > landed at $10^{-9}$ in the LP, below every solver's dual tolerance
 > (pin ineffective) and stretching the objective range to 9 decades;
@@ -824,22 +835,28 @@ single $v_l \in [0, \overline{F}\_l]$ auxiliary is replaced by **$L$
 segment columns** $v\_{l,\ell} \in [0, w_l]$ with
 $w_l = \overline{F}\_l / L$, tied to $|f_l|$ by sum-of-segments rows
 
-$$ \sum_{\ell = 1}^{L} v_{l,\ell,s,t,b} \;\geq\; +f_{l,s,t,b},
+```math
+\sum_{\ell = 1}^{L} v_{l,\ell,s,t,b} \;\geq\; +f_{l,s,t,b},
    \qquad
-   \sum_{\ell = 1}^{L} v_{l,\ell,s,t,b} \;\geq\; -f_{l,s,t,b}. $$
+   \sum_{\ell = 1}^{L} v_{l,\ell,s,t,b} \;\geq\; -f_{l,s,t,b}.
+```
 
 The upper bound on $\ell$ becomes piecewise:
 
-$$ \ell_{l,s,t,b} \;\leq\;
-   \sum_{\ell=1}^{L} \underbrace{c_l \, w_l \, (2\ell - 1)}_{\text{chord\_slope}_\ell}
-   \, v_{l,\ell,s,t,b}. $$
+```math
+\ell_{l,s,t,b} \;\leq\;
+   \sum_{\ell=1}^{L} \underbrace{c_l \, w_l \, (2\ell - 1)}_{\text{chord_slope}_\ell}
+   \, v_{l,\ell,s,t,b}.
+```
 
 Each chord slope matches the secant of the convex quadratic on
 $[(\ell-1) w_l, \ell w_l]$.  Without an ordering constraint the LP
 exploits the segment freedom to maximise the upper bound (loose by
 factor $L$); a **Type-2 Special-Ordered-Set** declaration
 
-$$ \text{SOS2}\big( v_{l,1}, \, v_{l,2}, \, \ldots, \, v_{l,L} \big) $$
+```math
+\text{SOS2}\big( v_{l,1}, \, v_{l,2}, \, \ldots, \, v_{l,L} \big)
+```
 
 forces at most two consecutive $v_{l,\ell}$ to be non-zero, yielding
 the fill-order $v_{l,1} \to v_{l,2} \to \cdots \to v_{l,L}$.  Under
@@ -848,8 +865,10 @@ $b_l = \ell \cdot w_l$ and overestimates by at most
 $c_l \cdot (w_l / 2)^2$ between breakpoints.  Worst-case overstatement
 therefore decays as
 
-$$ \mathrm{gap}_{\max}(L) \;=\; \frac{c_l \cdot \overline{F}_l^2}{4 L^2}
-   \;=\; \mathcal{O}(1/L^2). $$
+```math
+\mathrm{gap}_{\max}(L) \;=\; \frac{c_l \cdot \overline{F}_l^2}{4 L^2}
+   \;=\; \mathcal{O}(1/L^2).
+```
 
 Doubling $L$ cuts the worst-case gap by 4.  This converts the line
 flow + loss assembly from a pure LP into a MILP for the lines flagged
@@ -872,7 +891,7 @@ $[0, \overline{F}_l]$, the flow cap.  `Line.loss_envelope` $= E_l$
 decouples the two: the fine resolution is placed on the realistic
 loading range $[0, E_l]$ (typically the original rating of a line whose
 cap was lifted, e.g. PLEXOS `Enforce Limits = 0` lines emitted with
-$\overline{F}_l = 10\,E_l$), while the flow bound stays at
+$`\overline{F}_l = 10\,E_l`$), while the flow bound stays at
 $\overline{F}_l$.  The envelope **never caps the flow**, and the loss
 past it stays **quadratic** (PLEXOS keeps $\ell = c_l f^2$ above the
 rating; a linear extrapolation on the last segment's slope would
@@ -881,9 +900,11 @@ under-state it by about $2\times$ at $3 E_l$).
 When $\overline{F}_l > E_l$, the range $[E_l, \overline{F}_l]$ is
 covered by a coarse geometric ladder
 
-$$ b_j = E_l \, (\overline{F}_l / E_l)^{j/M}, \quad j = 0, \dots, M,
+```math
+b_j = E_l \, (\overline{F}_l / E_l)^{j/M}, \quad j = 0, \dots, M,
    \qquad M = \Bigl\lceil \frac{\ln(\overline{F}_l / E_l)}{\ln 1.4}
-   \Bigr\rceil \;(\le 16), $$
+   \Bigr\rceil \;(\le 16),
+```
 
 so $b_j / b_{j-1} \le 1.4$.  Each emitter adds:
 
@@ -906,8 +927,8 @@ so $b_j / b_{j-1} \le 1.4$.  Each emitter adds:
 
 Between consecutive points $a < b$ both the tangent and the secant
 error of $c_l f^2$ peak at $f = (a+b)/2$ with relative size
-$\bigl((b-a)/(b+a)\bigr)^2 \le (0.4/2.4)^2 \approx 2.8\,\%$, so the
-loss past the envelope is within $\approx 2.8\,\%$ of $c_l f^2$ from
+$`\bigl((b-a)/(b+a)\bigr)^2 \le (0.4/2.4)^2 \approx 2.8\,\%`$, so the
+loss past the envelope is within $`\approx 2.8\,\%`$ of $c_l f^2$ from
 both sides.  The construction is LP-valid: the slopes increase, so the
 smallest chord value reachable for a given $|f|$ is the bottom-up
 fill — the piecewise secant — which lies above $c_l f^2$ and therefore
@@ -942,10 +963,10 @@ column carries the objective cost $\kappa_l$ times the loss it adds:
 
 | Mode | Overflow column | Cost per unit |
 |------|-----------------|---------------|
-| `tangent_signed_flow` (segment form) | $u_j$ | $\kappa_l\, c_l (b_{j-1} + b_j)$ |
-| `tangent_signed_flow` + SOS2 | $\lambda_j$ at $\pm b_j$ | $\kappa_l\, c_l (b_j^2 - E_l^2)$ |
-| `bidirectional`, `piecewise` (secant layouts) | overflow segment $j$ | $\kappa_l\, c_l (b_{j-1} + b_j)$ |
-| `piecewise_direct` | overflow segment $j$ | $\kappa_l\, c_l (b_{j-1} + b_j)$ (+ `tcost`) |
+| `tangent_signed_flow` (segment form) | $u_j$ | $`\kappa_l\, c_l (b_{j-1} + b_j)`$ |
+| `tangent_signed_flow` + SOS2 | $\lambda_j$ at $\pm b_j$ | $`\kappa_l\, c_l (b_j^2 - E_l^2)`$ |
+| `bidirectional`, `piecewise` (secant layouts) | overflow segment $j$ | $`\kappa_l\, c_l (b_{j-1} + b_j)`$ |
+| `piecewise_direct` | overflow segment $j$ | $`\kappa_l\, c_l (b_{j-1} + b_j)`$ (+ `tcost`) |
 | `piecewise` + `tangent` layout | $\ell^{\text{ov}} \ge \ell - c_l E_l^2$ | $\kappa_l$ |
 
 all weighted by $\omega_{s,t,b}$.  In every mode the tier then costs
@@ -957,8 +978,8 @@ exactly $\kappa_l$ per MWh of loss above $c_l E_l^2$:
   $\varepsilon_l$ or SOS2, as before the ladder existed).  In the SOS2
   form the price also protects the LP relaxation.
 * **Genuine overload** ($|f| > E_l$) pays
-  $\kappa_l\,\bigl(\text{chord}(|f|) - c_l E_l^2\bigr)$: the flow stays
-  feasible, the loss stays within $\approx 2.8\,\%$ of $c_l f^2$, and
+  $`\kappa_l\,\bigl(\text{chord}(|f|) - c_l E_l^2\bigr)`$: the flow stays
+  feasible, the loss stays within $`\approx 2.8\,\%`$ of $c_l f^2$, and
   the marginal LMP spread across the line grows by
   $\kappa_l \cdot c_l (b_{j-1} + b_j) \approx 2\kappa_l c_l |f|$.  This
   distortion is unavoidable for any LP guard: by the midpoint argument
@@ -973,11 +994,7 @@ exactly $\kappa_l$ per MWh of loss above $c_l E_l^2$:
   optimum is the unguarded one.
 
 The `midpoint` layout's de-biased loss row is two-sided,
-
-$$
-{-s\,(w/2)^2 c_l} \le s\,\ell - \sum_k s\,\text{loss}_k\,\text{seg}_k \le 0 ;
-$$
-
+$`-s\,(w/2)^2 c_l \le s\,\ell - \sum_k s\,\text{loss}_k\,\text{seg}_k \le 0`$:
 the one-sided form left $\ell$ free up to its column bound (a
 sink of $c_l \max(\overline{F}_l, E_l)^2$ per direction at any flow).
 `linear` has no loss column and remains exposed to circulation
@@ -998,7 +1015,7 @@ else `flow`):
 | Mode | Constraint per direction | Notes |
 |------|--------------------------|-------|
 | `flow` (default) | $f_l^{dir} \le \overline{F}_l^{dir}$ | Column bound only; no extra row |
-| `sending` | $f_l^{dir} + a_l\,\ell_l^{dir} \le \overline{F}_l^{dir}$ | $a_l$ = sending-bus loss share |
+| `sending` | $`f_l^{dir} + a_l\,\ell_l^{dir} \le \overline{F}_l^{dir}`$ | $a_l$ = sending-bus loss share |
 | `full` | $f_l^{dir} + \ell_l^{dir} \le \overline{F}_l^{dir}$ | Allocation independent |
 
 $a_l$ is the share of the loss that `loss_allocation_mode` books at the
@@ -1009,51 +1026,53 @@ nothing and `flow` is the sending-end limit.  Under `split` the flow
 variable is the midpoint flow, so `sending` limits both ends, which is
 the two-end limit of MATPOWER / PowerModels [[34]](#ref34).  `full`
 matches the PyPSA convention $|p| + \psi \le \overline{F}$
-[[35]](#ref35).  It is conservative by $(1-a_l)\,\ell$ against the
+[[35]](#ref35).  It is conservative by $`(1-a_l)\,\ell`$ against the
 sending end.
 
 Per loss mode:
 
 * **Per-direction loss columns** (`bidirectional`, `piecewise`): one
-  row $f^{\pm} + a\,\ell^{\pm} \le \overline{F}^{\pm}$ per direction.
+  row $`f^{\pm} + a\,\ell^{\pm} \le \overline{F}^{\pm}`$ per direction.
 * **Shared-loss `piecewise` + `tangent` layout**: the single loss
   column $\ell$ serves both rows.
 * **`tangent_signed_flow`**: two rows,
-  $+f + a\,\ell \le \overline{F}^{ab}$ and
-  $-f + a\,\ell \le \overline{F}^{ba}$, on the signed flow.
+  $`+f + a\,\ell \le \overline{F}^{ab}`$ and
+  $`-f + a\,\ell \le \overline{F}^{ba}`$, on the signed flow.
 * **`piecewise_direct`**: one row per direction,
-  $\sum_k (1 + a\,\lambda_k)\,\text{seg}_k \le \overline{F}^{dir}$.
+  $`\sum_k (1 + a\,\lambda_k)\,\text{seg}_k \le \overline{F}^{dir}`$.
 * **`linear`**: the loss is $\lambda f$, so no row is needed.  The
   column bound becomes $f \le \overline{F}/(1 + a\lambda)$ and the
   capacity coefficient becomes $-(1 + a\lambda)$.
 * **`none`**: unaffected.
 
 On expandable lines the capacity rows carry the same loss term,
-$\bar{x}_l - f_l^{dir} - a\,\ell_l^{dir} \ge 0$.  The rows are named
+$`\bar{x}_l - f_l^{dir} - a\,\ell_l^{dir} \ge 0`$.  The rows are named
 `thermalp` / `thermaln`.
 
 The normal-rating band (`tmax_normal_*` with `overload_penalty`
 $p^{ov}\_l$) uses the same loaded quantity.  With an overload slack
-$o_l^{dir} \in [0,\, \overline{o}\_l^{dir}]$ costing
-$p^{ov}\_l\,\omega\_{s,t,b}$:
+$`o_l^{dir} \in [0,\, \overline{o}_l^{dir}]`$ costing
+$`p^{ov}_l\,\omega_{s,t,b}`$:
 
-$$ f_l^{dir} + a_l\,\ell_l^{dir} - o_l^{dir} \;\le\; F^{n,dir}_l $$
+```math
+f_l^{dir} + a_l\,\ell_l^{dir} - o_l^{dir} \;\le\; F^{n,dir}_l
+```
 
 The slack bound $\overline{o}$ follows `overload_slack_bound` (per line,
 else `model_options`) with ratio $\rho$ = `max_overload_ratio`
 (default 1.5):
 
 - `thermal` (default):
-  $\overline{o} = \min(\overline{F} - F^{n},\;\rho\,F^{n})$ — the conductor's thermal headroom (on DLR lines the
+  $`\overline{o} = \min(\overline{F} - F^{n},\;\rho\,F^{n})`$ — the conductor's thermal headroom (on DLR lines the
   IEEE 738 emergency rating at `tmax_conductor_emergency` minus the
   normal rating at `tmax_conductor`, so the band is exactly
-  $[F^n, \overline{F}]$), never above $\rho\,F^n$; $\rho\,F^n$ alone when
+  $[F^n, \overline{F}]$), never above $`\rho\,F^n`$; $`\rho\,F^n`$ alone when
   there is no finite hard cap;
-- `ratio`: $\overline{o} = \rho\,F^{n}$;
+- `ratio`: $`\overline{o} = \rho\,F^{n}`$;
 - `unbounded`: no bound (the hard cap still applies through the flow
   bound / thermal rows).
 
-The default $\rho = 1.5$ (flow $\le 2.5\,F^n$) is a guard rail above
+The default $\rho = 1.5$ (flow $`\le 2.5\,F^n`$) is a guard rail above
 the reported DLR gains: about 10–25 % over static ratings in the U.S.
 DOE Smart Grid Demonstration projects [[39]](#ref39) (Oncor
 [[40]](#ref40)), averages up to ~40 % at windy sites and outliers of
@@ -1069,9 +1088,9 @@ $\partial\overline{o}/\partial T$ ($+r$ to the emergency span, $-r$ or $\rho r$ 
 span), so $\partial z/\partial T$ is well defined even at the degenerate
 vertex where the flow equals the emergency rating.
 
-The term $a_l\,\ell_l^{dir}$ is written per loss mode exactly as in the
+The term $`a_l\,\ell_l^{dir}`$ is written per loss mode exactly as in the
 thermal-limit rows ($\pm f$ for `tangent_signed_flow`,
-$\sum_k (1 + a\lambda_k)\,\text{seg}_k$ for `piecewise_direct`,
+$`\sum_k (1 + a\lambda_k)\,\text{seg}_k`$ for `piecewise_direct`,
 $(1 + a\lambda) f$ for `linear`).  Under `flow` ($a_l = 0$) the band is
 the historical $f^{\pm} - o \le F^n$, emitted only for modes with a
 $f^{+}/f^{-}$ column.
@@ -1085,8 +1104,10 @@ column at its upper bound.  For receiver allocation and `full`, a
 congested line whose marginal loss slope at the operating point is
 $\ell'$ has
 
-$$ y^{th} \;=\; -\,\frac{\pi_b\,(1 - \ell') - \pi_a - \varepsilon_l\,\ell'}
-   {1 + \ell'} $$
+```math
+y^{th} \;=\; -\,\frac{\pi_b\,(1 - \ell') - \pi_a - \varepsilon_l\,\ell'}
+   {1 + \ell'}
+```
 
 because relaxing $\overline{F}$ by 1 MW admits only $1/(1 + \ell')$ MW
 more flow.  Under
@@ -1096,8 +1117,10 @@ more flow.  Under
 every loss column is bounded by the loss the line can carry at its
 rated flow in that direction:
 
-$$ \ell_l^{dir} \;\le\; \max\!\bigl(c_l (\overline{F}_l^{dir})^2,\;
-   \mathrm{PWL}_l(\overline{F}_l^{dir})\bigr) $$
+```math
+\ell_l^{dir} \;\le\; \max\!\bigl(c_l (\overline{F}_l^{dir})^2,\;
+   \mathrm{PWL}_l(\overline{F}_l^{dir})\bigr)
+```
 
 Here $\mathrm{PWL}_l$ is the model's own secant ladder with ordered
 fill.  It is exact at the breakpoints.  When the flow cap is itself a
@@ -1111,16 +1134,18 @@ use the same cap [[35]](#ref35).
 
 **Ordered-fill segment bound.**  The PWL segment columns are flow
 segments: segment $k$ on $[b_{k-1}, b_k]$ books the loss
-$c_l (b_{k-1} + b_k)\, s_k$, so its loss is bounded through its flow
+$`c_l (b_{k-1} + b_k)\, s_k`$, so its loss is bounded through its flow
 bound.  With `model_options.loss_segment_bound = true` (default) every
 segment column — `flowp_seg` / `flown_seg` of the secant modes and the
 $|f|$ segments $v_l$ of `tangent_signed_flow` — gets
 
-$$ 0 \;\le\; s_k \;\le\; \min\bigl(w_k,\;
-   \max(0,\; \overline{F}_l^{dir} - b_{k-1})\bigr), $$
+```math
+0 \;\le\; s_k \;\le\; \min\bigl(w_k,\;
+   \max(0,\; \overline{F}_l^{dir} - b_{k-1})\bigr),
+```
 
 the most it carries in the ordered fill at $|f| \le \overline{F}$, so
-segment $k$ books at most $c_l (b_{k-1} + b_k)\,\min(w_k, \overline{F} - b_{k-1})^{+}$ and the segments together at most the
+segment $k$ books at most $`c_l (b_{k-1} + b_k)\,\min(w_k, \overline{F} - b_{k-1})^{+}`$ and the segments together at most the
 ordered secant at $\overline{F}$ — the same value as the loss-column cap
 above, $c_l \overline{F}^2$ when $\overline{F}$ is a breakpoint (for
 `piecewise`, whose segments
@@ -1157,7 +1182,7 @@ to ±30°).  Lossless gtopt matches PowerModels `DCPPowerModel` to
 $10^{-6}$ relative.  With piecewise losses, `sending` and the DCPLL
 loss side per branch, gtopt converges to the `DCPLLPowerModel` optimum
 from above as the segments grow.  `test_line_thermal_limit.cpp` checks
-the sending-end identity $f + a\,\ell = \overline{F}$ in both
+the sending-end identity $`f + a\,\ell = \overline{F}`$ in both
 directions under every allocation, and checks that
 `flow` = `sending` under `receiver`, $f + \ell = \overline{F}$ under
 `full`, cost(`full`) ≥ cost(`sending`) ≥ cost(`flow`), and the thermal-row
@@ -1180,37 +1205,47 @@ direction, irradiance on the conductor $S$) and the maximum conductor
 temperature $T_s$, IEEE Std 738 [[38]](#ref38) gives the steady-state
 ampacity from
 
-$$ q_c + q_r \;=\; q_s + I^2\,R(T_s) $$
+```math
+q_c + q_r \;=\; q_s + I^2\,R(T_s)
+```
 
 with, in SI units (conductor diameter $D$, emissivity $\varepsilon$,
 absorptivity $\alpha$, air properties $\mu_f, \rho_f, k_f$ at the film
 temperature $T_f = (T_s + T_a)/2$ and the span elevation):
 
-$$ q_{c1} = K_\varphi\,(1.01 + 1.35\,Re^{0.52})\,k_f\,(T_s - T_a),\qquad
-   q_{c2} = K_\varphi\,0.754\,Re^{0.6}\,k_f\,(T_s - T_a) $$
+```math
+q_{c1} = K_\varphi\,(1.01 + 1.35\,Re^{0.52})\,k_f\,(T_s - T_a),\qquad
+   q_{c2} = K_\varphi\,0.754\,Re^{0.6}\,k_f\,(T_s - T_a)
+```
 
-$$ q_{cn} = 3.645\,\rho_f^{0.5}\,D^{0.75}\,(T_s - T_a)^{1.25},\qquad
-   q_c = \max(q_{c1},\, q_{c2},\, q_{cn}) $$
+```math
+q_{cn} = 3.645\,\rho_f^{0.5}\,D^{0.75}\,(T_s - T_a)^{1.25},\qquad
+   q_c = \max(q_{c1},\, q_{c2},\, q_{cn})
+```
 
-$$ q_r = 17.8\,D\,\varepsilon\,\Bigl[\bigl(\tfrac{T_s + 273}{100}\bigr)^4
+```math
+q_r = 17.8\,D\,\varepsilon\,\Bigl[\bigl(\tfrac{T_s + 273}{100}\bigr)^4
    {} - \bigl(\tfrac{T_a + 273}{100}\bigr)^4\Bigr],\qquad
-   q_s = \alpha\,S\,D $$
+   q_s = \alpha\,S\,D
+```
 
-where $Re = D\,\rho_f\,V_w / \mu_f$ and
+where $`Re = D\,\rho_f\,V_w / \mu_f`$ and
 $K_\varphi = 1.194 - \cos\varphi + 0.194\cos 2\varphi + 0.368\sin 2\varphi$.
 The attack angle between wind and span axis is
 $\varphi = \bigl|((\text{dir} - \text{azimuth} + 90) \bmod 180) - 90\bigr|$,
 and $\varphi = \varphi_{lw}$ (`low_wind_angle`, default 45°) when
 $V_w <$ `low_wind_speed` (default 0.5 m/s; the direction is unreliable).
 $R(T)$ is linear: between the 25 °C and 75 °C values (extrapolated
-beyond), or $R(T) = k_{ac}\,R_{20}\,(1 + \alpha_R (T - 20))$ from the
+beyond), or $`R(T) = k_{ac}\,R_{20}\,(1 + \alpha_R (T - 20))`$ from the
 DC data-sheet form.  $S$ is the global horizontal irradiance used
 directly as absorbed flux (`solar_mode = ghi`, conservative; no
 sun-geometry model), or $S = 0$ under `solar_mode = none`.  Then
 
-$$ I_{k,b} = \sqrt{\max\!\bigl(0,\; (q_c + q_r - q_s)/R(T_s)\bigr)},
+```math
+I_{k,b} = \sqrt{\max\!\bigl(0,\; (q_c + q_r - q_s)/R(T_s)\bigr)},
    \qquad
-   T_{k,b} = \eta\,\sqrt{3}\,V\,v_{pu}\,\mathrm{pf}\,I_{k,b}\,n_{sub}/1000 $$
+   T_{k,b} = \eta\,\sqrt{3}\,V\,v_{pu}\,\mathrm{pf}\,I_{k,b}\,n_{sub}/1000
+```
 
 in MW, with safety factor $\eta$, voltage $V$ [kV] and $n_{sub}$
 sub-conductors.  A precomputed per-span MW schedule (`rating`) replaces
@@ -1226,15 +1261,19 @@ emergency tier.
 
 **`span_mode = min` (default).**  The effective rating is
 
-$$ \overline{T}_{l,b} \;=\; \min\Bigl(\min_{k\in\mathcal{K}_l} T_{k,b},\;
-   \widehat{F}^{dir}_{l,b}\Bigr) $$
+```math
+\overline{T}_{l,b} \;=\; \min\Bigl(\min_{k\in\mathcal{K}_l} T_{k,b},\;
+   \widehat{F}^{dir}_{l,b}\Bigr)
+```
 
 where $\widehat{F}^{dir}_{l,b}$ is the remaining static cap: the min over
 the **set** limit fields of the line in that block and direction (an unset
 field is $+\infty$, never 0),
 
-$$ \widehat{F}^{dir}_{l,b} \;=\; \min\bigl(F^{flow},\; R,\; O\,[u_b>0],\;
-   C,\; E,\; S\bigr)^{dir}_{l,b} $$
+```math
+\widehat{F}^{dir}_{l,b} \;=\; \min\bigl(F^{flow},\; R,\; O\,[u_b>0],\;
+   C,\; E,\; S\bigr)^{dir}_{l,b}
+```
 
 with $F^{flow}$ the flow limit (`tmax` / `max_flow`, default `capacity`),
 $R$ the rating (`max_rating`; the `overload_max_rating` when the overload
@@ -1265,12 +1304,14 @@ $k^\*\_b$ is recorded.  With an emergency tier and a positive
 `overload_penalty` in the block, the hard cap is
 $\min_k T^e\_{k,b}$ and $\min_k T\_{k,b}$ becomes the normal threshold
 $F^n$ of the overload band above (slack bound per
-`overload_slack_bound`, default $\min(T^e - T,\; 1.5\,T)$).
+`overload_slack_bound`, default $`\min(T^e - T,\; 1.5\,T)`$).
 
 **`span_mode = rows`.**  One row pair per span and block,
 
-$$ f_l^{dir} + a_l\,\ell_l^{dir} \;\le\; T_{k,b}
-   \qquad k \in \mathcal{K}_l,\; dir \in \{ab, ba\} $$
+```math
+f_l^{dir} + a_l\,\ell_l^{dir} \;\le\; T_{k,b}
+   \qquad k \in \mathcal{K}_l,\; dir \in \{ab, ba\}
+```
 
 with the same per-loss-mode left-hand side as the thermal rows (signed
 flow, segments, $(1+a\lambda) f$, …).  At build time a span with
@@ -1282,7 +1323,7 @@ never critical are logged.
 **Thermal-limit mode.**  In both span modes, both directions, the
 emergency tier and for precomputed ratings, $T$ caps the same loaded
 quantity as the static `tmax`: $|f| \le T$ under `flow`,
-$|f| + a_l\,\ell \le T$ under `sending` ($a_l$ the sending-bus loss
+$`|f| + a_l\,\ell \le T`$ under `sending` ($a_l$ the sending-bus loss
 share) and $|f| + \ell \le T$ under `full` ($a_l = 1$).  Under `flow`
 the DLR adds no row in `min` mode; under `sending` / `full` it only
 lowers the RHS of the existing thermal rows.  The flow-only DLR is
@@ -1291,7 +1332,7 @@ lowers the RHS of the existing thermal rows.  The flow-only DLR is
 **Loss envelope.**  The per-block DLR rating never drives the loss PWL:
 the segments keep the static `tmax` (or `capacity`, or `loss_envelope`)
 envelope.  Without any of them the stage envelope
-$1.05\,\max_b \min_k T^{(e)}_{k,b}$ stands in as the static cap and
+$`1.05\,\max_b \min_k T^{(e)}_{k,b}`$ stands in as the static cap and
 loss range, so the loss geometry is block-independent and identical in
 both span modes.  Under `limit_mode = replace` (non-expandable lines)
 the range is the larger of the static limit maximum (over all set fields)
@@ -1339,9 +1380,10 @@ $$
 
 the constraint becomes:
 
-$$ -\theta_{a,s,t,b} + \theta_{b,s,t,b} + \chi_l \, f_{l,s,t,b}^{+} - \chi_l \, f_{l,s,t,b}^{-} = 0
+```math
+-\theta_{a,s,t,b} + \theta_{b,s,t,b} + \chi_l \, f_{l,s,t,b}^{+} - \chi_l \, f_{l,s,t,b}^{-} = 0
 \qquad \forall \; l, s, t, b
-$$
+```
 
 #### Transformer and Phase-Shifting Transformer Model
 
@@ -1357,12 +1399,13 @@ the standard Kirchhoff constraint with two additional parameters:
 
 The generalized Kirchhoff constraint for a transformer branch is:
 
-$$ -\theta_{a,s,t,b} + \theta_{b,s,t,b} +
+```math
+-\theta_{a,s,t,b} + \theta_{b,s,t,b} +
 (\tau_l \, \chi_l) \, f_{l,s,t,b}^{+} -
 (\tau_l \, \chi_l) \, f_{l,s,t,b}^{-}
 = -\sigma_\theta \cdot \varphi_{l,\text{rad}}
 \qquad \forall \; l, s, t, b
-$$
+```
 
 where $\varphi_{l,\text{rad}} = \varphi_l \cdot \pi / 180$.
 
@@ -1399,8 +1442,10 @@ A line's `reactance` field selects one of three KVL treatments:
 
 where $\epsilon_X$ is the effective zero-impedance floor
 
-$$ \epsilon_X = \max\bigl(\epsilon_X^{\text{abs}},\;
-   \rho_X \cdot \operatorname{median}_{l : X_l \neq 0} \lvert X_l / V_l^2 \rvert\bigr), $$
+```math
+\epsilon_X = \max\bigl(\epsilon_X^{\text{abs}},\;
+   \rho_X \cdot \operatorname{median}_{l : X_l \neq 0} \lvert X_l / V_l^2 \rvert\bigr),
+```
 
 with $\epsilon_X^{\text{abs}}$ = `model_options.dc_line_reactance_threshold`
 (default $10^{-6}$ p.u.) and $\rho_X$ =
@@ -1419,10 +1464,11 @@ A **zero-impedance tie** is the $X_l \to 0$ limit of the transformer
 constraint: the flow term vanishes (the tap ratio $\tau_l$ multiplies
 $\chi_l$ and is therefore irrelevant) while the phase shift is kept,
 
-$$ -\theta_{a,s,t,b} + \theta_{b,s,t,b}
+```math
+-\theta_{a,s,t,b} + \theta_{b,s,t,b}
 = -\sigma_\theta \cdot \varphi_{l,\text{rad}}
 \qquad \forall \; s, t, b,
-$$
+```
 
 so the two bus angles are forced equal (up to $\varphi_l$).  The flow
 $f_{l,s,t,b}^{\pm}$ remains a free variable bounded by the line's
@@ -1459,10 +1505,10 @@ nodal prices.
 
 One bus is designated as the **reference bus** with a fixed voltage angle:
 
-$$
+```math
 \theta_{n^{\text{ref}},s,t,b} = \theta^{\text{ref}} \cdot \sigma_\theta
 \qquad \forall \; s, t, b
-$$
+```
 
 typically $\theta^{\text{ref}} = 0$.
 
@@ -1470,9 +1516,10 @@ typically $\theta^{\text{ref}} = 0$.
 
 For non-reference buses:
 
-$$ -\theta_{\max} \, \sigma_\theta \;\leq\; \theta_{n,s,t,b} \;\leq\; \theta_{\max} \, \sigma_\theta
+```math
+-\theta_{\max} \, \sigma_\theta \;\leq\; \theta_{n,s,t,b} \;\leq\; \theta_{\max} \, \sigma_\theta
 \qquad \forall \; n \neq n^{\text{ref}},\; s, t, b
-$$
+```
 
 #### Enabling Conditions
 
@@ -1489,10 +1536,10 @@ With `kirchhoff_mode = cycle_basis` (the default) the angles are
 eliminated: for every fundamental cycle $C$ of the in-service network
 (BFS spanning tree, one cycle per co-tree edge) one row per block
 
-$$
+```math
 \sum_{l \in C} o_{l,C} \, \chi_l \left(f_{l,s,t,b}^{+} - f_{l,s,t,b}^{-}\right)
 = -\sum_{l \in C} o_{l,C} \, \sigma_\theta \, \varphi_{l,\text{rad}}
-$$
+```
 
 with $o_{l,C} = \pm 1$ the orientation of line $l$ around $C$.  The
 basis is built per stage on the lines in service; a block in which a
@@ -1506,18 +1553,19 @@ losing the loops that only exist through other cycles' combination.)
 
 When a `LineCommitment` row references a line, the line becomes a
 **switching candidate**: an additional binary
-$u_{l,s,t,b} \in \{0, 1\}$ is introduced that opens (0) or closes
+$u_{l,s,t,b} \in \lbrace 0, 1\rbrace$ is introduced that opens (0) or closes
 (1) the breaker dynamically at solve time
 [[Fisher2008]](https://doi.org/10.1109/TPWRS.2008.922256).
 
 **Capacity gating** (always emitted, both Kirchhoff and transport
 modes; v0):
 
-$$ -\overline{F}_l^{ba} \, u_{l,s,t,b}
+```math
+-\overline{F}_l^{ba} \, u_{l,s,t,b}
 \;\leq\; f_{l,s,t,b} \;\leq\;
 \overline{F}_l^{ab} \, u_{l,s,t,b}
 \qquad \forall \; s, t, b
-$$
+```
 
 so $u_{l,s,t,b} = 0$ forces $f_{l,s,t,b} = 0$ — the line carries
 no flow.
@@ -1529,10 +1577,10 @@ pair-sum could still book loss up to that cap and act as a full-size
 energy sink.  Each loss column is therefore gated with the same
 capacity pattern:
 
-$$
+```math
 \ell_{l,s,t,b} \;-\; \overline{\ell}_l \, u_{l,s,t,b} \;\leq\; 0
 \qquad \forall \; s, t, b,
-$$
+```
 
 named `loss_gate_p` / `loss_gate_n` for the per-direction (or
 shared/tangent) loss columns, where $\overline{\ell}\_l$ is the loss
@@ -1548,7 +1596,7 @@ vestigial (lossless) or unbounded are skipped.
 
 > **`piecewise_direct` transfer cost.**  Each of the $K$ per-direction
 > segment columns carries the full per-MWh cost $c_l$ (`tcost`), so with
-> $\sum_k \text{seg}_k = |f|$ the charged cost is $c_l\,|f|$, as in every
+> $\sum_k \text{seg}_k = |f|$ the charged cost is $`c_l\,|f|`$, as in every
 > other loss mode (it was $c_l |f| / K$ before the fix).
 <!-- source: source/line_losses.cpp (add_direct_direction) -->
 
@@ -1564,15 +1612,17 @@ vestigial (lossless) or unbounded are skipped.
 $f = b^{\text{eff}}_l (\theta_a - \theta_b - \varphi_l)$ is
 rewritten in place as the upper-side inequality
 
-$$ -\theta_a + \theta_b + x_\tau \, f_{l,s,t,b} + M_l \, u_{l,s,t,b}
+```math
+-\theta_a + \theta_b + x_\tau \, f_{l,s,t,b} + M_l \, u_{l,s,t,b}
 \;\leq\; M_l - \varphi_l
-$$
+```
 
 and a new row is added for the lower-side:
 
-$$ -\theta_a + \theta_b + x_\tau \, f_{l,s,t,b} - M_l \, u_{l,s,t,b}
+```math
+-\theta_a + \theta_b + x_\tau \, f_{l,s,t,b} - M_l \, u_{l,s,t,b}
 \;\geq\; -M_l - \varphi_l.
-$$
+```
 
 At $u_{l,s,t,b} = 1$ both inequalities collapse to the original
 equality.  At $u_{l,s,t,b} = 0$ they simultaneously slack, freeing
@@ -1582,9 +1632,9 @@ $[-\theta_{\max}, +\theta_{\max}]$ — i.e. the two bus angles
 
 The big-M parameter $M_l$ defaults to
 
-$$
+```math
 M_l = 2 \, \theta_{\max} + |\varphi_l|
-$$
+```
 
 (Fisher 2008 baseline refined for the phase-shift offset).  This
 is loose by design — `LineCommitment.kvl_big_m` overrides per line,
@@ -1598,25 +1648,26 @@ switched-off line $l \in C$ invalidates every cycle through it.
 `add_kvl_rows` checks each cycle row for switchable lines and, when
 any are present, replaces the equality with the disjunctive form
 
-$$ -\!\!\sum_{l \in C \cap \text{switchable}}\!\!
+```math
+-\!\!\sum_{l \in C \cap \text{switchable}}\!\!
 \bigl(1 - u_l\bigr) \, M_C
 \;\leq\;
 \sum_{e \in C} \text{sign}_e \,
-\bigl(x_{\tau,e} \, f_e + \varphi_e\bigr) \cdot \text{row\_scale}
+\bigl(x_{\tau,e} \, f_e + \varphi_e\bigr) \cdot \text{row_scale}
 \;\leq\;
 \sum_{l \in C \cap \text{switchable}}\!\!
 \bigl(1 - u_l\bigr) \, M_C
-$$
+```
 
 with per-cycle big-M
 
-$$
-M_C \;=\; 2 \theta_{\max} \, |C| \, \text{row\_scale}
-\;+\; \sum_{e \in C} |\varphi_e| \, \text{row\_scale}.
-$$
+```math
+M_C \;=\; 2 \theta_{\max} \, |C| \, \text{row_scale}
+\;+\; \sum_{e \in C} |\varphi_e| \, \text{row_scale}.
+```
 
 When every switchable line in the cycle is closed
-($u_l = 1\;\forall\, l \in C \cap \text{switchable}$) the slack collapses to zero and
+($`u_l = 1\;\forall\, l \in C \cap \text{switchable}`$) the slack collapses to zero and
 both inequalities reduce to the original equality.  Any open line
 ($u_l = 0$) widens the slack by exactly $M_C$, decoupling the
 cycle through that branch.  Validation now accepts every combination
@@ -1675,10 +1726,10 @@ it closed).
 [hours] is set together with u/v/w, an anti-flicker family of rows
 is emitted (mirroring `CommitmentLP` C6):
 
-$$
+```math
 \sum_{q=t}^{t + \mathrm{UT}_t - 1} u_{l,q}
 \;\geq\; \mathrm{UT}_t \cdot v_{l,t},
-$$
+```
 
 where $\mathrm{UT}\_t$ is the smallest block-count whose cumulative
 duration covers `min_up_time` hours starting at block $t$.  When
@@ -1687,23 +1738,23 @@ $u\_{l,q}$ in the window to 1.  Rows are skipped at the end of the
 stage where $\mathrm{UT}\_t \le 1$ (trivially satisfied).  The
 symmetric `min_down_time` row family uses the dual form
 
-$$
+```math
 \sum_{q=t}^{t + \mathrm{DT}_t - 1} u_{l,q}
 \;+\; \mathrm{DT}_t \cdot w_{l,t}
 \;\leq\; \mathrm{span}_t,
-$$
+```
 
 with $\mathrm{span}_t = \min(\mathrm{DT}_t, N - t)$.
 
 **Max starts / min starts (v1.2).**  Two-sided rolling-window cap on
 the closing-event count (mirrors `CommitmentLP` C9):
 
-$$
+```math
 \mathrm{min\_starts} \;\leq\;
 \sum_{t \in W} v_{l,t}
 \;\leq\; \mathrm{max\_starts}
 \qquad \forall \, W,
-$$
+```
 
 where $W$ is a window defined by `starts_scope`:
 `"hour"` ⇒ 1 row per block, `"day"` ⇒ 24-hour cumulative-duration
@@ -1726,11 +1777,11 @@ model used in capacity expansion tools [[4]](#ref4) [[13]](#ref13)
 
 For each battery $e$ at each block $b$ within a stage:
 
-$$
+```math
 e_{e,s,t,b} = e_{e,s,t,b-1} \cdot (1 - \mu_e^h \Delta_b)
 \;+\; p_{e,s,t,b}^{\text{in}} \cdot \eta_e^{\text{in}} \cdot \Delta_b
 \;-\; p_{e,s,t,b}^{\text{out}} \cdot \frac{\Delta_b}{\eta_e^{\text{out}}}
-$$
+```
 
 where:
 - $\mu_e^h = \mu_e / 8760$ is the hourly self-discharge rate
@@ -1775,7 +1826,7 @@ replacement price.  Limits (verified in
   of a zig-zag are replaced by free energy: zig-zag and direct schedules
   still **tie**.  Any strictly positive cost on that energy breaks the
   tie — e.g. a 1 $/MWh VOM on the zero-cost unit penalises a zig-zag that
-  cycles $X$ MWh by $X\,(1/(\eta^{\text{in}}\eta^{\text{out}}) - 1)$
+  cycles $X$ MWh by $`X\,(1/(\eta^{\text{in}}\eta^{\text{out}}) - 1)`$
   dollars (8.64 USD for 80 MWh at $\eta = 0.95$), and a battery
   `discharge_cost` (throughput / degradation cost, default 0) by
   `discharge_cost` · $X$.
@@ -1789,11 +1840,11 @@ replacement price.  Limits (verified in
 By default (`model_options.battery_power_envelope = true`) each battery
 converter adds, per block,
 
-$$
+```math
 \frac{p_{e,s,t,b}^{\text{in}}}{\overline{P}_{e,t,b}^{\text{in}}} +
 \frac{p_{e,s,t,b}^{\text{out}}}{\overline{P}_{e,t,b}^{\text{out}}}
 \;\leq\; 1
-$$
+```
 
 (row `Converter/power_envelope`, multiplied by
 $\max(\overline{P}^{\text{in}}, \overline{P}^{\text{out}})$ so it stays in
@@ -1814,26 +1865,26 @@ floors force a point outside the envelope.
 
 #### Energy Bounds
 
-$$
+```math
 \underline{E}_{e,t} \;\leq\; e_{e,s,t,b} \;\leq\; \overline{E}_{e,t}
 \qquad \forall \; e, s, t, b
-$$
+```
 
 #### Initial and Final Conditions
 
 For the **first block** of the first stage:
 
-$$
+```math
 e_{e,s,t_0,b_0} \in [\underline{E}_e^{\text{ini}},\; \overline{E}_e^{\text{ini}}]
-$$
+```
 
 where $E_e^{\text{ini}}$ defaults to the stage bounds if not specified.
 
 For the **last block** of each stage, a final SoC target may be enforced:
 
-$$
+```math
 e_{e,s,t,b_{\text{last}}} \;\geq\; E_e^{\text{fin}}
-$$
+```
 
 where $E_e^{\text{fin}}$ defaults to $\underline{E}_e$ if not specified.
 
@@ -1871,7 +1922,7 @@ $e^{\text{fin}} = e^{\text{ini}}$ and keeps its free start.
 #### Daily Cycle on Representative Days (`daily_cycle`)
 
 A representative-day stage $t$ has 24 hour-of-day blocks whose durations
-$\Delta_b$ add up to $D_t = 24\,n_t$ hours ($n_t$ = days represented).
+$\Delta_b$ add up to $`D_t = 24\,n_t`$ hours ($n_t$ = days represented).
 With `daily_cycle` (the battery default) the balance above is written for
 ONE day: every $\Delta_b$ in the SoC balance is multiplied by
 $\kappa_t = 24 / D_t$, while the objective still weighs the flows with the
@@ -1896,7 +1947,7 @@ of a typical week, $w = 5$ and $w = 2$).  With
 $\Delta e_d = e_{d,b_{\text{last}}} - e_d^{\text{ini}}$ the SoC change of
 one repetition, the per-stage closure is replaced by
 
-$$
+```math
 \begin{aligned}
 e_{d+1}^{\text{ini}} &= e_d^{\text{ini}} + w_d\,\Delta e_d
   && \text{(chain, } d, d{+}1 \in G\text{)} \\
@@ -1907,9 +1958,9 @@ e_{d_{\text{first}}}^{\text{ini}} &= e_{d_{\text{last}}}^{\text{ini}}
 \underline{E} \le\; &e_{d,b} + (w_d - 1)\,\Delta e_d \;\le \overline{E}
   && \forall b,\; w_d > 1 \text{ (last repetition)}
 \end{aligned}
-$$
+```
 
-The SoC in repetition $j$ is $e_{d,b} + j\,\Delta e_d$, linear in $j$, so
+The SoC in repetition $j$ is $`e_{d,b} + j\,\Delta e_d`$, linear in $j$, so
 bounding the first repetition (the column bounds) and the last one bounds
 every repetition exactly: the group is a feasible chronological cycle of
 $w_d$ copies of each day in stage order (for integer weights), with no
@@ -1918,7 +1969,7 @@ is applied per simulated day only (the carried level is not decayed
 across repetitions).  When the objective weights of the stages are
 proportional to $w_d$ (e.g. $w_d$ = days per typical week, $n_d$ = days
 in the month), the closure is equivalent to
-$\sum_d n_d\,\Delta e_d = 0$ over the month.  For an expandable storage
+$`\sum_d n_d\,\Delta e_d = 0`$ over the month.  For an expandable storage
 the last-repetition upper bound is also written against the installed
 capacity column.  The next stage after a group starts from the group's
 start level.  A group never crosses a phase boundary (validation error),
@@ -1933,11 +1984,11 @@ hours (a typical week, $H_t = 168$, or a day) and stand for several of
 them.  Its block durations $d_b$ are then WEIGHTS: they enter the
 objective, energy budgets, flows into coupled reservoirs and every
 `dur[b]` of a user constraint, and add up to the represented time
-$D_t = H_t\,n_t$.  The real time step is
+$`D_t = H_t\,n_t`$.  The real time step is
 
-$$
+```math
 \Delta_b = d_b\,\kappa_t, \qquad \kappa_t = H_t / D_t .
-$$
+```
 
 A `daily_cycle` storage uses $\kappa_t$ instead of $24/D_t$: its balance
 runs on the real steps and the per-stage closure closes the period (a
@@ -1965,7 +2016,7 @@ same instant as node 0 of the next cycle, so it is dropped and node 0
 carries $w_0 + w_N$ (the converters do this; `validate_planning` warns
 when $t_{last} - t_0$ equals `period_hours`).
 Integrals (costs, energy budgets, `dur[b]` of user constraints) keep
-$\sum_k w_k\,x_k$, the exact quadrature of the node polynomial.  What
+$`\sum_k w_k\,x_k`$, the exact quadrature of the node polynomial.  What
 changes:
 
 - Storage balances integrate between the nodes with the element's
@@ -1991,7 +2042,7 @@ changes:
   LATER cell, the end node $t_N = H$ to the last one.  $p_k \ge \underline P u_{c(k)}$, $p_k \le \overline P u_{c(k)}$; start-up /
   shut-down $v, w$ exist only at cell boundaries, and a ramp row gets the
   SU·$v$ / SD·$w$ allowance only when its stencil crosses into a new cell
-  (inside a cell the plain ramp limit $R\,h\,u$ holds) under the default
+  (inside a cell the plain ramp limit $`R\,h\,u`$ holds) under the default
   `ramp_allowance = "boundary"`, which the converters also write on
   point stages.  `"period"` gives every row of the period the allowance
   of its $v$ / $w$.  Min up / down
@@ -2015,7 +2066,7 @@ changes:
   dropped (periodic grids) node 0 already carries $w_0 + w_N$, so no
   end merge is needed.  Hourly prices are rebuilt CELL-CONSTANT by
   default: $\pi_k$ holds on $[\tau_{k-1}, \tau_k]$ and an hour's price
-  is the overlap-weighted mean, so $\int \pi\,g\,dt = \sum_k \lambda_k u_k$ for every cell-constant quantity and a nonnegative node
+  is the overlap-weighted mean, so $`\int \pi\,g\,dt = \sum_k \lambda_k u_k`$ for every cell-constant quantity and a nonnegative node
   price never gives a negative hourly price.  The coefficient-space
   adjoint is an option (`price_reconstruction = adjoint`).
   Quantities are rebuilt with the interpolant of the storage rule
@@ -2033,12 +2084,12 @@ else the global `storage_integration`, else `lg4_pos` for reservoirs and
 `block` for every other storage.  Block stages always use the block
 recursion, also selectable as `block`:
 
-$$
+```math
 e_k = e_{k-1}(1 - \ell\,w_k) + w_k\,\phi_k ,
-$$
+```
 
 with $\phi_k$ the net storage flow
-($\rho\,\eta\_{in}\,p^{in}\_k - \rho\,p^{out}\_k/\eta\_{out} - \rho\,s_k$).  Its
+($`\rho\,\eta_{in}\,p^{in}_k - \rho\,p^{out}_k/\eta_{out} - \rho\,s_k`$).  Its
 period total is the block-weight (CC) quadrature, exact for polynomial
 flows of the node degree.  The level $e_k$ is the state at the block end
 $\tau_k = \sum\_{j \le k} w_j$, to first order — inconsistent with point
@@ -2047,11 +2098,11 @@ samples.
 `trapezoid`, `lg4` and `lg6` define $e_k$ as the state AT the node $t_k$
 (the last one at the period end) instead:
 
-$$
+```math
 e_k = e_{k-1}(1 - \ell\,(t_k - t_{k-1})) + \sum_{j \in S_k} D_{kj}\,\phi_j .
-$$
+```
 
-Here $D_{kj} = \int_{t_{k-1}}^{t_k} L_j(t)\,dt$ for the Lagrange basis
+Here $`D_{kj} = \int_{t_{k-1}}^{t_k} L_j(t)\,dt`$ for the Lagrange basis
 $L_j$ on a stencil $S_k$ of 2, 4 or 6 nodes nearest to the interval.
 `trapezoid` uses the interval's two end nodes; at the window ends the
 stencil is shifted to keep its size.  The matrix is then balanced on
@@ -2084,23 +2135,23 @@ global node interpolant, is not implemented in the LP.
 **Envelope rows.**  The levels are bounded only at the nodes.  A charge
 at $t\_{k-1}$ and a discharge at $t_k$ would therefore cancel inside the
 row of $[t\_{k-1}, t_k]$, letting the storage shift up to
-$\tfrac12 \Delta_k\, p^{max}$ beyond $e^{max}$ per charge→discharge
+$`\tfrac12 \Delta_k\, p^{max}`$ beyond $e^{max}$ per charge→discharge
 switch.  Every banded rule adds two sparse rows per interval, bounding
 the level of the interpolated flows by their charge-only and
 discharge-only integrals, taken with the nonnegative part
 $D^+\_{kj} = \max(D\_{kj}, 0)$ of the balance weights (a negative weight
 must not loosen the bound):
 
-$$
+```math
 e_{k-1} + \sum_{j \in S_k} D^+_{kj}\,\rho\,\eta_{in}\,p^{in}_j
   \le e^{max}_k \;(\text{or the installed capacity}),
-$$
+```
 
-$$
+```math
 e_{k-1} - \sum_{j \in S_k} D^+_{kj}\,\rho\,
   \bigl(p^{out}_j/\eta_{out} + s_j\bigr)
   \ge e^{min}_k .
-$$
+```
 
 Storages whose input and output share one signed column get no envelope.
 
@@ -2111,17 +2162,17 @@ a demand $d$ (charge path) via a conversion rate $\rho_v$:
 
 #### Discharge Coupling (Battery → Generator)
 
-$$
+```math
 p_{g,s,t,b} = \rho_v \cdot p_{e,s,t,b}^{\text{out}}
 \qquad \forall \; s, t, b
-$$
+```
 
 #### Charge Coupling (Demand → Battery)
 
-$$
+```math
 \ell_{d,s,t,b} = \rho_v \cdot p_{e,s,t,b}^{\text{in}}
 \qquad \forall \; s, t, b
-$$
+```
 
 #### Non-Effective Coupler (Fail-Closed Rule)
 
@@ -2157,10 +2208,10 @@ generator, and a `must_run` commitment whose unit's coupler is inactive.
 
 When the converter has a capacity limit:
 
-$$
+```math
 p_{g,s,t,b} + \ell_{d,s,t,b} \;\leq\; \bar{C}_{v,t}
 \qquad \forall \; s, t, b
-$$
+```
 
 $\bar{C}\_{v,t}$ is the converter's installed power.  For the converter
 synthesised from a battery, `Battery.power_capacity` / `power_expcap` /
@@ -2193,7 +2244,7 @@ $u^{\text{out}}\_{e,s,t,b}$ (the status $u$ of the synthesised commitment
 `uc_<bat>_gen`, §5.15/§5.16, whose `pmin` is
 $\underline{P}^{\text{out}}$):
 
-$$
+```math
 \underline{P}^{\text{in}}_{e,t,b}\, u^{\text{in}}_{e,s,t,b}
 \le \ell_{d,s,t,b} \le
 \overline{P}^{\text{in}}_{e,t,b}\, u^{\text{in}}_{e,s,t,b},
@@ -2201,7 +2252,7 @@ $$
 \underline{P}^{\text{out}}_{e,t,b}\, u^{\text{out}}_{e,s,t,b}
 \le p_{g,s,t,b} \le
 \overline{P}^{\text{out}}_{e,t,b}\, u^{\text{out}}_{e,s,t,b}
-$$
+```
 
 The two modes have separate binaries: a floor fires only while the
 battery is in that mode (PLEXOS *Min Charge / Min Discharge Level*,
@@ -2213,10 +2264,10 @@ both floors at once whenever the battery operates.
 default `true` when unset) — the battery is never in both modes in the
 same block:
 
-$$
+```math
 u^{\text{in}}_{e,s,t,b} + u^{\text{out}}_{e,s,t,b} \;\le\; 1
 \qquad \forall \; s, t, b
-$$
+```
 
 With `exclusive_charge_discharge = false` the row is omitted and
 simultaneous partial operation is limited only by the power envelope
@@ -2233,10 +2284,10 @@ $p \in [0, \overline{P}]$ is reachable with $u = p/\overline{P}$).
 When `Battery.energy_power_ratio` $= H_e$ [h] is set and both axes have an
 installed-capacity column, energy and power are built together:
 
-$$
+```math
 \bar{E}_{e,t} \;=\; H_e \cdot \bar{C}_{v,t}
 \qquad \forall \; t
-$$
+```
 
 Without it the two axes are optimised independently, each at its own
 annualised cost.
@@ -2248,15 +2299,15 @@ annualised cost.
 For each reserve zone $z$, the total up-reserve provided must meet the
 requirement:
 
-$$
+```math
 \sum_{p \in \mathcal{P}_z} \gamma_{p,t} \; r_{p,s,t,b}^{\text{up}} + q_{z,s,t,b}^{\text{up}} \;\geq\; \overline{R}_{z,t,b}^{\text{up}}
 \qquad \forall \; z, s, t, b
-$$
+```
 
-$$
+```math
 \sum_{p \in \mathcal{P}_z} \gamma_{p,t} \; r_{p,s,t,b}^{\text{dn}} + q_{z,s,t,b}^{\text{dn}} \;\geq\; \overline{R}_{z,t,b}^{\text{dn}}
 \qquad \forall \; z, s, t, b
-$$
+```
 
 where:
 - $\gamma_{p,t}$ is the provision factor at stage $t$ (typically 1.0)
@@ -2269,22 +2320,22 @@ $c^{R}\_{z,t,b}$ (`urcost` / `drcost`, fallback
 `model_options.reserve_shortage_cost`) the static requirement is built in
 the equivalent *served-requirement* form: a column
 $\rho\_{z,s,t,b} = \overline{R}\_{z,t,b} - q\_{z,s,t,b} \in [0, \overline{R}\_{z,t,b}]$
-with objective coefficient $-c^{R}\,\epsilon\_{s,t,b}$ ($\epsilon$ = the block
+with objective coefficient $`-c^{R}\,\epsilon_{s,t,b}`$ ($\epsilon$ = the block
 cost factor: probability × discount × duration) and the row
-$\sum_p \gamma\_{p,t}\,r\_{p,s,t,b} - \rho\_{z,s,t,b} \geq 0$.  Substituting
+$`\sum_p \gamma_{p,t}\,r_{p,s,t,b} - \rho_{z,s,t,b} \geq 0`$.  Substituting
 $\rho = \overline{R} - q$ gives the shortage form above plus the constant
-$+c^{R}\epsilon\,\overline{R}$, which gtopt adds to the LP-external
+$`+c^{R}\epsilon\,\overline{R}`$, which gtopt adds to the LP-external
 objective constant (`LinearProblem::add_obj_constant`, the same mechanism as
 the demand-fail baseline):
 
-$$
+```math
 c^{R}\epsilon\,\overline{R}_{z,t,b} \;-\; c^{R}\epsilon\,\rho_{z,s,t,b}
 \;=\; c^{R}\epsilon\, q_{z,s,t,b}
-$$
+```
 
 so the reported objective (`get_obj_value()`, SDDP upper/lower bounds) is
 the real operating cost: a met requirement contributes $0$, a short one
-$c^{R}\epsilon\,q$.  The LP rows, columns, costs and bounds are untouched
+$`c^{R}\epsilon\,q`$.  The LP rows, columns, costs and bounds are untouched
 (dispatch and duals are bit-identical to the form without the constant);
 the constant rides on the solver's native objective offset, is scaled by
 `scale_objective` like every column cost, and is reported per LP as
@@ -2301,33 +2352,33 @@ $\overline{R}$ to the row RHS and has no column at all.
 
 Up-reserve provision is limited by the generator's headroom:
 
-$$
+```math
 p_{g,s,t,b} + r_{p,s,t,b}^{\text{up}} \;\leq\; \bar{C}_{g,t}
 \qquad \forall \; p \in \mathcal{P},\; s, t, b
-$$
+```
 
 With a `Commitment` on the generator the up
-row is gated by the status $u$: $p + r^{\text{up}} \le \bar{P}\,u$.
+row is gated by the status $u$: $`p + r^{\text{up}} \le \bar{P}\,u`$.
 When the generator is expandable the headroom row has the capacity-column form
 $p + r^{\text{up}} - \bar{C}_{g,t} \le 0$; it is kept and a separate
-u-gated row $p + \sum_p r_p^{\text{up}} - \bar{P}\,u \le 0$ is added
+u-gated row $`p + \sum_p r_p^{\text{up}} - \bar{P}\,u \le 0`$ is added
 ($\bar{P}$ = generation column upper bound, the same big-M as the
 `gen_upper` row), so a de-committed unit offers no reserve.
 <!-- source: source/reserve_provision_lp.cpp (gate_reserve_provisions_by_status) -->
 
 Down-reserve provision is limited by the generator's operating range:
 
-$$
+```math
 p_{g,s,t,b} - r_{p,s,t,b}^{\text{dn}} \;\geq\; \underline{P}_{g,t,b}
 \qquad \forall \; p \in \mathcal{P},\; s, t, b
-$$
+```
 
 With a commitment the floor becomes the committed minimum gated by the
-status: $p - r^{\text{dn}} - \underline{P}^{c}_{g,t,b}\,u \ge 0$, with
+status: $`p - r^{\text{dn}} - \underline{P}^{c}_{g,t,b}\,u \ge 0`$, with
 $\underline{P}^{c} = \max(\underline{P}_g, \texttt{Commitment.pmin})$ for a
 `Commitment` (both formulations).  Offline (cold) up reserve
 becomes $r^{\text{up}} \le \overline{R}^{\text{up}}(1-u)$ and the
-`urmin` / `drmin` floors $r - \underline{R}\,u \ge 0$.
+`urmin` / `drmin` floors $`r - \underline{R}\,u \ge 0`$.
 
 #### Native BESS Reserve Deliverability (opt-in)
 
@@ -2339,35 +2390,35 @@ $p^{\text{out}}$/$p^{\text{in}}$ the discharge/charge columns,
 $e\_{e,s,t,b}$ the end-of-block SoC and $\overline{P}$, $\underline{E}$,
 $\overline{E}$ the hard column bounds:
 
-$$
+```math
 p_{e,s,t,b}^{\text{out}} - p_{e,s,t,b}^{\text{in}} +
 \sum_{p \in \mathcal{P}_e} r_{p,s,t,b}^{\text{up}}
 \;\leq\; \overline{P}_{e,t,b}^{\text{out}}
-\qquad\text{(\texttt{reserve\_up\_headroom})}
-$$
+\qquad\text{(\texttt{reserve_up_headroom})}
+```
 
-$$
+```math
 p_{e,s,t,b}^{\text{in}} - \kappa_e\, p_{e,s,t,b}^{\text{out}} +
 \sum_{p \in \mathcal{P}_e} r_{p,s,t,b}^{\text{dn}}
 \;\leq\; \overline{P}_{e,t,b}^{\text{in}}
-\qquad\text{(\texttt{reserve\_dn\_headroom})}
-$$
+\qquad\text{(\texttt{reserve_dn_headroom})}
+```
 
 and, when $T_e > 0$,
 
-$$
+```math
 e_{e,s,t,b} - \frac{T_e}{\eta_{e,t,b}^{\text{out}}}
 \sum_{p \in \mathcal{P}_e} r_{p,s,t,b}^{\text{up}}
 \;\geq\; \underline{E}_{e,t,b}
-\qquad\text{(\texttt{reserve\_up\_energy})}
-$$
+\qquad\text{(\texttt{reserve_up_energy})}
+```
 
-$$
+```math
 e_{e,s,t,b} + T_e\,\eta_{e,t,b}^{\text{in}}
 \sum_{p \in \mathcal{P}_e} r_{p,s,t,b}^{\text{dn}}
 \;\leq\; \overline{E}_{e,t,b}
-\qquad\text{(\texttt{reserve\_dn\_energy})}
-$$
+\qquad\text{(\texttt{reserve_dn_energy})}
+```
 
 $\kappa_e = 1$ when `reserve_discharge_credit` is true (full inverter
 range: a discharging battery can also regulate down by cutting its
@@ -2392,12 +2443,12 @@ physical shortage of down capability.
 
 By contrast, the CEN PLEXOS formulation (`BAT_*_CF_GEN_COMP`) adds an
 auxiliary battery whose discharge $g^{\text{aux}}$ is pinned to
-$\alpha\, r^{\text{dn}}$ and enters the bus balance.  With $r^{\text{dn}}$
+$`\alpha\, r^{\text{dn}}`$ and enters the bus balance.  With $r^{\text{dn}}$
 and $g^{\text{aux}}$ basic, the KKT conditions give
 $\lambda_n = (c^{\text{dn}} - \pi_z)/\alpha$: the bus price is the
 down-reserve price, amplified by $1/\alpha$ and with negative sign, even
 when the battery itself has spare headroom; and the auxiliary tank
-creates (or, on the up side, destroys) $\alpha\,r$ MWh per hour.
+creates (or, on the up side, destroys) $`\alpha\,r`$ MWh per hour.
 See `docs/studies/sscc_battery_constraint.md` and
 `test/source/test_bess_reserve_native.cpp`.
 
@@ -2437,14 +2488,14 @@ $a$ is per provision: PLEXOS uses 0.3 for CSF and 0 for CPF/CTF).  The SoC balan
 the same coefficient as $a$ MW of discharge per MW of up reserve and $a$
 MW of charge per MW of down reserve:
 
-$$
+```math
 e_b = e_{b-1} + \eta^{\text{in}} \Delta_b\, (p^{\text{in}} +
 a^{\downarrow} \textstyle\sum r^{\text{dn}}) - \frac{\Delta_b}{\eta^{\text{out}}}
 (p^{\text{out}} + a^{\uparrow} \textstyle\sum r^{\text{up}})
-$$
+```
 
 This is the physical counterpart of the PLEXOS `CF_GEN_COMP` /
-`CF_LOAD_COMP` AUX (which injects $a\,r$ into the bus balance): the
+`CF_LOAD_COMP` AUX (which injects $`a\,r`$ into the bus balance): the
 energy moves the battery's own SoC and nothing enters a bus balance, so
 the price property above is kept.  Test: $a^{\uparrow} = 0.5$,
 $\eta^{\text{out}} = 0.8$, $r^{\text{up}} = 60$ lowers an idle SoC from
@@ -2457,11 +2508,11 @@ $r^{\text{dn}} = 40$ raises it to 118.
 |--------|-----------|-------|
 | `UPStorageBound_B` | $-0.95E + r^{\uparrow} \le 0$ | `reserve_up_energy`, $T = 1$ |
 | `DOWNStorageBound_B` | $E + 0.95 r^{\downarrow} \le 177$ | `reserve_dn_energy`, $T = 1$ |
-| `B_CF_GEN_COMP` | $-g^{\text{aux}} + 0.3\,r^{\text{CSF,LW}} = 0$ (CPF/CTF coef 0) | per provision `dr_energy_usage` (SoC, no bus term) |
-| `B_CF_LOAD_COMP` | $-l^{\text{aux}} + 0.3\,r^{\text{CSF,RS}} = 0$ | per provision `ur_energy_usage` |
+| `B_CF_GEN_COMP` | $`-g^{\text{aux}} + 0.3\,r^{\text{CSF,LW}} = 0`$ (CPF/CTF coef 0) | per provision `dr_energy_usage` (SoC, no bus term) |
+| `B_CF_LOAD_COMP` | $`-l^{\text{aux}} + 0.3\,r^{\text{CSF,RS}} = 0`$ | per provision `ur_energy_usage` |
 | `B_AUX` battery | 99 999 MWh, ±1000 MW, η = 1 | dropped |
 | Battery `Capacity` | 177 MWh, dated 6.6 (maintenance) | `Battery.emax` schedule |
-| `B_CapacityUp/Down` | $E \lessgtr 10\,000$ | inactive (never binding) |
+| `B_CapacityUp/Down` | $`E \lessgtr 10\,000`$ | inactive (never binding) |
 | `C*_BESS` `Max Response` / `Max Charge Response` | per reserve, CSV `*_MRU/MRD` | `ReserveProvision.{ur,dr}max_response`, `…_charge_response` |
 | `C*_BESS` `Min Provision` + `CSF_*_MIN_B` | $r - 5u \ge 0$ | `urmin` / `drmin` |
 
@@ -2473,24 +2524,24 @@ below by the maximum of $K$ affine planes: the CEN Chile primary-reserve
 requirement (Minuta GM-DPRO Nº05-2026 [[20]](#ref20), Anexo B, eqs.
 (B.2)–(B.4)).  For each direction and block,
 
-$$
+```math
 R_{z,b} \;\ge\; \alpha_{k,b} + \delta^{D}_{k,b}\, D_{z,b} +
  \delta^{I}_{k,b}\, I_{z,b} + \delta^{C}_{k,b}\, C_{z,b} +
  \delta^{F}_{k,b}\, F_{z,b}
 \qquad \forall\, k = 1..K \qquad (\texttt{urplane}_k)
-$$
+```
 
-$$
+```math
 R_{z,b} \;\ge\; \max\{0,\ \overline{R}_{z,b},\ \underline{R}_{z,b}\}
 \qquad\text{(column lower bound: \texttt{urreq} / \texttt{urmin} floors)}
-$$
+```
 
-$$
+```math
 \sum_{p \in \mathcal{P}_z} \gamma_{p}\,\phi_{p,z}\, r_{p,b} +
  q_{z,b} - R_{z,b} \;\ge\; 0,
 \qquad q_{z,b} \ge 0 \text{ priced at } c^{\text{rfail}}_z
 \qquad (\texttt{urequirement})
-$$
+```
 
 with the terms
 
@@ -2513,13 +2564,13 @@ since ISSCC 2022 [[21]](#ref21), write the load term as total
 generation, $D = \sum_g p_g - \sum \text{charge}$
 (`Generation_Calculation`), a *variable*.  Since $\delta^D_k < 0$, each
 extra MWh served lowers the requirement by $|\delta^D_k|$ MW, and the
-generation columns pick up a credit $\sum_k |\delta^D_k|\,\mu_k$, where
+generation columns pick up a credit $`\sum_k |\delta^D_k|\,\mu_k`$, where
 $\mu_k \ge 0$ are the duals of the binding plane rows.  A bus with
 spare cheap energy then clears at
 
-$$
+```math
 \lambda_n \;=\; c_{\text{marg}} \;-\; \sum_k |\delta^{D}_k|\,\mu_k ,
-$$
+```
 
 which is negative whenever $c_{\text{marg}} \approx 0$ (curtailed
 solar): the LP serves load only to shrink the reserve requirement.  In
@@ -2546,7 +2597,7 @@ than under-sizing the reserve.  The endogenous PLEXOS form keeps
 $\ell = 1$ by default (`Generation_Calculation` has no factor).
 The PLEXOS form is available as `load_term: "endogenous_generation"`
 for reconciliation only (a free column
-$D = \ell\,(\sum_g p_g - \sum \text{charge})$).  The contingency term $C$
+$`D = \ell\,(\sum_g p_g - \sum \text{charge})`$).  The contingency term $C$
 can still raise the price at the largest unit's bus
 ($\lambda = c + \delta^C \mu$): that is a real N−1 security cost, not an
 arbitrage, and since $\delta^C > 0$ it never pushes a price negative.
@@ -2558,15 +2609,15 @@ is always a commitment constraint) has three forms, chosen per zone by
 
 | `inertia_term` | $I_{z,b}$ | couples to |
 |----------------|-----------|------------|
-| `"commitment"` (default) | $\sum_{c} I_c\, u_{c,b} + \sum_{c \in \mathcal{F}} I_c$ | commitment status $u$ |
+| `"commitment"` (default) | $`\sum_{c} I_c\, u_{c,b} + \sum_{c \in \mathcal{F}} I_c`$ | commitment status $u$ |
 | `"exogenous"` | `system_inertia`$\_{b}$, else $\sum\_{c \in \mathcal{M}} I_c$ | nothing (data) |
-| `"endogenous"` | $\sum_p \mathrm{pf}\_p\, r^H\_{p,b}$, $r^H\_{p,b} \le p\_{g(p),b}$ | dispatch $p$ |
+| `"endogenous"` | $`\sum_p \mathrm{pf}_p\, r^H_{p,b}`$, $r^H\_{p,b} \le p\_{g(p),b}$ | dispatch $p$ |
 
 $I_c = \mathrm{pf}\_c \cdot \min($`provision_max`$, p\_{\max})$
 ($= H_c S_c$ when pf defaults to $H S / P\_{\min}$) is the unit's inertia
 when on, summed over
 the InertiaProvisions of `inertia_zone`.  `"commitment"` is the CEN
-definition (minuta Anexo B, (B.1): Inercia $= \sum_c I_c\,u_c$): $u_c$
+definition (minuta Anexo B, (B.1): Inercia $`= \sum_c I_c\,u_c`$): $u_c$
 is the unit's Commitment status; a unit with no
 status column counts only when it is forced on ($\mathcal{F}$:
 $p\_{\min} > 0$), never through its dispatch.  `"exogenous"` puts a
@@ -2594,8 +2645,8 @@ names the remedy: `inertia_term: "exogenous"` with a `system_inertia`
 schedule, or an integer Commitment.
 `"endogenous"` is the PLEXOS-compatible dispatch-based stamp: the
 coupling row $p - r^H \ge 0$ lets a zero-cost unit earn
-$\mathrm{pf}\,|\delta^I|\,\mu$ per MWh, and a curtailed hydro or solar
-bus then clears at $\lambda = -\mathrm{pf}\,|\delta^I|\,\mu < 0$ (test:
+$`\mathrm{pf}\,|\delta^I|\,\mu`$ per MWh, and a curtailed hydro or solar
+bus then clears at $`\lambda = -\mathrm{pf}\,|\delta^I|\,\mu < 0`$ (test:
 pf = 10, $\delta^I = -0.0123$, $\mu = 100$ gives $\lambda = -12.3$,
 while `"commitment"` and `"exogenous"` keep $\lambda = 0$).  The LP
 works in GWs / GW for the $I$ and endogenous $D$ columns (column scale
@@ -2633,7 +2684,7 @@ with the requirement in MW; gtopt's coefficients are per MW and MWs:
 `contingency_coef` $= \delta$, `alpha` $= \alpha$.
 
 **CPF+@10s set (B.2), used by PLEXOS since 2026-03**
-($\text{REQ} \ge \alpha - \beta\,\text{Gen} - \gamma\,I + \delta\, \text{MaxInj}$):
+($`\text{REQ} \ge \alpha - \beta\,\text{Gen} - \gamma\,I + \delta\, \text{MaxInj}`$):
 
 | k | $\alpha$ | $\beta$ | $\gamma$ | $\delta$ |
 |---|---------:|--------:|---------:|---------:|
@@ -2650,9 +2701,9 @@ with the requirement in MW; gtopt's coefficients are per MW and MWs:
 | XI | 219.160 | 20.640 | 3.164 | 0.928 |
 | XII | 117.843 | 13.286 | 2.569 | 0.930 |
 
-CPF+@5m: $\text{REQ} \ge 4.125 - 10.75\,\text{Gen} + 1.0912\, \text{MaxInj}$
+CPF+@5m: $`\text{REQ} \ge 4.125 - 10.75\,\text{Gen} + 1.0912\, \text{MaxInj}`$
 (the printed (B.3) is superseded).  CPF−:
-$\text{REQ} \ge -80 - 4\,\text{Gen} + 0.96\,\text{MaxLoad}$ (since
+$`\text{REQ} \ge -80 - 4\,\text{Gen} + 0.96\,\text{MaxLoad}`$ (since
 2026-07; MaxLoad over the listed BESS charges).  With the PLEXOS values
 of 2026-11-07 h14 (Gen 9.643 GW, I 37.697 GVAs, MaxInj 300 MW,
 MaxLoad 200 MW) the planes give 179.255 / 227.823 / 73.428 MW, the
@@ -2662,12 +2713,12 @@ PLEXOS requirements (test
 **Contingency candidates.**  Each candidate $j$ of `urcontingencies`
 (`drcontingencies`) gives one row
 
-$$
+```math
 C_{z,b} \;\ge\; \sum_{g} a_{jg}\, p_{g,b} + \sum_{d} a_{jd}\, \ell_{d,b} +
  \sum_{l} a_{jl}\, f_{l,b} + o_{j,b}
  \;\Big[\, + \sum_{g} a_{jg} \sum_{p \in \mathcal{P}_{g,z}} r_{p,b}
  \Big]
-$$
+```
 
 and `contingency_generators` / `contingency_demands` are singleton
 candidates.  This is the PLEXOS `<unit>_Comparison` row exactly: in PCP
@@ -2688,10 +2739,10 @@ that zone (test: 200 MW of cheap headroom on the largest unit drops from
 becomes an equality, with a surplus column $e_{z,b} \ge 0$ priced at
 `ursurplus_cost` when given:
 
-$$
+```math
 \sum_{p} \gamma_p\,\phi_{p,z}\, r_{p,b} + q_{z,b} - e_{z,b}
  \;=\; R_{z,b} \;(\text{or } \overline{R}_{z,b})
-$$
+```
 
 This is PLEXOS `CPF_UpMinProvision` / `CPF_DownMinProvision` (Sense 0:
 provision + VoRS (10 000 \$/MW) − Requirement − Slack (1 \$/MW) = 0).
@@ -2716,7 +2767,7 @@ PLEXOS-compat mode, `dsys_sol`; the down direction uses `dr*`.  Since
 $\sum_k \mu_k = \mu$ on the binding planes, the marginal requirement
 cost of any plane term $x$ is $\sum_k \delta^x_k \mu_k$; e.g. the
 `Generation_Calculation` credit of the PLEXOS form is
-$\sum_z \sum_k \beta_{z,k}\,\mu_{z,k}/1000$, read directly from the
+$`\sum_z \sum_k \beta_{z,k}\,\mu_{z,k}/1000`$, read directly from the
 plane duals.
 
 **Requirement coupling and the reserve credit.**  A requirement that
@@ -2728,9 +2779,9 @@ reports each such channel of a zone with planes — `load_term:
 "endogenous"`, `inertia_term: "commitment"` when any Commitment is
 relaxed, line contingency candidates (signed flow) and
 `contingency_includes_reserve` — with a warning that it can produce a
-negative LMP credit ($\beta\,\mu$ per MWh).  `model_options.
+negative LMP credit ($`\beta\,\mu`$ per MWh).  `model_options.
 reserve_coupling` = `"warn"` (default) / `"error"` / `"off"` selects the
-handling.  The generator contingency $C \ge a\,p_g$ is not reported: it
+handling.  The generator contingency $`C \ge a\,p_g`$ is not reported: it
 raises the largest unit's cost ($\delta^C > 0$).  The commitment
 inertia is reported only with a relaxed Commitment: an integer $u$ is
 fixed when the duals are computed, but a continuous $u$ is tied to the
@@ -2738,17 +2789,17 @@ dispatch by $p_{\min} u \le p$.
 
 The credit is written natively per zone and block:
 
-$$
-\texttt{reserve\_credit}_{z,b} = \ell_z \sum_{k} \delta^D_{k,b}\,\mu_{k,b}
+```math
+\texttt{reserve_credit}_{z,b} = \ell_z \sum_{k} \delta^D_{k,b}\,\mu_{k,b}
 \quad [\$/\text{MWh}],
 \qquad
-\texttt{flow\_credit}_{z,b} = \sum_{k} \delta^F_{k,b}\,\mu_{k,b},
-$$
+\texttt{flow_credit}_{z,b} = \sum_{k} \delta^F_{k,b}\,\mu_{k,b},
+```
 
-$$
-\texttt{credit\_transfer}_{z,b} = \texttt{reserve\_credit}_{z,b}
+```math
+\texttt{credit_transfer}_{z,b} = \texttt{reserve_credit}_{z,b}
  \cdot \frac{D_{z,b}}{\ell_z}\,\Delta t_b \quad [\$].
-$$
+```
 
 `reserve_credit` is the uniform shift of every bus LMP produced by the
 endogenous load term ($D$ counts all generation, so the same value at
@@ -2757,14 +2808,14 @@ every bus; the system total over zones is $\sum_z$
 `flow_credit` is the extra spread $\lambda_B - \lambda_A$ across each
 `flow_lines` corridor.  `credit_transfer` is the money moved through
 the credit (credit × generated energy).  Test: plane
-$516 - 0.0366\,D$, $\ell = 1.025$, $\mu = 20$: `reserve_credit`
+$`516 - 0.0366\,D`$, $\ell = 1.025$, $\mu = 20$: `reserve_credit`
 $= -0.0366 \cdot 1.025 \cdot 20 = -0.7503$ \$/MWh, equal to the LMP shift of
 the marginal 60 \$/MWh unit; 0 in the exogenous case.
 
 #### Extended Provision Model (CEN SSCC)
 
 - **Effectiveness factors** (minuta (A.3)–(A.12)): one up column $r_p$
-  enters each zone $z$ of `reserve_zones` with $\gamma_p\,\phi_{p,z}$,
+  enters each zone $z$ of `reserve_zones` with $`\gamma_p\,\phi_{p,z}`$,
   $\phi_{p,z}$ = `ur_zone_factors[z]` (default 1; 0 skips the zone).
   A single CPF+ variable serves the 5 min, 10 s and normal-operation
   requirements with unit-specific factors.
@@ -2775,7 +2826,7 @@ the marginal 60 \$/MWh unit; 0 in the exogenous case.
   Batteries use the native rows above (`reserve_sustain_hours`).
 - **Offline (cold) reserve** (A.19)–(A.22), CTF: `offline` drops the
   headroom row and, with a Commitment, adds
-  $r^{\text{up}} + \bar{r}\,u \le \bar{r}$, i.e. $r \le \bar{r}(1-u)$.
+  $`r^{\text{up}} + \bar{r}\,u \le \bar{r}`$, i.e. $r \le \bar{r}(1-u)$.
 - **Symmetry** (A.13): `symmetric` adds $r^{\text{up}} - r^{\text{dn}} = 0$.
 - **Inertia minima** (B.1): an InertiaZone requirement (§5.17).  The
   Norte Grande minimum that depends on the number of Guacolda units
@@ -2827,7 +2878,7 @@ classical hydrothermal coordination models [[5]](#ref5) [[6]](#ref6)
 
 At each junction $j$, the water balance ensures conservation:
 
-$$
+```math
 \sum_{w \in \mathcal{W}_j^{\text{in}}} (1 - \lambda_w) \, \varphi_{w,s,t,b}
 \;-\; \sum_{w \in \mathcal{W}_j^{\text{out}}} \varphi_{w,s,t,b}
 \;+\; \sum_{f \in \mathcal{F}_j^+} Q_f
@@ -2838,7 +2889,7 @@ $$
 \;-\; \delta_{j,s,t,b}
 \;=\; 0
 \qquad \forall \; j, s, t, b
-$$
+```
 
 where:
 - $\lambda_w$ is the waterway transport loss factor
@@ -2884,12 +2935,12 @@ becomes an AR(1) state (NEWAVE / PSR-SDDP style): the column
 $q_{f,s,t,b}$ is released to $(-\infty, \infty)$ and pinned instead by
 the per-block recursion row
 
-$$
+```math
 q_{f,s,t,b} \;-\; \phi_f \, \ell_{f,s,t}
 \;=\; \mu_{f,s,t,b} \;-\; \phi_f\,\mu_{f,s,t-1}^{\text{ref}}
 \;+\; \varepsilon_{f,s,t}
 \qquad \forall \; b,
-$$
+```
 
 where $\ell_{f,s,t}$ is the lagged inflow — the previous stage's
 last-block column within a phase, or a dependent `inflow_lag` column
@@ -2905,20 +2956,20 @@ Full derivation and cut-validity argument:
 
 #### Waterway Flow Bounds
 
-$$
+```math
 \underline{Q}_{w,t} \;\leq\; \varphi_{w,s,t,b} \;\leq\; \overline{Q}_{w,t}
 \qquad \forall \; w, s, t, b
-$$
+```
 
 #### Reservoir Volume Balance
 
 Reservoir volume dynamics follow the same storage template as batteries:
 
-$$
+```math
 v_{r,s,t,b} = v_{r,s,t,b-1} \cdot (1 - \mu_r^h \, \Delta_b)
 \;-\; \alpha_r \, d_{r,s,t,b} \cdot \Delta_b
 \;-\; \alpha_r \, \text{spill}_{r,s,t,b} \cdot \Delta_b
-$$
+```
 
 where:
 - $\mu_r^h$ is the hourly evaporation/seepage loss rate
@@ -2942,10 +2993,10 @@ SDDP carries them through its cuts (`cases/reservoir_water_value`).
 
 #### Volume Bounds
 
-$$
+```math
 \underline{V}_{r,t} \;\leq\; v_{r,s,t,b} \;\leq\; \overline{V}_{r,t}
 \qquad \forall \; r, s, t, b
-$$
+```
 
 with initial volume $v_{r,s,t_0,b_0} = V_r^0$ and optional final volume
 target.
@@ -2955,17 +3006,17 @@ target.
 Each turbine $u$ links a water-source flow column $q_{u,s,t,b}$ to a
 generator $g$ via a water-to-power conversion:
 
-$$
+```math
 p_{g,s,t,b} = \kappa_u \cdot q_{u,s,t,b}
 \qquad \forall \; u, s, t, b
-$$
+```
 
 or, when the turbine allows partial water bypass (drain mode):
 
-$$
+```math
 p_{g,s,t,b} \;\leq\; \kappa_u \cdot q_{u,s,t,b}
 \qquad \forall \; u, s, t, b
-$$
+```
 
 The flow source $q_{u,s,t,b}$ depends on the turbine's connection mode:
 
@@ -3022,16 +3073,16 @@ and scenes.
 Filtration models seepage from a waterway $w$ into a reservoir $r$ as a
 function of the reservoir's average volume:
 
-$$
+```math
 \varphi_{i,s,t,b} = a_i + b_i \cdot \frac{v_{r,s,t,b-1} + v_{r,s,t,b}}{2}
 \qquad \forall \; i, s, t, b
-$$
+```
 
 where $a_i$ is the constant term (RHS) and $b_i$ is the slope (seepage rate
 per unit volume).
 
 **Piecewise-linear filtration (plpfilemb.dat / plpcenfi.dat segments).**
-When a set of segments $\{(V_k, b_k, c_k)\}_{k=1}^{K}$ is provided, the
+When a set of segments $\lbrace(V_k, b_k, c_k)\rbrace_{k=1}^{K}$ is provided, the
 filtration function is defined by a concave envelope:
 
 $$
@@ -3067,15 +3118,15 @@ $\eta_h \in (0,1]$ is the stage efficiency.
 
 #### Conversion Constraint
 
-$$
+```math
 \begin{aligned}
 \frac{\phi_{h,t}}{\eta_{h,t}} \; \varphi_{w,s,t,b} \;-\; \ell_{d,s,t,b} \;\leq\; 0
 \qquad \forall \; h \in \mathcal{H},\; s,t,b
 \end{aligned}
-$$
+```
 <!-- source: source/pump_lp.cpp:86-97 -->
 
-Equivalently, $\ell_{d,s,t,b} \geq (\phi_{h,t}/\eta_{h,t})\,\varphi_{w,s,t,b}$:
+Equivalently, $`\ell_{d,s,t,b} \geq (\phi_{h,t}/\eta_{h,t})\,\varphi_{w,s,t,b}`$:
 the optimizer must supply enough electrical power through demand $d$ to
 sustain the water flow pumped through waterway $w$.
 
@@ -3090,12 +3141,12 @@ pumping direction of the waterway is closed, $\varphi_{w,s,t,b} \le 0$
 When a pump capacity $\overline{Q}_{h,t}$ is specified for the stage, an
 additional per-block cap is added on the waterway flow:
 
-$$
+```math
 \begin{aligned}
 \varphi_{w,s,t,b} \;\leq\; \overline{Q}_{h,t}
 \qquad \forall \; h \in \mathcal{H},\; s,t,b
 \end{aligned}
-$$
+```
 <!-- source: source/pump_lp.cpp:99-112 -->
 
 The waterway and demand referenced by the pump retain their native
@@ -3122,30 +3173,30 @@ element:
 A free auxiliary variable $q^{\ell}_{s,t}$ represents the stage-average
 hourly flow through $w$:
 
-$$
+```math
 \begin{aligned}
 q^{\ell}_{s,t} \;-\; \sum_{b \in \mathcal{B}_t} \frac{\Delta_b}{T_t} \, \varphi_{w,s,t,b} \;=\; 0
 \qquad \forall \; \ell,\; s,t
 \end{aligned}
-$$
+```
 <!-- source: source/reservoir_discharge_limit_lp.cpp:76-92 -->
 
 where $T_t = \sum_{b \in \mathcal{B}_t} \Delta_b$ is the stage duration.
 
 #### Volume-Dependent Cap
 
-Given piecewise segments $\{(V_k^\ell, m_k^\ell, c_k^\ell)\}\_{k=1}^{K}$
+Given piecewise segments $\lbrace(V_k^\ell, m_k^\ell, c_k^\ell)\rbrace\_{k=1}^{K}$
 selected by the current reservoir volume $V$ (average of initial and
 final stage volumes), the active segment $k^\*$ yields slope
 $m\_{k^\*}^\ell$ and intercept $c\_{k^\*}^\ell$. The discharge cap then
 reads:
 
-$$
+```math
 \begin{aligned}
 q^{\ell}_{s,t} \;-\; \tfrac{1}{2} m_{k^*}^\ell\, v_{r,s,t,b_0} \;-\; \tfrac{1}{2} m_{k^*}^\ell\, v_{r,s,t,b_{\text{last}}} \;\leq\; c_{k^*}^\ell
 \qquad \forall \; \ell,\; s,t
 \end{aligned}
-$$
+```
 <!-- source: source/reservoir_discharge_limit_lp.cpp:94-109 -->
 
 where $v_{r,s,t,b_0}$ / $v_{r,s,t,b_{\text{last}}}$ are the initial/final
@@ -3166,11 +3217,11 @@ For each expandable component $g$ at stage $t$:
 
 #### Installation Balance
 
-$$
+```math
 \bar{C}_{g,t} = \bar{C}_{g,t-1} \cdot (1 - \xi_{g,t})
 \;+\; M_g \cdot m_{g,t}
 \;+\; \Delta C_{g,t}
-$$
+```
 
 where:
 - $\bar{C}_{g,t}$ is the installed capacity at stage $t$
@@ -3186,20 +3237,20 @@ where:
 
 #### Expansion Bounds
 
-$$
+```math
 0 \;\leq\; m_{g,t} \;\leq\; \overline{m}_{g,t}
 \qquad \forall \; g, t
-$$
+```
 
 where $\overline{m}_{g,t}$ (`expmod`) is the maximum number of modules that
 can be installed at stage $t$.
 
 #### Maximum Capacity
 
-$$
+```math
 \bar{C}_{g,t} \;\leq\; \bar{C}_g^{\max}
 \qquad \forall \; g, t
-$$
+```
 
 where $\bar{C}_g^{\max}$ is derived from `capmax` or
 $\bar{C}_g^0 + M_g \cdot \overline{m}_g$.
@@ -3242,9 +3293,9 @@ profiles** (the symmetric LHS analog of the per-block `rhs` schedule).
 A term written `[c_0, c_1, \dots] * x` contributes, in the row built
 for block ordinal $b$ within the stage,
 
-$$
+```math
 c_{\min(b,\,K-1)} \cdot x_{s,t,b}
-$$
+```
 
 where $K$ is the profile length; the last entry broadcasts to every
 trailing block, so a profile shorter than the stage's block count still
@@ -3278,7 +3329,7 @@ where $\kappa_k = 1$ for `penalty_class = raw` and $\kappa_k = 3600$
 (\$/m³ → \$/(m³/s)·h) for `hydro_flow`.  A *span row* covers more than
 one block — a `daily_sum` day row or a `stage` / `phase` / `global` scope
 row — and is already built as a span total, so its slack carries no
-further $\Delta_b$ ($\kappa_k(H) = 3600\,H$ for `hydro_flow` over the
+further $\Delta_b$ ($`\kappa_k(H) = 3600\,H`$ for `hydro_flow` over the
 $H$ hours of the span).  Per-block slacks read back like a generator cost
 (÷ $\pi_s \delta_t \Delta_b$), span slacks with the Energy basis
 (÷ $\pi_s \delta_t$), so the reported dual of a binding `power` soft row equals
@@ -3296,17 +3347,17 @@ copies $x_c$ are independent (each scene is its own LP). With
 `nonanticipative: true` the active scenes $c \in \mathcal{C}$ are built
 as one extensive-form LP per phase, which imposes
 
-$$
+```math
 x_c = x \qquad \forall\, c \in \mathcal{C},
-$$
+```
 
 by construction (a single column), while every other variable keeps its
 scenario index. The objective of the merged LP is
 
-$$
+```math
 \min \; \sum_{s \in \bigcup_c S_c} p_s \, \mathrm{OPEX}_s
   \;+\; c_x \Big( \sum_{s \in \bigcup_c S_c} p_s \Big)\, \delta_t \, x
-$$
+```
 
 for an `energy` cost $c_x$ (discount $\delta_t$; a `raw` cost is charged
 once at face value), i.e. the decision is paid once with the total
@@ -3355,11 +3406,11 @@ $$
 
 Optionally capped further by a `bound_rule` (e.g. a volume-zone lookup):
 
-$$
+```math
 \begin{aligned}
 \overline{\xi}_{i,s,t,b} \;\leftarrow\; \min\!\bigl(\overline{\xi}_{i,s,t,b},\; B_i(x)\bigr)
 \end{aligned}
-$$
+```
 
 where $B_i(x)$ is the piecewise-linear rule evaluated on an axis $x$
 (reservoir volume, calendar month, etc.).
@@ -3372,12 +3423,12 @@ discharge is scheduled, a deficit variable $\delta_{i,s,t,b} \geq 0$ is
 created with lower bound on $\xi$ relaxed to $0$, and the **demand
 coupling** row is added:
 
-$$
+```math
 \begin{aligned}
 \xi_{i,s,t,b} \;+\; \delta_{i,s,t,b} \;\geq\; \bar{\xi}_{i,s,t,b}
 \qquad \forall \; i \in \mathcal{FR},\; s,t,b
 \end{aligned}
-$$
+```
 <!-- source: source/flow_right_lp.cpp:198-214 -->
 
 **Use-value benefit.** A per-block `use_value`
@@ -3389,12 +3440,12 @@ a benefit that incentivizes non-zero flow in variable mode.
 **Stage-average auxiliary.** When `use_average = true`, a stage-level
 variable $\bar{\xi}_{i,s,t}^{h}$ plus an equality row:
 
-$$
+```math
 \begin{aligned}
 \bar{\xi}_{i,s,t}^{h} \;-\; \sum_{b \in \mathcal{B}_t} \frac{\Delta_b}{T_t} \, \xi_{i,s,t,b} \;=\; 0
 \qquad \forall \; i,\; s,t
 \end{aligned}
-$$
+```
 <!-- source: source/flow_right_lp.cpp:246-274 -->
 
 **Consumptive coupling.** When a `junction_a` reference is set, each
@@ -3410,13 +3461,13 @@ served flow returns to the river.
 `bypass_fmax` set) and both `junction_a` ($j_a$) and `junction_b`
 ($j_b$) are set (per-block / stage-average modes), a bypass column
 
-$$
+```math
 0 \;\leq\; \beta_{i,s,t,b} \;\leq\; \overline{\beta}_i
-\qquad (\overline{\beta}_i = \texttt{bypass\_fmax},\ +\infty \text{ if unset})
-$$
+\qquad (\overline{\beta}_i = \texttt{bypass_fmax},\ +\infty \text{ if unset})
+```
 
 enters $j_a$'s balance with $-1$ and $j_b$'s with $+1$, priced at
-`bypass_cost` $\cdot\,\Delta_b$ (scaled like every block cost).  It is
+`bypass_cost` $`\cdot\,\Delta_b`$ (scaled like every block cost).  It is
 reported as `FlowRight/bypass_sol`.  A bare `junction_b` builds no arc:
 it opens no water path that the output does not show.
 <!-- source: source/flow_right_lp.cpp (bypass) -->
@@ -3431,12 +3482,12 @@ over one hour produces a volume decrement in hm³.
 
 **Balance (StorageLP template specialised for rights).**
 
-$$
+```math
 \begin{aligned}
 \nu_{o,s,t,b} \;=\; \nu_{o,s,t,b-1} \cdot (1 - \mu_o^h \Delta_b) \;+\; \alpha_o\,\Delta_b\,\xi_{o,s,t,b}^{\text{sav}} \;-\; \alpha_o\,\Delta_b\,\xi_{o,s,t,b}^{\text{in}}
 \qquad \forall \; o \in \mathcal{VR},\; s,t,b
 \end{aligned}
-$$
+```
 <!-- source: source/volume_right_lp.cpp:161-214 (StorageBase::add_to_lp) -->
 
 where $\xi_{o,s,t,b}^{\text{sav}}$ is an optional *saving* (deposit)
@@ -3445,12 +3496,12 @@ column created when a `saving_rate` schedule is present
 
 **Extraction bounds.**
 
-$$
+```math
 \begin{aligned}
 0 \;\leq\; \xi_{o,s,t,b}^{\text{in}} \;\leq\; \min\!\Bigl(\overline{F}_{o,t,b},\; \frac{\max(B_o(x),0)}{\alpha_o\,T_t}\Bigr)
 \qquad \forall \; o,\; s,t,b
 \end{aligned}
-$$
+```
 
 The rule $B_o(x)$ yields a **volume** [hm³] (the same quantity used by
 the seasonal reset below); it is converted to a rate by the stage length
@@ -3463,38 +3514,38 @@ is the reservoir volume at the start of the phase (predecessor phase's
 
 **Optional stage demand.** When $D_o > 0$, a deficit
 $q_{o,s,t}^{\text{fail}} \geq 0$ [hm³] with objective cost
-$\pi_s\,\delta_t\,c_o^f$ (scenario probability × stage discount, no
+$`\pi_s\,\delta_t\,c_o^f`$ (scenario probability × stage discount, no
 duration: the deficit is a stage volume, like every other stage
 penalty) is added with the stage-integrated satisfaction row:
 
-$$
+```math
 \begin{aligned}
 \sum_{b \in \mathcal{B}_t} \alpha_o\,\Delta_b\,\xi_{o,s,t,b}^{\text{in}} \;+\; q_{o,s,t}^{\text{fail}} \;\geq\; D_{o,t}
 \qquad \forall \; o,\; s,t
 \end{aligned}
-$$
+```
 <!-- source: source/volume_right_lp.cpp:313-346 -->
 
 **Seasonal reset.** When a `reset_month` is configured and the current
 stage's calendar month matches, the initial-volume column is clamped to
 the provisioned value for the new hydrological period:
 
-$$
+```math
 \begin{aligned}
 \nu_{o,s,t,b_0} \;=\; \begin{cases}
-B_o(x) & \text{if } \texttt{bound\_rule} \text{ is set} \\
+B_o(x) & \text{if } \texttt{bound_rule} \text{ is set} \\
 \overline{V}_{o,t} & \text{otherwise}
 \end{cases}
 \end{aligned}
-$$
+```
 <!-- source: source/volume_right_lp.cpp:230-237 -->
 
 **Consumptive coupling.** When a `reservoir` reference is set, the
-extraction column is injected with coefficient $+\alpha_o\,\Delta_b$
+extraction column is injected with coefficient $`+\alpha_o\,\Delta_b`$
 into the energy balance row of the linked reservoir (§5.10), debiting
 the physical water storage. A `right_reservoir` link analogously
 couples a child right to a parent rights ledger with coefficient
-$-d_o\,\alpha_o\,\Delta_b$ in the parent's energy row, where
+$`-d_o\,\alpha_o\,\Delta_b`$ in the parent's energy row, where
 $d_o$ = `direction` ($-1$, the default, is a withdrawal that debits
 the parent like the physical coupling above; $+1$ is a supply that
 credits it).
@@ -3518,7 +3569,7 @@ heat rates. The formulation reuses the `StorageLP` balance template
 
 #### Tank Volume Balance
 
-$$
+```math
 \begin{aligned}
 e_{\tau,s,t,b}^{\text{lng}} \;=\;& e_{\tau,s,t,b-1}^{\text{lng}} \cdot (1 - \lambda_\tau^h\,\Delta_b) \\
 & \;+\; \rho_\tau\,\Delta_b\,d_{\tau,s,t,b}^{\text{lng}} \\
@@ -3526,7 +3577,7 @@ e_{\tau,s,t,b}^{\text{lng}} \;=\;& e_{\tau,s,t,b-1}^{\text{lng}} \cdot (1 - \lam
 & \;-\; \rho_\tau\,\Delta_b\,\sum_{g \in \mathcal{G}_\tau} \eta_g^{hr}\, p_{g,s,t,b}
 \qquad \forall \; \tau,\; s,t,b
 \end{aligned}
-$$
+```
 <!-- source: source/lng_terminal_lp.cpp:134-164 -->
 
 where $\mathcal{G}\_\tau$ is the set of generators linked to terminal
@@ -3536,20 +3587,20 @@ $\lambda\_\tau^h = \lambda\_\tau / 8760$.
 The last term is added directly to the existing energy balance row by
 setting
 
-$$
+```math
 \text{coeff}(\text{balance}_b, \; p_{g,s,t,b}) \;=\; \rho_\tau \cdot \eta_g^{hr} \cdot \Delta_b
-$$
+```
 
 for each linked generator and each block.
 
 #### Delivery Schedule
 
-$$
+```math
 \begin{aligned}
 d_{\tau,s,t,b}^{\text{lng}} \;=\; \frac{D_{\tau,t}}{T_t}
 \qquad \forall \; \tau,\; s,t,b
 \end{aligned}
-$$
+```
 <!-- source: source/lng_terminal_lp.cpp:71-88 -->
 
 #### Bounds, Vent and Costs
@@ -3566,12 +3617,12 @@ $\underline{V}\_{\tau,t,b} \le e^{\text{lng}}\_{\tau,s,t,b} \le \overline{V}\_{\
 `model_options.strict_storage_emin` is true, the default).  The
 objective adds
 
-$$
+```math
 \pi_s\delta_t \sum_{b} \bigl( c^{e}_{\tau,t,b}\, e^{\text{lng}}_{\tau,s,t,b} +
   \Delta_b\, c^{\text{vent}}_\tau\, \text{vent}_{\tau,s,t,b} \bigr) +
   \pi_s\delta_t \bigl( c^{\text{sm}}_{\tau,t}\, s^{\text{sm}}_{\tau,s,t} +
   c^{\text{fin}}_\tau\, s^{\text{fin}}_{\tau,s} \bigr)
-$$
+```
 
 ($c^e$ = `ecost`, charged once per block, not per hour) with the soft
 floor at the end of each stage and the final target at the end of the
@@ -3605,16 +3656,16 @@ with $e_{\text{end}} = e_{\text{ini}}$.
 #### Fuel Offtake Limits (Take-or-Pay)
 
 A `Fuel` $f$ with price $P\_{f,t,b}$ gives each generator burning it
-$c_g = P\_{f,t,b}\, h_g + c^0_g$ (`heat_rate` × `price` + `gcost`).
+$`c_g = P_{f,t,b}\, h_g + c^0_g`$ (`heat_rate` × `price` + `gcost`).
 `max_offtake` $\overline{O}\_{f,t}$ and `min_offtake`
 $\underline{O}\_{f,t}$ bound the fuel burnt by the generators
 $\mathcal{G}\_f$ of the fuel over each stage:
 
-$$
+```math
 \sum_{b}\sum_{g\in\mathcal{G}_f} h_g \Delta_b\, p_{g,s,t,b} - s^{\max}_{f,s,t} \le \overline{O}_{f,t},
 \qquad
 \sum_{b}\sum_{g\in\mathcal{G}_f} h_g \Delta_b\, p_{g,s,t,b} + s^{\min}_{f,s,t} \ge \underline{O}_{f,t}
-$$
+```
 
 The burn also includes the heat-rate segment legs and the no-load fuel
 of a committed unit.  The slacks exist only when `max_offtake_cost` /
@@ -3636,23 +3687,23 @@ $b$ (objective decrease per extra m³); the reported
 Stationarity of $e^{\text{lng}}_b$, of the vent column and of a linked
 generator strictly between its bounds give
 
-$$
+```math
 \theta_{\tau,b} = (1-\lambda^h_\tau\Delta_{b+1})\,\theta_{\tau,b+1} -
   \pi_s\delta_t\, c^e_{\tau,t,b} + \nu^{\text{lo}}_{\tau,b} - \nu^{\text{up}}_{\tau,b},
 \qquad
 \vartheta_{\tau,b} \ge -c^{\text{vent}}_\tau/\rho_\tau,
 \qquad
 \lambda^{\text{bus}}_{n(g),b} = c_g + \rho_\tau\,\eta^{hr}_g\,\vartheta_{\tau,b}
-$$
+```
 
 so the dispatch cost of an LNG unit is the opportunity cost
 $\rho_\tau\eta^{hr}_g\vartheta$, not the cargo price.  At the end of an
 SDDP phase the volume is a cut state, and
 
-$$
+```math
 \theta_{\tau,\text{end}} = -\sum_k \upsilon_k\,\hat\mu_{k,\tau} -
   \pi_s\delta_t c^e_\tau + \nu^{\text{lo}} - \nu^{\text{up}}
-$$
+```
 
 with $\upsilon_k \ge 0$ the duals of the active cuts (summing to the
 objective weight of $\alpha$) and $\hat\mu_{k,\tau} \le 0$ their slopes
@@ -3694,10 +3745,10 @@ $T = V + x - u$.  Each tank whose gas outlives the horizon gets its own
 future-cost variable (a `DecisionVariable` with raw cost 1 and a user
 constraint on the last block):
 
-$$
+```math
 \alpha^{\text{gas}}_\tau + g_\tau\, e_{\tau,\text{end}} \ge g_\tau V^{\text{use}}_\tau,
 \qquad \alpha^{\text{gas}}_\tau \ge 0
-$$
+```
 
 i.e. future cost $g\_\tau\max(0, V^{\text{use}}\_\tau - e\_{\tau,\text{end}})$
 and terminal value $\vartheta\_{\text{end}} \in [0, g\_\tau]$; $g\_\tau$ is
@@ -3750,37 +3801,37 @@ There is **no** emission variable and no balance row: every contribution
 is substituted onto the generator dispatch column $p_{g,s,t,b}$ with the
 per-block coefficient
 
-$$
+```math
 \alpha^{\text{em}}_{\nu,t,b} \;=\; \mu_{z(\nu),\epsilon(\nu)}\,
   \bigl(1 - \eta^{\text{cap}}_{g(\nu),\epsilon(\nu),t}\bigr)\,
   \bigl(f_{\nu,t} + f^{\text{up}}_{\nu,t}\bigr)\,\Delta_b
 \qquad [\text{t/MW}]
-$$
+```
 <!-- source: source/emission_source_lp.cpp -->
 
 Fuel-basis factors act on the generator's fuel burn rate
 $F_{g,s,t,b}$ [fuel units/h], substituted the same way onto its legs:
 
-$$
+```math
 F_{g,s,t,b} \;=\;
 \begin{cases}
-h_{g,t,b}\, p_{g,s,t,b} & \text{scalar or per-block } \texttt{heat\_rate}\\
+h_{g,t,b}\, p_{g,s,t,b} & \text{scalar or per-block } \texttt{heat_rate}\\
 h_{g,1}\, p_{g,s,t,b} + \sum_{k=1}^{K-1} (h_{g,k+1} - h_{g,k})\,
-  s_{g,k,s,t,b} & \texttt{heat\_rate\_segments}
+  s_{g,k,s,t,b} & \texttt{heat_rate_segments}
 \end{cases}
 \;+\; h^{0}_{g}\, u_{g,s,t,b}
-$$
+```
 
 where $s\_{g,k}$ are the piecewise heat-rate slack columns and
-$h^{0}\_{g}\,u\_{g,s,t,b}$ is the no-load burn of a committed unit
+$`h^{0}_{g}\,u_{g,s,t,b}`$ is the no-load burn of a committed unit
 (`Commitment.noload_fuel`, PLEXOS `Heat Rate Base`, times the status
 $u$; zero without a commitment).  A generator whose commitment carries
 `noload_fuel` always uses the fuel basis.  The same
-$F\_{g,s,t,b}\,\Delta_b$ is the generator's contribution to its fuel's
+$`F_{g,s,t,b}\,\Delta_b`$ is the generator's contribution to its fuel's
 offtake rows (`Fuel.max_offtake` / `min_offtake`, `fuel("X").offtake`);
 the no-load fuel *cost* remains in `noload_cost`.  The
 coefficient on each leg is
-$\mu\,(1-\eta^{\text{cap}})\,(\phi\_{\nu,t} + \phi^{\text{up}}\_{\nu,t})\,\Delta_b$
+$`\mu\,(1-\eta^{\text{cap}})\,(\phi_{\nu,t} + \phi^{\text{up}}_{\nu,t})\,\Delta_b`$
 times the leg's fuel coefficient, so the cap, price,
 allowance-pool and CCS terms below apply to the exact piecewise or
 per-block fuel burn.
@@ -3790,7 +3841,7 @@ where $\eta^{\text{cap}}\_{g,\epsilon,t}$ is the CCS capture fraction
 (`Generator.emission_captures[].rate`, 0 when absent). A source whose
 pollutant is not listed in its zone's `emissions[]` contributes nothing.
 The emissions of a source in block $b$ are
-$\alpha^{\text{em}}\_{\nu,t,b}\,p\_{g(\nu),s,t,b}$; they are reported
+$`\alpha^{\text{em}}_{\nu,t,b}\,p_{g(\nu),s,t,b}`$; they are reported
 post-solve (`EmissionSource/emissions_sol`, net of capture and
 unweighted).
 
@@ -3798,11 +3849,11 @@ unweighted).
 $c^{\text{em}}_{z,t}$ [\$/t], every source adds to its generator's
 objective coefficient
 
-$$
+```math
 \omega_{s,t,b}\; c^{\text{em}}_{z(\nu),t}\;
   \frac{\alpha^{\text{em}}_{\nu,t,b}}{\Delta_b}
 \qquad \forall \; \nu,\; s,t,b
-$$
+```
 <!-- source: source/emission_source_lp.cpp:195-202,247-252 -->
 
 No row is created. Under `model_options.objective_mode = "emissions"`
@@ -3813,36 +3864,36 @@ the objective becomes total weighted emissions.
 **CCS cost.** A capture row with cost $c^{\text{ccs}}_{g,\epsilon,t}$
 [\$/t captured] adds to the generator's objective coefficient
 
-$$
+```math
 \omega_{s,t,b}\;\eta^{\text{cap}}_{g,\epsilon,t}\;
   \bigl(f_{\nu,t} + f^{\text{up}}_{\nu,t}\bigr)\;
   c^{\text{ccs}}_{g,\epsilon,t}
 \qquad \forall \; \nu,\; s,t,b
-$$
+```
 <!-- source: source/emission_source_lp.cpp:269-273 -->
 
 **Standalone cap (no pool).** When `cap` $\overline{E}_{z,t}$
 [t per stage] is set and the zone is *not* coupled to an allowance
 pool, one row per (scenario, stage) sums the block tonnages:
 
-$$
+```math
 \sum_{b \in \mathcal{B}_t} \sum_{\nu:\,z(\nu)=z}
   \alpha^{\text{em}}_{\nu,t,b}\; p_{g(\nu),s,t,b}
   \;-\; s^{\text{cap}}_{z,s,t}
   \;\leq\; \overline{E}_{z,t}
 \qquad \forall \; z \in \mathcal{EZ},\; s,t
-$$
+```
 <!-- source: source/emission_zone_lp.cpp:80-122 ; source/emission_source_lp.cpp:238-242 -->
 
 The slack $s^{\text{cap}}\_{z,s,t} \geq 0$ (`EmissionZone/cap_slack`)
 exists only when `cap_cost` $c^{\text{cap}}\_{z,t}$ is set (soft cap);
-its objective coefficient is $\pi_s\,\delta_t\,c^{\text{cap}}\_{z,t}/\sigma$,
+its objective coefficient is $`\pi_s\,\delta_t\,c^{\text{cap}}_{z,t}/\sigma`$,
 with no duration factor because the slack is an absolute tonnage.
 Without `cap_cost` the cap is hard.
 
 **Endogenous price.** The dual $\lambda^{\text{cap}}\_{z,s,t} \leq 0$
 of the cap row (`EmissionZone/cap_dual`, reported in \$/t after
-removing $\pi_s\,\delta_t/\sigma$) is the scarcity price of the
+removing $`\pi_s\,\delta_t/\sigma`$) is the scarcity price of the
 pollutant: zero when the cap is slack, and with a soft cap
 $|\lambda^{\text{cap}}\_{z,s,t}| \leq c^{\text{cap}}\_{z,t}$. When `price`
 and `cap` are both set, the marginal tonne costs
@@ -3856,11 +3907,11 @@ $F_{a,t}/T_t$, the grandfathering entitlement) and its state
 $e_{a,s,t,b}$ [tCO₂] carries forward with annual decay $\lambda_a$.
 
 When `EmissionZone.allowance_pool` references pool $a$, each source's
-block tonnage $\alpha^{\text{em}}\_{\nu,t,b}\,p\_{g(\nu),s,t,b}$ is
+block tonnage $`\alpha^{\text{em}}_{\nu,t,b}\,p_{g(\nu),s,t,b}`$ is
 injected as a **drawdown** into that pool's energy-balance row, and the
 zone's own standalone cap row is **skipped**:
 
-$$
+```math
 \begin{aligned}
 e_{a,s,t,b} \;=\;& e_{a,s,t,b-1}\,(1 - \lambda_a^h\,\Delta_b)
   \;+\; \Delta_b\,\phi_{a,s,t,b}
@@ -3869,7 +3920,7 @@ e_{a,s,t,b} \;=\;& e_{a,s,t,b-1}\,(1 - \lambda_a^h\,\Delta_b)
     \alpha^{\text{em}}_{\nu,t,b}\; p_{g(\nu),s,t,b}
 \qquad \forall \; a,\; s,t,b
 \end{aligned}
-$$
+```
 <!-- source: source/emission_source_lp.cpp:254-261 ; source/allowance_pool_lp.cpp -->
 
 **Auction purchases (cap-and-trade market).** When `auction_price`
@@ -3877,10 +3928,10 @@ $\rho_{a,t,b}$ is set, an `auction` column $\beta_{a,s,t,b}$ [tCO₂]
 lets the bank buy allowances on the market instead of abating
 emissions:
 
-$$
+```math
 0 \;\leq\; \beta_{a,s,t,b} \;\leq\; \overline{B}_{a,t,b},
 \qquad \text{obj} \mathrel{+}= \rho_{a,t,b}\,\pi_s\,\delta_t\,\beta_{a,s,t,b}
-$$
+```
 <!-- source: source/allowance_pool_lp.cpp -->
 
 where $\overline{B}\_{a,t,b}$ is `auction_cap`, $\pi_s$ the scenario
@@ -3913,12 +3964,12 @@ status column $u\_{g,s,t,p(b)}$.
 
 #### Variables
 
-$$
+```math
 \begin{aligned}
 u_{g,s,t,p}, \; v_{g,s,t,p}, \; w_{g,s,t,p} \;\in\; \{0,1\}
 \qquad \forall \; g \in \mathcal{UC},\; s,t,p
 \end{aligned}
-$$
+```
 <!-- source: source/commitment_lp.cpp:219-268 -->
 
 (Binary is relaxed to $[0,1]$ continuous when `relax = true` or in SDDP
@@ -3926,31 +3977,31 @@ continuous phases.)
 
 #### C1 — Status Transition Logic
 
-$$
+```math
 \begin{aligned}
 u_{g,s,t,p} \;-\; u_{g,s,t,p-1} \;-\; v_{g,s,t,p} \;+\; w_{g,s,t,p} \;=\; 0
 \qquad \forall \; g,\; s,t,p > 0
 \end{aligned}
-$$
+```
 
 For the first period the RHS becomes the initial status:
 
-$$
+```math
 \begin{aligned}
 u_{g,s,t,0} \;-\; v_{g,s,t,0} \;+\; w_{g,s,t,0} \;=\; u_g^{\text{init}}
 \qquad \forall \; g,\; s,t
 \end{aligned}
-$$
+```
 <!-- source: source/commitment_lp.cpp:272-289 -->
 
 #### C2 — Startup/Shutdown Exclusion
 
-$$
+```math
 \begin{aligned}
 v_{g,s,t,p} \;+\; w_{g,s,t,p} \;\leq\; 1
 \qquad \forall \; g,\; s,t,p
 \end{aligned}
-$$
+```
 <!-- source: source/commitment_lp.cpp:291-304 -->
 
 Integrality: $u$ is binary; `initial_status` is rounded at 0.5.  C1
@@ -3969,40 +4020,40 @@ them together.
 
 #### C3 — Generation Bounds Coupled to Status
 
-$$
+```math
 \begin{aligned}
 p_{g,s,t,b} \;-\; \overline{P}_{g,t,b}\,u_{g,s,t,p(b)} \;\leq\; 0
 \qquad \forall \; g,\; s,t,b
 \end{aligned}
-$$
+```
 <!-- source: source/commitment_lp.cpp:346-362 -->
 
-$$
+```math
 \begin{aligned}
 p_{g,s,t,b} \;-\; \underline{P}_{g,t,b}\,u_{g,s,t,p(b)} \;\geq\; 0
 \qquad \forall \; g,\; s,t,b
 \end{aligned}
-$$
+```
 <!-- source: source/commitment_lp.cpp:364-377 -->
 
 #### C4 — Ramp-Up
 
-$$
+```math
 \begin{aligned}
 p_{g,s,t,b} \;-\; p_{g,s,t,b-1} \;-\; R_g^{\text{up}}\Delta_b\,u_{g,s,t,p(b-1)} \;-\; \text{SU}_g^{\text{ramp}}\,v_{g,s,t,p(b)} \;\leq\; 0
 \qquad \forall \; g,\; s,t,b > 0
 \end{aligned}
-$$
+```
 <!-- source: source/commitment_lp.cpp:379-404 -->
 
 #### C5 — Ramp-Down
 
-$$
+```math
 \begin{aligned}
 p_{g,s,t,b-1} \;-\; p_{g,s,t,b} \;-\; R_g^{\text{dn}}\Delta_b\,u_{g,s,t,p(b)} \;-\; \text{SD}_g^{\text{ramp}}\,w_{g,s,t,p(b)} \;\leq\; 0
 \qquad \forall \; g,\; s,t,b > 0
 \end{aligned}
-$$
+```
 <!-- source: source/commitment_lp.cpp:406-430 -->
 
 At the first block of a stage ($b = 0$) the lagged terms $p_{g,s,t,-1}$ and
@@ -4015,7 +4066,7 @@ horizon block in user constraints.
 
 Here $\Delta_b$ is the REAL time step of block $b$: on a stage with
 `period_hours` (typical period with weighted blocks, see §5.7)
-$\Delta_b = d_b\,\kappa_t$, otherwise the block duration.  Minimum
+$`\Delta_b = d_b\,\kappa_t`$, otherwise the block duration.  Minimum
 up / down times, commitment periods and start windows also count real
 hours.
 
@@ -4023,11 +4074,11 @@ On point-sampled stages (default `ramp_formula = "backward"`) the rows
 are the interval slopes, written scaled by
 $h_k = t_k - t_{k-1}$ (no $1/h$ coefficients):
 
-$$
+```math
 {}-R^{dn}_g h_k\,u_{g,k} - \text{SD}_g\,w_{g,k}
 \;\le\; P_k - P_{k-1} \;\le\;
 R^{up}_g h_k\,u_{g,k-1} + \text{SU}_g\,v_{g,k},
-$$
+```
 
 with the cyclic wrap $h_0 = t_0 + H - t_{N-1}$ ($H$ = `period_hours`).
 The start / stop allowance uses the $v$ / $w$ of the same interval.
@@ -4054,12 +4105,12 @@ P'(t_k) \approx
 \end{cases}
 ```
 
-$$
+```math
 {}-R_g^{\text{dn}} h_k\,u_{g,k} - \text{SD}_g^{\text{ramp}} w_{g,k}
 \;\le\; h_k\,P'(t_k) \;\le\;
 R_g^{\text{up}} h_k\,u_{g,k} + \text{SU}_g^{\text{ramp}} v_{g,k}
 \;(+\,\text{SU}_g^{\text{ramp}} c_{k+1} h_k\, v_{g,k+1})
-$$
+```
 
 written scaled by $h_k = h_-$ ($h_+$ at the first node); the last term
 is the start allowance of the next interval, whose slope enters the
@@ -4075,12 +4126,12 @@ the reference paper of the Chebyshev sampling method.
 When $T_g^{\text{up}} > 0$, for each period $p$ let $\mathcal{Q}(p)$
 be the set of periods covering the next $T_g^{\text{up}}$ hours:
 
-$$
+```math
 \begin{aligned}
 \sum_{q \in \mathcal{Q}(p)} v_{g,s,t,q} \;-\; u_{g,s,t,p} \;\leq\; 0
 \qquad \forall \; g,\; s,t,p
 \end{aligned}
-$$
+```
 <!-- source: source/commitment_lp.cpp:562-618 -->
 
 Symmetrically for minimum down time with $w$ and $1-u$.
@@ -4090,13 +4141,13 @@ Symmetrically for minimum down time with $w$ and $1-u$.
 
 The objective contribution of a committed unit is:
 
-$$
+```math
 \omega_{s,t,b}\,\Bigl[
   \text{NL}_g \cdot T_p \cdot u_{g,s,t,p}
   \;+\; \text{SU}_g \cdot v_{g,s,t,p}
   \;+\; \text{SD}_g \cdot w_{g,s,t,p}
 \Bigr]
-$$
+```
 
 (no-load cost scales with period duration $T_p$; startup/shutdown are
 per-event).
@@ -4133,10 +4184,10 @@ stay fixed.
 A commitment $g$ is fast-start ($g \in \mathcal{F}$) when
 `Commitment.fast_start` is `true`; when it is unset, by the auto rule
 
-$$
+```math
 T^{\text{up}}_g \le H \;\wedge\; T^{\text{down}}_g \le H,
-\qquad H = \texttt{fast\_start\_max\_hours}\ (\text{default } 1\,\text{h}),
-$$
+\qquad H = \texttt{fast_start_max_hours}\ (\text{default } 1\,\text{h}),
+```
 
 with an unset min up / down counting as 0.  gtopt has no start-up-time
 field, so the rule uses min up / down only.  Relaxed commitments are
@@ -4188,7 +4239,7 @@ $k^+$), $F_b = 1$ if block $b$ starts one; $T_k$ is the start of period
 $k$.  New columns per boundary: $p_b \ge 0$ (power above minimum) and
 $\hat p_b$ (total power, output `Commitment/power`).
 
-$$
+```math
 \begin{aligned}
 &\hat p_b = \underline P_b\,(u_{k(b)} + E_b v_{k^+}) + p_b
   {}+ \textstyle\sum_s f^{SU}(T_s - \tau_b)\,v_s
@@ -4208,20 +4259,20 @@ $$
   {}+ F_b (SD - \underline P_b) w_{k(b)}
   && \text{(PB6)}
 \end{aligned}
-$$
+```
 
 When period $k$ is the single block $b$, a one-block outage passes
 through $\underline P$ (a deliberate tightening of the published model,
 always on; redundant in every other state):
 
-$$
+```math
 \begin{aligned}
 &p_b + (SU - \underline P_b)\,w_k - (\overline P_b - \underline P_b)\,u_k
   \le SU - \underline P_b && \text{(PB7a)}\\
 &p_{b-1} - (\overline P - \underline P)(u_{k-1} - w_k)
   {}+ (SD - \underline P)\,v_{k^+} \le SD - \underline P && \text{(PB7b)}
 \end{aligned}
-$$
+```
 
 $f^{SU}(\delta)$ / $f^{SD}(\delta)$ are the piecewise-linear start-up /
 shut-down trajectories (`startup_trajectory`, `shutdown_trajectory`,
@@ -4250,17 +4301,17 @@ The formulation of §5.15 needs ordered blocks.  On a stage with
 variable per block, no startup / shutdown variables, no logic,
 exclusion, ramp or min up/down rows.
 
-$$
+```math
 \begin{aligned}
 u_{g,s,t,b} &\in \{0,1\} \\
 p_{g,s,t,b} - \overline{P}_{g,t,b}\,u_{g,s,t,b} &\le 0 \\
 p_{g,s,t,b} - \underline{P}^{c}_{g,t,b}\,u_{g,s,t,b} &\ge 0
 \qquad \forall \; g \in \mathcal{UC},\; s,t,b
 \end{aligned}
-$$
+```
 
 with the no-load cost
-$\sum\_{b} \pi\_{s}\,\delta\_{t}\,c^{\text{nl}}\_{g}\,\Delta_b\,u\_{g,s,t,b}$
+$`\sum_{b} \pi_{s}\,\delta_{t}\,c^{\text{nl}}_{g}\,\Delta_b\,u_{g,s,t,b}`$
 in the objective (same
 probability / discount factors as §5.15; `noload_fuel` adds
 $\texttt{noload\_fuel}\cdot u$ to the fuel and emission balances as there).
@@ -4299,19 +4350,19 @@ coefficient $-c^{H}\epsilon\_{s,t,b}$ enters the requirement row with
 coefficient $-1$; InertiaProvisions (and commitment-dependent
 `requirement_credits`) add their contributions to the same row:
 
-$$
+```math
 \begin{aligned}
 \sum_{p \in \mathcal{P}_z} \Phi_{p,t}\,r_{p,s,t,b}^{H} \;-\; \rho_{z,s,t,b}^{H} \;\geq\; 0
 \qquad \forall \; z \in \mathcal{IZ},\; s,t,b
 \end{aligned}
-$$
+```
 <!-- source: source/inertia_zone_lp.cpp (add_requirement) -->
 <!-- source: source/inertia_provision_lp.cpp:175-191 (factor injection) -->
 
 With the shortage $q^{H} = \overline{R}^{H} - \rho^{H} \geq 0$ this is
 $\sum_p \Phi_{p,t} r^{H} + q^{H} \geq \overline{R}^{H}$ priced at
-$c^{H}\epsilon\,q^{H}$: as for reserves (§5.9), the constant
-$+c^{H}\epsilon\,\overline{R}^{H}$ is added to the LP-external objective
+$`c^{H}\epsilon\,q^{H}`$: as for reserves (§5.9), the constant
+$`+c^{H}\epsilon\,\overline{R}^{H}`$ is added to the LP-external objective
 constant, so a met requirement contributes $0$ to the reported objective
 and only the unmet inertia is charged; the LP and its duals are unchanged.
 Without a cost the requirement is hard: no column, and
@@ -4328,23 +4379,23 @@ Factor below), since the converters put the committed floor there and
 leave the generation column's lower bound at 0; without a commitment it
 is `Generator.pmin`:
 
-$$
+```math
 \begin{aligned}
 0 \;\leq\; r_{p,s,t,b}^{H} \;\leq\; \overline{R}_{p,t,b}^{H}
 \qquad \forall \; p \in \mathcal{IP},\; s,t,b
 \end{aligned}
-$$
+```
 <!-- source: source/inertia_provision_lp.cpp:143-159 -->
 
 A **downward coupling** row ties the generator output to the reserved
 MW:
 
-$$
+```math
 \begin{aligned}
 p_{g,s,t,b} \;-\; r_{p,s,t,b}^{H} \;\geq\; 0
 \qquad \forall \; p \in \mathcal{IP},\; s,t,b
 \end{aligned}
-$$
+```
 <!-- source: source/inertia_provision_lp.cpp:161-173 -->
 
 #### Provision Factor
@@ -4375,11 +4426,11 @@ A zone requirement can be relieved when enough units of a set
 $\mathcal{G}_j$ are committed.  Each credit $j$ (relief $c_j$ MWs, unit
 count $k_j$) adds a selector $y_j \in [0, 1]$:
 
-$$
+```math
 \sum_p \Phi_p\, r^{H}_p + \sum_j c_j\, y_j \;\ge\; \overline{R}^{H},
 \qquad
 k_j\, y_j \;\le\; \sum_{g \in \mathcal{G}_j} u_g
-$$
+```
 
 with $u_g$ the Commitment status.  This is the
 PLEXOS PCP form (2026-11-07): `InertiaNRMin_D` = Σ H·units + 2 900·y ≥
@@ -4414,7 +4465,7 @@ The hydrogen economy is a separate energy carrier measured in
 MWh$\_{\text{LHV}}$.  A `HydrogenNode` $n$ has one equality balance row
 per block; a `CarrierConverter` $c$ (electrolyser) withdraws electric
 power $x\_{c,s,t,b}$ [MW$\_e$] from its bus and injects
-$\eta\_{c,t,b}\, x\_{c,s,t,b}$ into the node; a `HydrogenStorage`
+$`\eta_{c,t,b}\, x_{c,s,t,b}`$ into the node; a `HydrogenStorage`
 behaves like a battery on the node; a `HydrogenDemand` $h$ withdraws
 $q\_{h,s,t,b}$ [MW$\_{\text{LHV}}$].
 
@@ -4428,16 +4479,16 @@ $e_{s,t,\text{last}} = e_{s,t,\text{ini}}$ on every stage.
 
 #### Node Balance
 
-$$
+```math
 \sum_{c \to n} \eta_{c,t,b}\, x_{c,s,t,b}
 \;+\; \sum_{k \in n} \left(d^{out}_{k,s,t,b} - d^{in}_{k,s,t,b}\right)
 \;-\; \sum_{h \in n} q_{h,s,t,b} \;=\; 0
 \qquad \forall n, s, t, b
-$$
+```
 
 The electrolyser input $x\_{c,s,t,b} \in [0, \bar{X}\_c]$ enters the bus
 balance (§5.1) with coefficient $-1$ and carries the operating cost
-$\pi_s \delta_t \Delta_b\, o\_{c,t,b}$ (a negative `ocost` represents a
+$`\pi_s \delta_t \Delta_b\, o_{c,t,b}`$ (a negative `ocost` represents a
 bid that values the load).  An expandable converter (`expcap` /
 `expmod`) adds, per block, the capacity row
 $x\_{c,s,t,b} \le \bar{X}^{\text{inst}}\_{c,t}$ on its installed-capacity
@@ -4453,15 +4504,15 @@ $$
 $$
 
 with objective contribution
-$-\pi_s \delta_t \Delta_b\, p_{h,t,b}\, q_{h,s,t,b}$ (`price`, default
+$`-\pi_s \delta_t \Delta_b\, p_{h,t,b}\, q_{h,s,t,b}`$ (`price`, default
 0).  Optional per-stage energy requirement (production target over
 the stage, e.g. the AEMO ISP weekly/monthly hydrogen targets):
 
-$$
+```math
 \sum_{b \in t} \Delta_b\, q_{h,s,t,b} + \sigma_{h,s,t} \;\ge\; E^{min}_{h,t},
 \qquad
 \sum_{b \in t} \Delta_b\, q_{h,s,t,b} \;\le\; E^{max}_{h,t}
-$$
+```
 
 where $\sigma\_{h,s,t} \ge 0$ exists only when `min_energy_cost`
 $\kappa\_{h,t} > 0$ and is priced at $\pi_s \delta_t \kappa\_{h,t}$
@@ -4497,12 +4548,12 @@ De Wolf & Smeers [[23]](#ref23); compressor fuel after Saldarriaga
 
 #### Node Pressure and Balance
 
-$$
+```math
 \underline{p}_n^2 \le \varpi_n \le \bar{p}_n^2,
 \qquad \text{cost } \pi_s\delta_t\Delta_b\, c^{\varpi}_n\, \varpi_n
-$$
+```
 
-$$
+```math
 \sum_{g\in n} x_g +
  \sum_{\ell:\,\to n} f^{out}_\ell - \sum_{\ell:\,n\to} f^{in}_\ell +
  \sum_{c:\,\to n} \Psi_c - \sum_{c:\,n\to} (1+\chi_c\gamma^{ff}_c)\Psi_c -
@@ -4510,7 +4561,7 @@ $$
  \sum_{k\in n} h_k P_k +
  \sum_{d\in n} u_d
 \;=\; \sum_{d\in n} D_d
-$$
+```
 
 Here $\chi_c = 1$ for `drive: gas` and 0 for an electric drive (whose
 suction node supplies only $\Psi_c$).  The dual of the balance row is
@@ -4519,8 +4570,8 @@ tie-break (e.g. $-10^{-4}$ \$/(bar² h)): among the LP-optimal
 dispatches it selects the highest pressure profile, i.e. the pressures
 of the exact Weymouth equation from the sources down.  Supplies
 $x_g \in [\underline{x}\_g, \bar{x}\_g]$ cost
-$\pi_s\delta_t\Delta_b\, c_g x_g$; shedding $u_d \in [0, D_d]$ costs
-$\pi_s\delta_t\Delta_b\, c^{fail}\_d u_d$ (no column when `fail_cost` is
+$`\pi_s\delta_t\Delta_b\, c_g x_g`$; shedding $u_d \in [0, D_d]$ costs
+$`\pi_s\delta_t\Delta_b\, c^{fail}_d u_d`$ (no column when `fail_cost` is
 unset: hard load).  A supply with `volume` $V_g$ adds the stage row
 $\sum_b \Delta_b x\_{g,b} \le V_g$ (an LNG or pipeline allotment).  A
 pipe with `weymouth_mode: none` is a capacity-only arc $0 \le f \le \bar F$
@@ -4534,10 +4585,10 @@ Weymouth in squared pressure, $\varpi_a - \varpi_b = K f|f|$, is
 relaxed on a radial network to the convex $\varpi_a - \varpi_b \ge K f^2$ and
 replaced by $N$ (`segments`) tangent planes
 
-$$
+```math
 \varpi_a - \varpi_b - 2 K t_k \bar{f} \;\ge\; -K t_k^2,
 \qquad k = 1..N,\quad 0 \le f \le \bar{F}
-$$
+```
 
 with $\bar f = f$ (steady state) or $\bar f = (f^{in}+f^{out})/2$ (line
 pack).  `tangent_layout`:
@@ -4564,15 +4615,15 @@ no gas-creating arbitrage.
 A pipe climbing from $h_a$ to $h_b$ [m] follows the steady-state gas
 equation with gravity (Menon [[24]](#ref24) §2.9):
 
-$$
+```math
 \varpi_a - e^{s}\varpi_b = K_e\, f|f|,
 \qquad
 s = \frac{2 g M (h_b - h_a)}{Z R T},
 \qquad
 K_e = K\,\frac{e^{s}-1}{s}
-$$
+```
 
-with $M = G\,M_{air}$ ($M_{air}$ = 0.028964 kg/mol), $g$ = 9.80665
+with $`M = G\,M_{air}`$ ($M_{air}$ = 0.028964 kg/mol), $g$ = 9.80665
 m/s², $R$ = 8.314 J/(mol K); $K_e \to K$ as $s \to 0$ (a series
 branch avoids the division).  Both sides stay linear in $\varpi$: the
 tangent rows become
@@ -4606,13 +4657,13 @@ rows do not apply. A pipe with `weymouth_mode: linearized` instead uses a
 signed flow $f \in [-\bar F, \bar F]$ and one equality per block,
 linearised at a reference flow $f_0$:
 
-$$
+```math
 \text{secant (default):}\;
 \varpi_a - e^{s}\varpi_b = K_e |f_0|\, \bar f,
 \qquad
 \text{tangent:}\;
 \varpi_a - e^{s}\varpi_b = 2K_e|f_0|\,\bar f - K_e f_0|f_0|
-$$
+```
 
 (`linearization`). Both equal the exact equation at $\bar f = f_0$. The
 secant's coefficient $K_e|f_0|$ stays valid when the flow reverses. The
@@ -4649,10 +4700,10 @@ by $K_e (f - f_0)^2$, which was 22 bar on the IEEE-24 + Belgian case. A
 proximal row is therefore added to every linearised pipe when
 $M > 0$:
 
-$$
+```math
 \bar f_{\ell,b} - d^+_{\ell,b} + d^-_{\ell,b} = f_{0,\ell,b},
 \qquad \text{cost } \rho\,(d^+ + d^-)
-$$
+```
 
 Here $\rho$ is `slp_proximal_cost` (default $10^{-6}$), and the RHS is
 re-issued with $f_0$. Among equal-cost vertices the LP keeps the one
@@ -4673,21 +4724,21 @@ $\varpi_{out} = \varpi_{in}$. It requires `max_ratio` 1 and
 
 #### Line Pack
 
-With `linepack: true`, $L_\ell = c\,(p_a+p_b)/2$ is linearised at
+With `linepack: true`, $`L_\ell = c\,(p_a+p_b)/2`$ is linearised at
 $p_r$ (`linepack_pressure_ref`, default the mean of the end nodes'
 bands) through $p \approx (\varpi + p_r^2)/(2p_r)$:
 
-$$
+```math
 L_{\ell,b} - \tfrac{c}{4p_r}(\varpi_{a,b}+\varpi_{b,b}) = \tfrac{c\,p_r}{2},
 \qquad
 \Delta_b (f^{in}_{\ell,b} - f^{out}_{\ell,b}) - L_{\ell,b} + L_{\ell,b-1} = 0,
 \qquad
 L_{\ell,\text{last}} \ge L^{0}_\ell
-$$
+```
 
 with $L_{\ell,0} = L^0_\ell$ (`linepack_ini`, default from the nodes'
 `p_init`) and $c$ [km³/bar] = `linepack_coeff` or the geometric volume
-$\pi D^2 L/4\,/(Z P_b)\cdot(T_b/T)$ ($T_b$ = 288.15 K, $P_b$ = 1.01325
+$`\pi D^2 L/4\,/(Z P_b)\cdot(T_b/T)`$ ($T_b$ = 288.15 K, $P_b$ = 1.01325
 bar, $T$ the flowing temperature).  The line pack cycles within each
 stage (daily cycle); it is not an SDDP state variable.  The terminal row is dropped with
 `options.gas_options.linepack_cyclic: false`, so the pack may be drawn
@@ -4697,12 +4748,12 @@ $(p-p_r)^2/(2p_r)$ (≈ 5 % of the absolute line pack for ±20 bar).
 
 #### Compressor Station
 
-$$
+```math
 \varpi_{out} \le \bar\beta^2 \varpi_{in},
 \qquad
-\varpi_{out} \ge \varpi_{in} \;\;(\text{unless } \texttt{allow\_bypass}),
+\varpi_{out} \ge \varpi_{in} \;\;(\text{unless } \texttt{allow_bypass}),
 \qquad 0 \le \Psi \le \bar F
-$$
+```
 
 `allow_bypass` defaults to true for `none` / `fixed_fraction` and false
 for `saldarriaga`; a `bidirectional` valve keeps both rows.
@@ -4742,7 +4793,7 @@ $$
 
 `drive: gas` draws $LC$ at the suction node; `drive: electric` adds
 $P^{el} \in [0, \bar P^{el}]$ (`power_max`) with coefficient $-1$ in
-the bus balance (§5.1) and $P^{el} = \kappa\, LC$ (or
+the bus balance (§5.1) and $`P^{el} = \kappa\, LC`$ (or
 $\kappa\gamma^{ff}\Psi$ for `fixed_fraction`),
 $\kappa = \text{LHV}\cdot\eta_{driver}/\eta_{motor}$ [MW per km³/h] (≈ 3.3).
 Fail-closed (§5.8): with the motor bus inactive, $\bar P^{el} = 0$, so
@@ -4802,9 +4853,9 @@ same column $P_k$ that enters the bus balance (§5.1) with $+1$, so the
 reduced-cost condition of a unit dispatched strictly between its bounds,
 with no other active coupling row, reads
 
-$$
+```math
 \lambda^{\text{bus}}_{n(k)} = c_k + h_k\,\lambda_{n} + |\nu^{\text{gate}}_k|
-$$
+```
 
 where $\nu^{\text{gate}}\_k$ is the dual of its `pressure_gate` (or
 `derate`) row.  The gas price is set by the marginal supply when the
@@ -4813,7 +4864,7 @@ $(\lambda^{\text{bus}} - c_k)/h_k$, when the delivery is limited
 (`test_gas_network.cpp`, "heat-rate link and price dual units": 220
 \$/MWh diesel / 0.2 km³/MWh = 1100 \$/km³).  For a flowing radial pipe
 without line pack, the reduced cost of $f\_\ell$ gives
-$\lambda_b - \lambda_a = \sum_k 2K_e t_k\,\nu^{W}\_{\ell,k}$ (plus the
+$`\lambda_b - \lambda_a = \sum_k 2K_e t_k\,\nu^{W}_{\ell,k}`$ (plus the
 capacity dual), with $\nu^{W} \ge 0$ the duals of the tangent rows: the
 gas price rises along the flow only when a pressure bound binds
 somewhere.  A white-paper version of this section is in
@@ -4889,7 +4940,7 @@ invariant to the choice of scale**.
 When a scale factor $\sigma_x$ is applied to a storage variable, the LP
 formulation adjusts:
 
-- **Variable bounds**: $x_{\text{LP}} \in [\underline{x}/\sigma_x,\; \overline{x}/\sigma_x]$
+- **Variable bounds**: $`x_{\text{LP}} \in [\underline{x}/\sigma_x,\; \overline{x}/\sigma_x]`$
 - **Objective coefficients**: multiplied by $\sigma_x$ so that
   $c \cdot x_{\text{LP}} \cdot \sigma_x = c \cdot x_{\text{phys}}$
 - **Constraint coefficients**: adjusted so that physical-unit
@@ -4971,7 +5022,7 @@ Global options (`scale_theta`) take precedence over entries in
 | Kirchhoff threshold | `kirchhoff_threshold` | `0` | Minimum bus count for Kirchhoff activation |
 | Tiny-reactance floor | `dc_line_reactance_threshold` | `1e-6` | $\lvert X/V^2 \rvert$ below which the KVL flow term is dropped (§5.6) |
 | Tiny-reactance mode | `tiny_reactance_mode` | `"tie"` | `tie`: zero / sub-threshold $X$ is a zero-impedance tie ($\theta_a - \theta_b = \varphi$); `dc`: legacy DC link (§5.6) |
-| Relative tie floor | `tiny_reactance_rel_threshold` | `0.01` | Tie floor $\max(\epsilon_X^{\text{abs}}, \rho_X \cdot \text{median}\,\lvert X/V^2 \rvert)$; `0` = absolute floor only (§5.6) |
+| Relative tie floor | `tiny_reactance_rel_threshold` | `0.01` | Tie floor $`\max(\epsilon_X^{\text{abs}}, \rho_X \cdot \text{median}\,\lvert X/V^2 \rvert)`$; `0` = absolute floor only (§5.6) |
 | Tie losses | `tie_line_losses` | `false` | `false`: ties are lossless; `true`: legacy, ties keep their loss model (§5.6) |
 | Segment bound | `loss_segment_bound` | `true` | Ordered-fill upper bound on PWL loss segments, $\min(w_k, \max(0, \overline{F} - b_{k-1}))$ (§5.5) |
 | Objective scale | `scale_objective` | `1000` | Divides all cost coefficients |
@@ -5010,10 +5061,10 @@ alternates between:
 1. **Forward pass** — solve each stage LP sequentially, using available
    cuts to approximate future costs:
 
-$$
+```math
 \underset{x_t}{\min} \;\; c_t^\top x_t + \alpha_{t+1}
 \quad \text{s.t.} \quad A_t x_t = b_t(s),\; x_t \ge 0,\; \alpha_{t+1} \ge \hat{\alpha}_{t+1}
-$$
+```
 
    where $\alpha_{t+1}$ is the future-cost approximation (Benders value
    function) and $\hat{\alpha}_{t+1}$ are the cuts accumulated across
@@ -5068,14 +5119,14 @@ the gap stops improving.  The **stationary-gap criterion** detects this
 plateau and declares convergence when the gap has not changed significantly
 over a look-back window:
 
-$$
-\text{gap\_change}^{(k)} =
+```math
+\text{gap_change}^{(k)} =
 \frac{\lvert \text{gap}^{(k)} - \text{gap}^{(k - w)} \rvert}
      {\max\bigl(10^{-10},\; \text{gap}^{(k - w)}\bigr)}
 < \varepsilon_s
 \quad \text{and} \quad k \ge k_{\min}
 \quad \text{and} \quad k \ge w
-$$
+```
 
 where:
 - $w$ = `stationary_window` (default 10) — number of iterations to look
@@ -5129,8 +5180,8 @@ are different from the forward-pass scenarios.
 
 #### Aperture Set $\mathcal{A}$
 
-Let $\mathcal{A} = \{1, \ldots, A\}$ be the set of apertures with
-probability weights $\{\rho_a\}_{a \in \mathcal{A}}$ normalised so that
+Let $\mathcal{A} = \lbrace 1, \ldots, A\rbrace$ be the set of apertures with
+probability weights $\lbrace\rho_a\rbrace_{a \in \mathcal{A}}$ normalised so that
 
 $$
 \sum_{a \in \mathcal{A}} \rho_a = 1.
@@ -5144,13 +5195,13 @@ data (flow column bounds) are applied to the cloned backward-pass LP.
 Instead of a single backward-pass solve, the solver generates one cut per
 aperture and computes the **probability-weighted average** cut:
 
-$$
+```math
 \hat{\alpha}_t^{(k)} : \alpha_t \;\ge\;
 \sum_{a \in \mathcal{A}} \rho_a \Bigl[
   z_{t,a}^{(k)} +
   \sum_i \bar{\pi}_{i,a}^{(k)} \bigl( x_{t-1,i} - \hat{x}_{t-1,i,a}^{(k)} \bigr)
 \Bigr]
-$$
+```
 
 where $z_{t,a}^{(k)}$ and $\bar{\pi}_{i,a}^{(k)}$ are the objective value
 and dual prices from solving the stage-$t$ LP with aperture $a$'s parameter
@@ -5186,9 +5237,9 @@ horizon** — i.e. the value function at the terminal stage.  They are
 analogous to PLP's "planos de embalse" (reservoir future-cost function).
 Each cut constrains the future-cost variable $\alpha$ at the last phase:
 
-$$
+```math
 \alpha_{T} \;\ge\; \beta_0^{(k)} \;+\; \sum_{i} \rho_i^{(k)} \cdot x_{i,T}
-$$
+```
 
 where $x_{i,T}$ are the state variables (reservoir volumes, battery SoC)
 at the last phase $T$, $\rho_i^{(k)}$ are gradient coefficients, and
@@ -5230,11 +5281,11 @@ $t{-}1$.
 An **optimality cut** is generated from the dual solution of a feasible
 phase-$t$ LP. At iteration $k$:
 
-$$
+```math
 \alpha_{t-1} \;\ge\; z_t^{(k)} + \sum_{i \in \mathcal{S}_t}
 \text{rc}_i^{(k)} \cdot \bigl( x_{t-1,i} - \hat{v}_i^{(k)} \bigr)
 \qquad \forall \; k \in \mathcal{K}_{\text{opt}}
-$$
+```
 
 where:
 - $z_t^{(k)}$ is the optimal objective of the phase-$t$ LP (including
@@ -5252,10 +5303,10 @@ where:
 
 Expanding and rearranging, the cut takes the canonical LP row form:
 
-$$
+```math
 \alpha_{t-1} - \sum_{i} \text{rc}_i^{(k)} \cdot x_{t-1,i}
 \;\ge\; z_t^{(k)} - \sum_{i} \text{rc}_i^{(k)} \cdot \hat{v}_i^{(k)}
-$$
+```
 
 The right-hand side is stored as the cut's `rhs` field and the
 coefficients $\text{rc}_i^{(k)}$ are stored as `(column_index, coefficient)`
@@ -5267,10 +5318,10 @@ on how the LP is scaled.  The solver returns the reduced cost of the
 dependent column in its own LP units; it is lifted with **that column's**
 scale,
 
-$$
+```math
 \text{rc}_i^{(k)} \;=\; \text{rc}^{\text{LP}}_{\text{dep}(i)}
 \cdot \frac{\sigma_{\text{obj}}}{s_{\text{dep}(i)}},
-$$
+```
 
 where $\sigma_{\text{obj}}$ is `scale_objective` and $s_{\text{dep}(i)}$
 the dependent (phase-$t$ `sini`) column's final scale, including the
@@ -5309,10 +5360,10 @@ scene's LP before solving begins.
 Each boundary cut $k$ constrains the future-cost variable at the last
 phase:
 
-$$
+```math
 \alpha_T \;\ge\; \beta_0^{(k)} + \sum_{i} \rho_i^{(k)} \cdot x_{i,T}
 \qquad \forall \; k \in \mathcal{K}_{\text{boundary}}
-$$
+```
 
 where $x_{i,T}$ are the state variables (reservoir volumes, battery SoC)
 at phase $T$, $\rho_i^{(k)}$ are gradient coefficients, and
@@ -5332,9 +5383,9 @@ leaves out the terminal $\alpha_T$, while the lower bound includes
 $\Phi$ through the cut recursion.  With the α-rebase (`mean_shift`), the
 UB carries the constant $\bar c$ instead.  At convergence, therefore,
 
-$$
+```math
 \text{LB} - \text{UB} \;=\; \Phi(x_T^\star) - \bar c ,
-$$
+```
 
 which is positive (LB above UB) whenever the terminal FCF at the final
 volumes is above $\bar c$, even when the cuts are exact.  The size of
@@ -5410,11 +5461,11 @@ SDDP algorithm converges finitely to the exact monolithic optimum
 **Formal statement.** Let $z^*_{\text{mono}}$ be the monolithic optimal
 value:
 
-$$
+```math
 z^*_{\text{mono}} = \min \sum_{t=1}^{T} c_t^\top x_t
 \quad \text{s.t.} \quad A_t x_t + B_t x_{t-1} \ge b_t,\;
 x_t \ge 0 \;\; \forall \; t
-$$
+```
 
 and let $z^{(k)}\_{\text{SDDP}}$ be the SDDP lower bound at iteration
 $k$. Then $z^{(k)}\_{\text{SDDP}} \to z^\*\_{\text{mono}}$ in a finite
@@ -5523,12 +5574,12 @@ Kirchhoff).
 
 Formally, a stored optimality cut from level $\ell{-}1$:
 
-$$
+```math
 \alpha_t \;\ge\; z_t^{(k)} + \sum_{i \in \mathcal{S}}
 \bar{\pi}_i^{(k)} (x_{t{-}1,i} - \hat{x}_{t{-}1,i}^{(k)})
-$$
+```
 
-is serialized with column names $\{\text{name}(i)\}$ and deserialized at
+is serialized with column names $\lbrace\text{name}(i)\rbrace$ and deserialized at
 level $\ell$ by resolving each name to the corresponding column index in
 the new LP $\mathcal{M}_\ell$.  Columns that do not resolve (e.g. a theta
 variable in a single-bus LP) are skipped.
@@ -5547,9 +5598,9 @@ The cascade supports two levels of iteration control:
 
 The effective per-level limit is:
 
-$$
+```math
 k^{\ell}_{\text{eff}} = \min\bigl(k^{\ell}_{\max},\; K_{\max} - \sum_{j < \ell} k^{j}_{\text{used}}\bigr)
-$$
+```
 
 When the global budget is exhausted, the cascade stops regardless of which
 level is active.
@@ -6244,7 +6295,7 @@ of linear power flow and transmission loss approximations in coordinated
 capacity expansion problems." *Applied Energy*, 314, 118859.
 DOI: [10.1016/j.apenergy.2022.118859](https://doi.org/10.1016/j.apenergy.2022.118859).
 
-> Loss cap $\psi \le r\,\overline{P}^2$ and the capacity constraint
+> Loss cap $`\psi \le r\,\overline{P}^2`$ and the capacity constraint
 > $|p| + \psi \le \overline{P}$ (implemented in PyPSA).
 
 <a id="ref36"></a>

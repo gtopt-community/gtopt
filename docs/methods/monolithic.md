@@ -79,8 +79,10 @@ Under specific conditions, the monolithic and SDDP solvers produce
 For a deterministic problem (single scenario) with $T$ phases, the
 monolithic LP is:
 
-$$\min \sum_{t=1}^{T} c_t^T x_t \quad \text{s.t.} \quad
-A_t x_t + B_t x_{t-1} \ge b_t \; \forall t$$
+```math
+\min \sum_{t=1}^{T} c_t^T x_t \quad \text{s.t.} \quad
+A_t x_t + B_t x_{t-1} \ge b_t \; \forall t
+```
 
 The SDDP decomposition solves this via iterative forward/backward
 passes.  At convergence, the SDDP cuts exactly represent the

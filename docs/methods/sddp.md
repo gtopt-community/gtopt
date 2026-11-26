@@ -33,17 +33,17 @@ multiple smaller LP solves connected by Benders optimality cuts.
 **Benders decomposition** [[1]](#ref1) is a divide-and-conquer technique for
 structured linear programs.  Consider a two-stage LP:
 
-$$
+```math
 \min_{x, y} \quad c^T x + d^T y
 \quad \text{s.t.} \quad Ax + By \ge b, \; x \ge 0, \; y \in Y
-$$
+```
 
 The key insight is that for fixed first-stage decisions $\bar{y}$, the
 residual (second-stage) problem in $x$ can be solved independently:
 
-$$
+```math
 \min_x \; c^T x \quad \text{s.t.} \quad Ax \ge b - B\bar{y}, \; x \ge 0
-$$
+```
 
 The dual of this residual provides **sensitivity information** (dual
 variables / reduced costs) that quantifies how changes in $\bar{y}$ affect
@@ -60,10 +60,10 @@ representing the second-stage cost approximation.
 
 The master problem iteratively refines its decisions by accumulating cuts:
 
-$$
+```math
 \min_{y, \alpha} \; d^T y + \alpha \quad \text{s.t.} \; y \in Y, \;
 \{\text{accumulated cuts}\}
-$$
+```
 
 **Convergence** is guaranteed when the gap between the master lower bound
 (LB) and the actual second-stage cost upper bound (UB) falls below a
@@ -963,7 +963,9 @@ Boundary cuts approximate the expected future cost beyond the planning
 horizon.  They are the SDDP analogue of PLP's "planos de embalse"
 (reservoir future-cost function).  Each cut is of the form:
 
-$$\alpha \;\ge\; \beta_0 \;+\; \sum_{i} \rho_i \cdot x_i$$
+```math
+\alpha \;\ge\; \beta_0 \;+\; \sum_{i} \rho_i \cdot x_i
+```
 
 where $\alpha$ is the future-cost variable added to the last phase,
 $x_i$ are the state variables (reservoir volumes, battery SoC), $\rho_i$
@@ -1044,7 +1046,9 @@ through the master's α.  With the mean shift
 the cuts (Φ' = Φ − c̄) into the first-phase objective, where both
 bounds see it.  Hence, even with perfectly valid cuts,
 
-$$LB - UB \;\to\; \mathbb{E}[\Phi'(v_T)] \;+\; \text{(cut over-estimation)}$$
+```math
+LB - UB \;\to\; \mathbb{E}[\Phi'(v_T)] \;+\; \text{(cut over-estimation)}
+```
 
 and **LB > UB is expected** whenever Φ' is positive at the terminal
 volumes (`docs/formulation/sddp-cut-validity.md` §9).  gtopt therefore
@@ -1134,7 +1138,9 @@ to.  The solver resolves named state-variable headers (reservoir, battery,
 junction) to LP column indices in the specified phase, then adds each cut
 as a lower-bound constraint on the corresponding future-cost variable:
 
-$$\alpha_{\text{phase}} \;\ge\; \text{rhs} \;+\; \sum_{i} \rho_i \cdot x_i[\text{phase}]$$
+```math
+\alpha_{\text{phase}} \;\ge\; \text{rhs} \;+\; \sum_{i} \rho_i \cdot x_i[\text{phase}]
+```
 
 > **Retired (2026-05):** the CSV `named_cuts_file` option no longer exists;
 > hot-start cuts are loaded from `sddp_options.cuts_input_file` (Parquet),

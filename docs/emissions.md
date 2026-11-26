@@ -125,7 +125,9 @@ al., public consultation February–April 2025; development archived by
 Verra in January 2026) [1]. The operation of the storage in each interval
 *i* is valued at the marginal emission rate (MER) of its location:
 
-$$PE = -\sum_i A_i \, E_i$$
+```math
+PE = -\sum_i A_i \, E_i
+```
 
 where $A_i$ is the net dispatch of the storage (MWh, positive when
 discharging, negative when charging) and $E_i$ the MER at its bus

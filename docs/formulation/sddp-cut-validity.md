@@ -47,7 +47,7 @@ $\text{cost\_factor} = p_s \cdot \text{discount} \cdot \text{duration}$
 via `CostHelper::block_ecost` (`include/gtopt/cost_helper.hpp`).  We
 write $c_s(u)$ for the *unfolded* (physical, undiscounted-by-$p_s$)
 stage cost and fold explicitly, so a scene-LP objective is
-$p_s\, c_s(u) + (\text{future term})$.  Discount and duration are
+$`p_s\, c_s(u) + (\text{future term})`$.  Discount and duration are
 absorbed into $c_s$ throughout (they are phase-local constants and play
 no role in cut validity).
 
@@ -59,10 +59,10 @@ the dependent column's bounds are set $lo = hi = \hat v_i$.
 
 **Value functions.**  For scene $s$, let
 
-$$
+```math
 V_s^{(t)}(x) \;=\; \text{optimal value of scene-}s\text{'s phase-}t
 \text{ LP at incoming state } x,
-$$
+```
 
 in **folded physical** units (i.e. including the $p_s$ factor on
 costs).  $V_s^{(t)}$ is convex piecewise-linear in $x$ (LP value
@@ -84,11 +84,11 @@ referencing them arrives (`bound_alpha_for_cut`, §10).
 
 **Cut row convention.**  All cuts are built in physical space as
 
-$$
+```math
 \alpha + \sum_i (-g_i)\, x_i \;\ge\; b
 \qquad\Longleftrightarrow\qquad
 \alpha \;\ge\; b + \sum_i g_i\, x_i ,
-$$
+```
 
 stored as a `SparseRow` with `lowb` $= b$, α-coefficient $1.0$, and
 `pivot_col` = the α column (§2).
@@ -177,9 +177,9 @@ $lo = hi = \hat v_i$), with optimal value $z^\* = V_s^{(t+1)}(\hat v)$
 and reduced costs $rc_i$ on the dependent columns.  Then for every
 state $x$:*
 
-$$
-V_s^{(t+1)}(x) \;\ge\; z^\* + \sum_i rc_i\,(x_i - \hat v_i).
-$$
+```math
+V_s^{(t+1)}(x) \;\ge\; z^* + \sum_i rc_i\,(x_i - \hat v_i).
+```
 
 *Proof.*  For a column pinned at both bounds, the reduced cost equals
 the multiplier of the implicit constraint $x_i = \hat v_i$, i.e.
@@ -188,7 +188,7 @@ strong duality).  Convexity of the LP value function in the pin
 right-hand side gives the subgradient inequality. $\qquad\blacksquare$
 
 The emitted row is precisely
-$\alpha + \sum_i(-rc_i)\,x_i \ge z^\* - \sum_i rc_i \hat v_i$
+$`\alpha + \sum_i(-rc_i)\,x_i \ge z^* - \sum_i rc_i \hat v_i`$
 (modulo the ε-filter of §4).
 
 **Theorem O2 (recursive validity).**  *Suppose every cut installed on
@@ -200,10 +200,10 @@ satisfies $\widehat V(x) \le V^{\text{true}}(x)$ for all $x$, and the
 fresh cut of Theorem O1 — a support of $\widehat V$ — underestimates
 $V^{\text{true}}$ everywhere:*
 
-$$
-z^\* + \langle rc, x - \hat v\rangle
+```math
+z^* + \langle rc, x - \hat v\rangle
 \;\le\; \widehat V(x) \;\le\; V^{\text{true}}(x).
-$$
+```
 
 *Proof.*  Relaxing the future term (cuts underestimate) can only
 decrease the LP optimum pointwise, so $\widehat V \le V^{\text{true}}$.
@@ -242,10 +242,10 @@ drops link $i$ when $|rc_i| < \varepsilon$
 its $rc_i \hat v_i$ RHS correction.  The emitted cut $\tilde\alpha(x)$
 satisfies*
 
-$$
+```math
 \tilde\alpha(x) \;\le\; V^{\text{true}}(x)
   \;+\; \varepsilon \sum_{i \in \text{dropped}} |x_i - \hat v_i|
-$$
+```
 
 *and in particular is valid up to
 $\varepsilon \cdot \sum_{i\in\text{dropped}} \mathrm{diam}(\text{box}_i)$
@@ -287,7 +287,7 @@ the analysis below is kept as the record of why.)
 $\alpha \ge b_k + \langle g_k, x\rangle$, $k = 1..K$, are each valid
 underestimators of the same function $F$ on the same α column, then
 for any weights $w_k \ge 0$, $\sum w_k = 1$, the combined cut
-$\alpha \ge \sum_k w_k b_k + \langle \sum_k w_k g_k,\, x\rangle$ is
+$`\alpha \ge \sum_k w_k b_k + \langle \sum_k w_k g_k,\, x\rangle`$ is
 valid for $F$.*
 
 *Proof.*
@@ -366,10 +366,10 @@ identical constraint matrix $A$, right-hand side $b$ and cost $c$,
 differing only in column bounds $(l^a, u^a)$ (the `update_aperture`
 flow-column rewrites).  Their dual feasible set*
 
-$$
+```math
 D = \{\, (y, \lambda, \mu) : A^\top y + \lambda - \mu = c,\;
 \lambda \ge 0,\; \mu \ge 0 \,\}
-$$
+```
 
 *is bound-independent, so any dual point of the representative
 aperture's LP is dual-feasible for every aperture.  Let the
@@ -379,11 +379,11 @@ $\mu = d^- = -\min(d, 0)$ (complementarity: at a vertex each column's
 $\lambda_j$, $\mu_j$ cannot both be active).  Then for every aperture
 $a$ and* **any** *state pin $\hat v$ shared by the cell:*
 
-$$
+```math
 Q_a(x) \;\ge\; L_a + \sum_i rc_i\,(x_i - \hat v_i), \qquad
-L_a = z^\* + \sum_j \max(d_j, 0)\,\Delta l_j +
+L_a = z^* + \sum_j \max(d_j, 0)\,\Delta l_j +
           \sum_j \min(d_j, 0)\,\Delta u_j,
-$$
+```
 
 *where $\Delta l_j = l_j^a - l_j^{rep}$,
 $\Delta u_j = u_j^a - u_j^{rep}$ range over the changed (flow) columns and $rc_i$ are the
@@ -555,11 +555,11 @@ Architecture (verified against
 The scene-LP recursion is therefore, with cuts converging to their
 envelopes,
 
-$$
+```math
 V_s^{(t)}(x) \;=\; \min_u\Big[\, p_s\, c_s(u)
   \;+\; p_s \textstyle\sum_r \varphi_r \,\Big],
 \qquad \varphi_r \approx V_r^{(t+1)}(x') .
-$$
+```
 
 Theorems M1 and M3 below analyse the **historical** uniform $1/N$
 pricing (they motivated the M4 fix and remain the record of why);
@@ -568,12 +568,12 @@ Prop. M4 states the pricing now implemented.
 **Theorem M1 (uniform probabilities).**  *Let $p_s = 1/N$ for all
 $s$.  Substitute $\tilde V_s := V_s / p_s = N V_s$.  Then*
 
-$$
+```math
 \tilde V_s^{(t)}(x) \;=\; \min_u\Big[\, c_s(u) +
   \tfrac1N \textstyle\sum_r \tilde V_r^{(t+1)}(x') \Big]
   \;=\; \min_u\Big[\, c_s(u) + \mathbb E_{r \sim \mathrm{Unif}}
   \tilde V_r^{(t+1)}(x') \Big],
-$$
+```
 
 *which is exactly the Bellman recursion of the **stagewise-independent
 resampled process**: scene data redrawn uniformly at every phase
@@ -624,11 +624,11 @@ deliverable 2).*
 pricing — unsound; superseded by M4).**  *For general $p_s$, with every
 $\varphi_r$ priced $1/N$, the substitution gives*
 
-$$
+```math
 \tilde V_s^{(t)}(x) = \min_u\Big[\, c_s(u) +
   \tfrac{1}{N p_s} \textstyle\sum_r p_r\, \tilde V_r^{(t+1)}(x')
   \Big].
-$$
+```
 
 *The future term carries weight
 $\frac{1}{Np_s}\sum_r p_r = \frac{1}{N p_s}$, which exceeds 1 whenever $p_s < 1/N$.  The recursion is then
@@ -648,10 +648,10 @@ tail oracle is exact) and is fixed by the M4 pricing below.*
 normalized probability of the scene owning the LP, uniform across the
 $N$ columns).  Then*
 
-$$
+```math
 \tilde V_s^{(t)}(x) = \min_u\Big[\, c_s(u) +
   \textstyle\sum_r p_r\, \tilde V_r^{(t+1)}(x') \Big],
-$$
+```
 
 *the Bellman recursion of the process resampled with measure
 $q_r = p_r$; the LB $\sum_s V_s^{(0)} = \sum_s p_s \tilde V_s^{(0)}$
@@ -703,7 +703,7 @@ differ per column even on identical dynamics, and the strip biased
 $(w\sum_s \varphi_s - \varphi_0)\cdot \text{scale\_alpha}$ per cell
 (either sign).  Confirmed via the offset-0 semantics of
 `find_alpha_state_var` (`sddp_method.cpp:57-74`).  The fix strips
-$w \sum_s \varphi_s\,\text{scale\_alpha}$ by enumerating the cell's α
+$`w \sum_s \varphi_s\,\text{scale_alpha}`$ by enumerating the cell's α
 registry (same contiguous-uid walk as `alpha_cols_on_cell`) and reading
 the weight from the SAME shared `alpha_unit_cost` helper that priced
 the columns, so pricing and strip can never diverge again.  Single-α
@@ -722,10 +722,10 @@ $[0,0]$: the model *defines* the post-horizon cost as zero.  With
 boundary cuts (`load_boundary_cuts_csv`,
 `sddp_boundary_cuts.cpp:42+`), rows
 
-$$
+```math
 \alpha \;+\; \sum_i (-\gamma_i\, d)\, x_i \;\ge\; \rho\, d,
-\qquad d = \texttt{bc\_discount},
-$$
+\qquad d = \texttt{bc_discount},
+```
 
 encode the supplied terminal FCF's supports, scaled by the boundary
 discount.  Their validity is **assumption A5**: the CSV rows are
@@ -764,12 +764,12 @@ scene count.  GTOpt replicates this verbatim:
   installed at **full magnitude** (RAW CSV, no $1/\text{NVarPhi}$
   pre-division, no $p_s$ folding), so the probability composition rides
   entirely on the column price and composes exactly once: the folded
-  future term is $\sum_j w_j \varphi_j = p_s\, \mathbb E_j[\Phi_j(x)]$
+  future term is $`\sum_j w_j \varphi_j = p_s\, \mathbb E_j[\Phi_j(x)]`$
   — the M4 discipline (§8) with the cut-side folding moved to the
   column side;
 - **UB contract change**: the forward pass does NOT strip the terminal
   $\varphi$ term (`sddp_forward_pass.cpp`, `phi_terminal` branch), so
-  the scene UB carries $p_s\,\mathbb E_j[\Phi_j(V_{\text{end}})]$ at
+  the scene UB carries $`p_s\,\mathbb E_j[\Phi_j(V_{\text{end}})]`$ at
   the *realized* terminal volumes — exactly PLP's `ZSPF` accounting
   (`getprim.f`: `ZSPFAdd` keeps the full last-stage $Z$, terminal
   $\Phi$ included).  The LB carries the same term through the α
@@ -859,11 +859,11 @@ $\varphi$'s column bounds from the cuts that reference it.  For a cut
 $\alpha + \sum_j \tilde g_j x_j \ge b$ (so $\tilde g_j = -g_j$) and the
 physical state box $[x_j^{\min}, x_j^{\max}]$:
 
-$$
+```math
 \text{floor}_k = b_k - \sum_j \max(g_j x_j^{\min},\, g_j x_j^{\max}),
 \qquad
 \text{ceil}_k = b_k - \sum_j \min(g_j x_j^{\min},\, g_j x_j^{\max}).
-$$
+```
 
 **Proposition F1 (floor).**  *Each installed cut $k$ implies
 $\alpha \ge \text{floor}_k$ at every box-feasible state; hence pinning
@@ -944,12 +944,12 @@ the elastic (Chinneck Phase-1) solve — objective zeroed, slacks
 $s^+, s^-$ priced on the fixing rows $dep + s^+ - s^- = \hat v$ — the
 cut is
 
-$$
+```math
 \sum_i \pi_i\, x_i \;\ge\; \sum_i \pi_i\,
 \mathrm{clamp}\big(\hat v_i + \delta_i,\; [x_i^{\min}, x_i^{\max}]\big),
 \qquad \pi_i = -\text{dual}_i,\;\;
 \delta_i = s^-_i - s^+_i \text{ (rescaled)} .
-$$
+```
 
 **Theorem FC1.**  *Let $\mu(\hat v) > 0$ be the elastic optimum
 (minimum total slack penalty) and $\pi$ the fixing-row duals.  Every
@@ -989,7 +989,7 @@ over-tightened.
 
 `benders_cut.cpp:1170-1578` mirrors PLP `plp-agrespd.f::AgrElastici`:
 one single-variable cut
-$\pi_i\, x_i \ge \pi_i\, (\text{clone dep value})_i$ per relaxed link.
+$`\pi_i\, x_i \ge \pi_i\, (\text{clone dep value})_i`$ per relaxed link.
 
 **Example FC2 (over-cut by substitution).**  Two reservoirs $A, B$
 feed one deficit; the subproblem is feasible iff $x_A + x_B \ge R$.
@@ -1011,7 +1011,7 @@ downstream coupling) breaks exactness.
 
 **Statement.**  Per-link feasibility cuts are **heuristic separators**,
 not certified cuts: in addition to Example FC2, the escalating outward
-perturbation `kFactEps` $= 0.01\,\varepsilon\,\text{niter}$
+perturbation `kFactEps` $`= 0.01\,\varepsilon\,\text{niter}`$
 (`:1225`) *deliberately* over-tightens to escape cycling, with error
 growing linearly in the repeat count.  Guards that bound the damage:
 the BoxEdgeStats family-drop, the per-cut saturation drop
@@ -1102,7 +1102,7 @@ statements):
 Open defects / follow-ups (all documented, none fixed here by design):
 
 1. ~~**UB strip under multicut** (§8)~~ — **FIXED 2026-07-08**: the
-   strip now removes $w\sum_s \varphi_s\,\text{scale\_alpha}$ using the
+   strip now removes $`w\sum_s \varphi_s\,\text{scale_alpha}`$ using the
    shared `alpha_unit_cost` weight (see the §8 UB-strip note); gated by
    the identical-dynamics UB-parity test in
    `test_sddp_bounds_sanity.cpp`.

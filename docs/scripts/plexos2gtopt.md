@@ -1766,7 +1766,7 @@ matrix: the weighted-norm generalized inverse for the step-function
 data.  It needs no linear solve and is stable for any N, and the
 operator is cached per (N, nodes, window).
 
-After truncation, $c$ is rescaled multiplicatively so that $\int p\,dt$
+After truncation, $c$ is rescaled multiplicatively so that $`\int p\,dt`$
 equals the trace energy; the factor is 1 ± 1e-3.  When the data have
 both signs, an additive change of $c_0$ is used instead.  Nodes take
 $p(t_k)$.  With `bound_mode=clip_rescale` (default), node values
@@ -1788,11 +1788,11 @@ is worse.  Other options (`chebyshev:N:key=value`):
   nodes are clipped into [0, max].  So the sun never shines at night
   and the weekly energy stays exact.
 - `solar_basis=plain|clearsky`.  `clearsky` factors a trace with zero
-  periods as $y = S\,k$.  $S$ is the window's daily envelope, the
+  periods as $`y = S\,k`$.  $S$ is the window's daily envelope, the
   maximum over the days of each half-hour, which is exactly 0 at night.
   Only the clearness $k$ is fitted; night values of $k$ are linearly
   interpolated, since they are multiplied by 0.  The node value is
-  $S(t_k)\,\hat k(t_k)$, followed by the same daylight energy
+  $`S(t_k)\,\hat k(t_k)`$, followed by the same daylight energy
   restoration.  The sunrise and sunset kinks stay in $S$ and are not
   fitted.
 
@@ -1811,7 +1811,7 @@ is worse.  Other options (`chebyshev:N:key=value`):
   not recommended.
 - Hourly reconstruction of solar output uses
   `week_reconstruct.masked_reconstruction_matrix`:
-  $R_m = \mathrm{diag}(\text{day})\,R\,C$ is exactly 0 at night, and
+  $`R_m = \mathrm{diag}(\text{day})\,R\,C`$ is exactly 0 at night, and
   each node column keeps its energy on the daylight cells.  Prices
   consistent with it are the adjoint of $R_m$ restricted to the
   daylight nodes (`rebuild_price_adjoint(..., operator=R_m,
@@ -1836,11 +1836,11 @@ is worse.  Other options (`chebyshev:N:key=value`):
   and the values stay within bounds.
 - `values=proj` is the continuous orthogonal Chebyshev projection of
   the half-hourly step function,
-  $c_k = \tfrac{2}{\pi}\int_0^\pi f(\cos\theta)\cos k\theta\,d\theta$.
+  $`c_k = \tfrac{2}{\pi}\int_0^\pi f(\cos\theta)\cos k\theta\,d\theta`$.
   It is integrated exactly per data cell with no linear solve, so it is
   stable for any N.  The truncation is then corrected by the minimal
   change in the Chebyshev-weighted norm that restores
-  $\int p\,dx = \int f\,dx$; the correction is about 1e-6 relative.
+  $`\int p\,dx = \int f\,dx`$; the correction is about 1e-6 relative.
   The node values are $p(t_k)$.  They show mild Gibbs overshoot near
   sharp features (solar sunrise / sunset), and `bound_mode=clip_rescale`
   removes it while keeping the energy.
@@ -1875,14 +1875,14 @@ trapezoid weights $t$ on the points (`add_trap_cost`, $q = t^\top A$).
 Ramps use the 3-point non-uniform difference with first-order ends
 (`diffd_op`), which is gtopt's `ramp_formula = central2`.  Reservoir
 dynamics are collocated with the spectral derivative,
-$D v - q = 0$ with $D = A\,\mathrm{diff}\,A^{-1}$.  Bus and other row
+$D v - q = 0$ with $`D = A\,\mathrm{diff}\,A^{-1}`$.  Bus and other row
 duals are divided by each point's trapezoid weight
 (`get_row_duals_dt`).
 
 gtopt's block formulation is the same model when $m = n$.  The block
 values are the point values $u = Ac$, and $A$ (the Lobatto
 Vandermonde) is invertible.  So bounds become column bounds on $u$, and
-costs become $\sum_k w_k\,\mathrm{cost}\cdot u_k$ with a per-block weight
+costs become $`\sum_k w_k\,\mathrm{cost}\cdot u_k`$ with a per-block weight
 $w_k$, the block duration.  gtopt divides duals by $w_k$ in the same
 way.  Differences from the paper:
 
@@ -1891,7 +1891,7 @@ way.  Differences from the paper:
   points, and still diagonal.  The paper's trapezoid weights are
   `durations=trapezoid`.
 - Storage uses the sparse recursion
-  $e_{k+1} = e_k + \text{flow}_k\,w_k$.  The end-of-week total is
+  $`e_{k+1} = e_k + \text{flow}_k\,w_k`$.  The end-of-week total is
   then the exact quadrature of the flow, and intermediate levels are a
   first-order approximation.
   - The level $e_k$ refers to the block END
@@ -1934,8 +1934,8 @@ $\lambda_k = p_k w_k$.
 
 The price polynomial $p = \sum_j a_j T_j$ lives in the same N-dimensional
 space and solves $G a = V^\top\lambda$, where
-$G_{ij} = \int T_iT_j\,dt$ (closed form).  Then
-$\int p\,g\,dt = \lambda^\top u$ exactly for every $g$ of the space:
+$`G_{ij} = \int T_iT_j\,dt`$ (closed form).  Then
+$`\int p\,g\,dt = \lambda^\top u`$ exactly for every $g$ of the space:
 revenues, congestion rents and total cost (Σ marginal value × quantity)
 are preserved.  $V$ and $G$ are well conditioned: cond V ≈ 1.5 and
 cond G ≈ 80–215 for N = 64–168.
@@ -1948,7 +1948,7 @@ of the node prices (leaves a revenue gap).  Storage levels are
 interpolated, and bound violations between nodes are reported.
 
 The hourly means of energy-like quantities are identical to the paper's
-`cheby2hour.py`, $E = Z\,\tfrac{T}{2}\,B\,I\,A^{-1}$ (tested to
+`cheby2hour.py`, $`E = Z\,\tfrac{T}{2}\,B\,I\,A^{-1}`$ (tested to
 1e-10).  The paper's `cheby_interpol.py` maps every output, duals
 included, to hours by piecewise-linear interpolation of the node
 values.  For energy-like quantities that does not keep the energy, and

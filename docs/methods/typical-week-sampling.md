@@ -91,7 +91,7 @@ Chebyshev weeks are emitted as `Stage.sampling = "point"`
   storage over the closed week.
 - **Clenshaw–Curtis rule** (`storage_integration = cc`, alias
   `clenshaw_curtis`; the same rows as `block`):
-  $e_k = e_{k-1} + w_k\,(\eta_c c_k - d_k/\eta_d - s_k + a_k)$ with
+  $`e_k = e_{k-1} + w_k\,(\eta_c c_k - d_k/\eta_d - s_k + a_k)`$ with
   $w_k$ the CC weight of node k (node 0 carries $w_0 + w_N$, the
   closing node of the periodic grid), so $e_k$ is the level after node
   k's cell and the wrap closes on $e_{N-1}$.  Each row holds one previous
@@ -107,7 +107,7 @@ Chebyshev weeks are emitted as `Stage.sampling = "point"`
   dense and is only an accuracy ceiling.  Select it with
   `--point-storage-integration cc` in both converters.
 - **Ramps**: `ramp_formula = "backward"` (default) bounds the interval
-  slope $P_k - P_{k-1}$ by $R\,h_k$, $h_k = t_k - t_{k-1}$ (cyclic wrap
+  slope $P_k - P_{k-1}$ by $`R\,h_k`$, $h_k = t_k - t_{k-1}$ (cyclic wrap
   at node 0).  `ramp_formula = "central2"` bounds the second-order
   non-uniform central difference
   $P'(t_k) \approx \frac{h_-^2 P_{k+1} - h_+^2 P_{k-1} + (h_+^2 - h_-^2) P_k}{h_+ h_-(h_+ + h_-)}$, exact for quadratics.  It is opt-in:

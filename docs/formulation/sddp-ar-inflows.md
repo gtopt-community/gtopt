@@ -17,10 +17,10 @@ water as if next phase's inflow were independent of this phase's.
 
 The v1 model is AR(1) per element:
 
-$$
+```math
 q_t \;=\; \mu_t \;+\; \phi\,\bigl(q_{t-1} - \mu_{t-1}\bigr)
 \;+\; \varepsilon_t ,
-$$
+```
 
 where $q_t$ is the inflow of the `Flow` element at stage $t$, $\mu_t$
 is the *mean* series, $\phi \in (-1, 1)$ the lag-1 coefficient, and
@@ -49,7 +49,7 @@ inflow becomes *fixed-in-forward, variable-in-cut-space*:
 1. **Free inflow column.**  $q_{t,b}$ keeps its junction-balance
    coefficient but its bounds are released to $(-\infty, +\infty)$ —
    the AR row below pins it instead.  (Unbounded rather than
-   $[0,\infty)$: the AR extrapolation $\mu + \phi\,\Delta$ can cross
+   $[0,\infty)$: the AR extrapolation $`\mu + \phi\,\Delta`$ can cross
    zero and v1 does **not** truncate negative inflows, unlike
    NEWAVE's $\max(0,\cdot)$; the cuts are valid for the untruncated
    process.  Documented trade-off: the α box-floor of
@@ -74,10 +74,10 @@ inflow becomes *fixed-in-forward, variable-in-cut-space*:
 3. **AR row** (equality, one per block, all blocks of stage $t$ share
    the stage's lag):
 
-$$
+```math
 q_{t,b} \;-\; \phi\,\ell_t \;=\;
 \mu_{t,b} \;-\; \phi\,\mu_{t-1}^{\text{ref}} \;+\; \varepsilon_t ,
-$$
+```
 
    with $\varepsilon_t$ **data** folded into the RHS ($= 0$ forward).
    With $\ell_t$ pinned at $\mu_{t-1}^{\text{ref}}$ this yields
@@ -88,11 +88,11 @@ $$
 
 **Cut construction is automatic.**  The backward solve pins $\ell_t$
 to the trial value $\hat q_{t-1}$; the reduced cost of $\ell_t$ is
-$\phi\,\pi^{AR}$ plus the chain through the balance rows — a valid
+$`\phi\,\pi^{AR}`$ plus the chain through the balance rows — a valid
 subgradient $\partial V^{(t)}/\partial q_{t-1}$ by LP sensitivity.
 `sddp-cut-validity.md` §3 (Theorems O1/O2) is stated for *any*
 registered state variable and applies unchanged: the emitted cut
-$\alpha + (-rc_e)\,e + (-rc_q)\,q \ge b$ underestimates the tail value
+$`\alpha + (-rc_e)\,e + (-rc_q)\,q \ge b`$ underestimates the tail value
 as a function of **both** the reservoir energy and the lagged inflow.
 Within a multi-stage phase the intra-phase chaining propagates the
 shift with $\phi^k$, so the tail seen by a cut probed at lag $\ell$ is
@@ -104,11 +104,11 @@ used by `test_sddp_ar_inflow.cpp`.
 bounds to the aperture hydrology $a_{t,b}$.  With AR active the same
 entry point instead rewrites the **AR row RHS**:
 
-$$
+```math
 \text{rhs}^a_{t,b} \;=\; a_{t,b} \;-\; \phi\,\hat q_{t-1}^{\,a},
-$$
+```
 
-where $\hat q_{t-1}^{\,a}$ is the aperture's own previous-stage
+where $`\hat q_{t-1}^{\,a}`$ is the aperture's own previous-stage
 reference when the lag is an in-LP column (same phase), and the
 forward trial pin ($= \mu_{t-1}^{\text{ref}}$ in v1) at a cross-phase
 lag.  The aperture subproblem's primal is therefore unchanged versus
@@ -155,7 +155,7 @@ historical hydrology ensemble it already parses:
   $\phi = \sum_{h,t} x^h_t x^h_{t-1} \big/ \sum_{h,t} (x^h_{t-1})^2$,
   clamped to $[-0.99, 0.99]$;
 - $\sigma$ = std-dev of the AR(1) residuals
-  $x^h_t - \phi\, x^h_{t-1}$.
+  $`x^h_t - \phi\, x^h_{t-1}`$.
 
 The result is emitted as the `inflow_model` object on each generated
 `Flow` element.  Elements with degenerate series (constant flow, a

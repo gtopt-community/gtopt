@@ -48,10 +48,12 @@ renderer (``gh api markdown -f mode=gfm``):
     ``\\,`` ``\\;`` ``\\:`` ``\\!`` ``\\>`` ``\\{`` ``\\}`` ``\\|`` or a
     mid-line ``\\\\`` inside ``$``/``$$`` math: GitHub drops the
     backslash, so it renders a literal ``,``/``;``/brace-less group
-    instead of the spacing/delimiter.  No TeX error, so by default
-    only a per-file count is printed (``--github-escapes=error`` lists
-    and fails on them).  ``$`...`$`` and ```` ```math ```` keep the TeX
-    verbatim.
+    instead of the spacing/delimiter (no TeX error, still wrong).  Fix:
+    ``$`...`$`` inline / a ```` ```math ```` fence for display math
+    (GitHub keeps both verbatim, and they stay plain TeX), or
+    ``\\lbrace`` ``\\rbrace`` ``\\Vert`` when only delimiters are
+    involved.  ``--github-escapes=warn`` reduces it to one count per
+    file, ``off`` disables it.
 
 Exit code 0 when no issues are found, 1 otherwise (2 with
 ``--strict-deps`` when a dependency is missing).  Without Node or the
@@ -450,7 +452,7 @@ def check_files(
     files: Sequence[Path],
     *,
     use_mathjax: bool = True,
-    github_escapes: str = "warn",
+    github_escapes: str = "error",
 ) -> tuple[list[str], list[str]]:
     """Return (error diagnostics, warnings) for *files*."""
     parsers = _make_parsers()
@@ -479,7 +481,8 @@ def check_files(
                     line,
                     "github-escape",
                     f"GitHub drops the backslash of {' '.join(sorted(set(esc)))}"
-                    " in $-math; use $`...`$, ```math or a named macro",
+                    " in $-math; use $`...`$ / a ```math fence, or "
+                    "\\lbrace \\rbrace \\Vert",
                 )
         elif github_escapes == "warn" and rep.silent:
             warnings.append(
@@ -518,9 +521,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--github-escapes",
         choices=("error", "warn", "off"),
-        default="warn",
-        help="report of \\, \\; \\{ ... that GitHub drops (default: warn, "
-        "one count per file)",
+        default="error",
+        help="report of \\, \\; \\{ ... that GitHub drops (default: error; "
+        "warn = one count per file)",
     )
     parser.add_argument(
         "--strict-deps",

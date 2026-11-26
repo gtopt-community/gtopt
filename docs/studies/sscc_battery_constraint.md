@@ -51,8 +51,8 @@ H23-24`; the XML default is 0.3 for CSF and 0 for CPF/CTF).  A second
 file, `SSCC_Activation_BESS.csv`, sets the Reserve property **Energy
 Usage** (%) of the six `*_BESS` reserves.  For 2026-05-17, per pattern:
 $a^{RS}_z(t) = u^{RS}_z(t)$ and $a^{LW}_z(t) = 1 - u^{LW}_z(t)$ (e.g.
-`CSF_RS`: $u = 35\,\%$, $a = 0.35$; `CSF_LW`: $u = 81\,\%$, $a = 0.19$;
-`CPF_RS`: $u = 50\,\%$, $a = 0.5$).  From 2026-05-25 a third file,
+`CSF_RS`: $`u = 35\,\%`$, $a = 0.35$; `CSF_LW`: $`u = 81\,\%`$, $a = 0.19$;
+`CPF_RS`: $`u = 50\,\%`$, $a = 0.5$).  From 2026-05-25 a third file,
 `Activation_Factors.csv`, appears (hourly factors per service).
 
 In math, per block $t$ (1 h), with $r^{\uparrow}\_{z}$, $r^{\downarrow}\_{z}$
@@ -60,23 +60,23 @@ the provisions of $B$ to the BESS reserve zones, $E_t$ its end-of-period
 energy and $g^{x}\_t$, $\ell^{x}\_t$, $E^{x}\_t$ the AUX generation, load and
 energy:
 
-$$
+```math
 \sum_z r^{\uparrow}_{z,t} \le \eta_d\,E_t, \qquad
 E_t + \eta_c \sum_z r^{\downarrow}_{z,t} \le \overline{E}
 \tag{1}
-$$
+```
 
-$$
+```math
 g^{x}_t = \sum_z a^{LW}_z(t)\, r^{\downarrow}_{z,t}, \qquad
 \ell^{x}_t = \sum_z a^{RS}_z(t)\, r^{\uparrow}_{z,t}
 \tag{2}
-$$
+```
 
-$$
+```math
 E^{x}_t = E^{x}_{t-1} + \ell^{x}_t - g^{x}_t, \quad 0 \le E^{x}_t \le 99\,999,
 \quad E^{x}_0 = 49\,999.5
 \tag{3}
-$$
+```
 
 and $g^{x}_t - \ell^{x}_t$ enters the node balance of $B$'s bus.
 
@@ -111,22 +111,26 @@ written.
 Write the bus balance with dual $\lambda$ and (2) with duals
 $\mu^{\downarrow}, \mu^{\uparrow}$, with Lagrangian
 
-$$
+```math
 c^\top x - \lambda(\text{inj} - \text{wd} - D)
 \;-\; \mu^{\downarrow}(a r^\downarrow - g^x) - \dots
-$$
+```
 
 Stationarity for $g^x$ (cost 0, coefficient $+1$ in the bus row and in
 (2)):
 
-$$ -\lambda + \mu^{\downarrow} = 0 \;\Rightarrow\; \mu^{\downarrow} = \lambda. $$
+```math
+-\lambda + \mu^{\downarrow} = 0 \;\Rightarrow\; \mu^{\downarrow} = \lambda.
+```
 
 For $r^\downarrow$ (offer cost $c^\downarrow$, coefficient $\gamma=1$ in the
 requirement row with dual $\pi^\downarrow \ge 0$), when it is between its
 bounds:
 
-$$ c^\downarrow - \pi^\downarrow - a\,\mu^{\downarrow} = 0
-\;\Rightarrow\; \boxed{\lambda = \dfrac{c^\downarrow - \pi^\downarrow}{a}} \tag{4}$$
+```math
+c^\downarrow - \pi^\downarrow - a\,\mu^{\downarrow} = 0
+\;\Rightarrow\; \boxed{\lambda = \dfrac{c^\downarrow - \pi^\downarrow}{a}} \tag{4}
+```
 
 So wherever the BESS down provision is marginal, **the bus price equals
 minus the down-reserve price divided by $a$**.  With $a \approx 0.2$–$0.3$
@@ -198,19 +202,19 @@ $g - r^\downarrow \ge 0$, the latter forcing a BESS to *discharge* to
 offer down reserve) are replaced by rows over the sum of all provisions of
 the battery:
 
-$$
+```math
 p^{d}_t - p^{c}_t + \textstyle\sum r^\uparrow_t \le \overline{P}^{d},
 \qquad
 p^{c}_t - \kappa\,p^{d}_t + \textstyle\sum r^\downarrow_t \le \overline{P}^{c}
 \tag{5}
-$$
+```
 
-$$
+```math
 E_t - \tfrac{T}{\eta_d}\textstyle\sum r^\uparrow_t \ge \underline{E},
 \qquad
 E_t + T\,\eta_c \textstyle\sum r^\downarrow_t \le \overline{E}
 \tag{6}
-$$
+```
 
 (5) is the net-power headroom (a charging BESS offers up reserve by
 cutting its charge); $\kappa = 0$ by default (charge-side down headroom).
@@ -239,7 +243,7 @@ without reducing a required reserve.
 
 The expected-deployment energy (CEN's intent in (2)) can be added later as
 an *SoC* term,
-$E_t = \dots - \Delta t\,(u^\uparrow r^\uparrow/\eta_d - u^\downarrow \eta_c r^\downarrow)$,
+$`E_t = \dots - \Delta t\,(u^\uparrow r^\uparrow/\eta_d - u^\downarrow \eta_c r^\downarrow)`$,
 never as a bus injection.  Its up part only raises
 prices; its down part puts energy into the SoC and should be used with
 care (or $u^\downarrow = 0$) if price safety is required.  Not implemented
@@ -418,7 +422,7 @@ tracks the main battery's own provision: e.g. DEL_DESIERTO_AUX h1 =
   apply as written and the `uc` reproduction is not faithful.
 
 Evidence from the 2026-05-17 PLEXOS solution: battery SoC satisfies
-$\Delta E = \text{Load}\,\eta_c - \text{Gen}/\eta_d$ exactly and node and
+$`\Delta E = \text{Load}\,\eta_c - \text{Gen}/\eta_d`$ exactly and node and
 system balances close with the AUX included — compatible with both.  The
 pattern leans to H2: in all 508 hours with an active AUX the BESS has
 flow, in 308 of the 320 hours without reserve it is idle, and in 167
@@ -433,7 +437,7 @@ Independently of H1/H2, the native gtopt rows (§4) keep reserve out of
 every bus balance and cannot create negative prices.  A price-safe
 formulation for CEN is to drop `Energy Usage`, the CF rows and the AUX,
 and widen the energy bound (raise:
-$\eta_d E \ge (1 + u\,\Delta t)\,r^\uparrow$, analogously for lower).
+$`\eta_d E \ge (1 + u\,\Delta t)\,r^\uparrow`$, analogously for lower).
 Recommendation 2 of §8 should wait for the H1/H2 test.
 
 ## 10. gtopt primitives for the full CEN BESS set
