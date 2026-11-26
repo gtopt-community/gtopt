@@ -1,7 +1,7 @@
 """rts_gmlc_to_gtopt — converter for the RTS-GMLC (GridMod 2019) test system.
 
 Reads the public RTS-GMLC ``RTS_Data/SourceData`` CSVs and emits a gtopt
-JSON suitable for the ``--emissions`` accounting pipeline.
+JSON suitable for the emission accounting pipeline (``--pollutants``).
 
 Unlike NREL-118 (per-fuel IPCC overlay), RTS-GMLC ships per-generator
 combustion rates in lbs CO2 / MMBTU directly on each row, so each Fuel

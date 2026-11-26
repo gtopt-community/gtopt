@@ -25,7 +25,9 @@ implementation.
   then extracts the archive to a process-local tempdir.
   * `sienna_5bus` — 13 files: base 5-bus topology + cascade adjacency
     + reserves + storage + time-series pointers + `data_5bus_pu.jl`
-  * `sienna_14bus` — `psy_data/data_14bus_pu.jl`
+  * `sienna_14bus` — `psy_data/data_14bus_pu.jl` only (PowerSystems.jl
+    data, no CSV tables): the CLI variants cannot read it and
+    `--bundle 14bus` exits with a usage error.
 * **Offline / air-gapped**: set `GTOPT_SIENNA_DATA_DIR` to a directory
   holding pre-built `sienna_<size>.tar.zst` archives, or prime the
   default cache once with

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import zipfile
 from datetime import datetime, timedelta
@@ -61,6 +62,20 @@ def case_roundtrip_min_2bus(ctx: CliRun) -> None:
         ]
     )
     assert_planning_json(case_json)
+    assert_solved(ctx.run_gtopt(case_json))
+
+
+@e2e("plp2gtopt", needs_gtopt=True)
+def case_zip_roundtrip_min_2bus(ctx: CliRun) -> None:
+    """PLP -> gtopt ZIP (-z) -> unzip -> optimal gtopt solve from the root."""
+    out_dir = ctx.tmp_path / "gtopt_min2"
+    ctx.run(["-i", SCRIPT_CASES_DIR / "plp_min_2bus", "-o", out_dir, "-z"])
+    unzipped = ctx.tmp_path / "unzipped"
+    with zipfile.ZipFile(ctx.tmp_path / "gtopt_min2.zip") as zf:
+        zf.extractall(unzipped)
+    case_json = unzipped / "gtopt_min2.json"
+    data = assert_planning_json(case_json)
+    assert data["options"]["input_directory"] == "gtopt_min2"
     assert_solved(ctx.run_gtopt(case_json))
 
 
@@ -672,3 +687,67 @@ def case_dlr_pipeline_synthetic(ctx: CliRun) -> None:
     assert len(dlr["dlr"]["critical_spans"]) == len(crit["critical_spans"])
     rows = (tmp / "case" / "Line" / "dlr_wind_speed.csv").read_text(encoding="utf-8")
     assert rows.startswith("scenario,stage,block,uid,value")
+
+
+# ---------------------------------------------------------------------------
+# tcheby2gtopt
+# ---------------------------------------------------------------------------
+
+
+@e2e("tcheby2gtopt")
+def case_tcheby_convert_reszone(ctx: CliRun) -> None:
+    """tcheby SQLite system DB -> block + Chebyshev point-stage JSON."""
+    # pylint: disable-next=import-outside-toplevel,import-error
+    from tcheby2gtopt.tests.conftest import RESZONE_SYSTEM, make_db
+
+    db = make_db(ctx.tmp_path / "system1_reszone.db", RESZONE_SYSTEM)
+    out = ctx.tmp_path / "out"
+    ctx.run(["convert", db, "--name", "rz", "--out-dir", out, "--hours", "12"])
+    blk = assert_planning_json(out / "rz_block.json")
+    assert len(blk["simulation"]["block_array"]) == 12
+    assert_planning_json(out / "rz_point.json")
+
+
+# ---------------------------------------------------------------------------
+# rts_gmlc_to_gtopt
+# ---------------------------------------------------------------------------
+
+_RTS_GEN_HEADER = [
+    "GEN UID", "Bus ID", "Unit Type", "Fuel", "PMax MW", "PMin MW", "VOM",
+    "Fuel Price $/MMBTU", "HR_avg_0", "HR_incr_1", "HR_incr_2", "HR_incr_3",
+    "HR_incr_4", "Output_pct_0", "Output_pct_1", "Output_pct_2",
+    "Output_pct_3", "Output_pct_4", "Emissions CO2 Lbs/MMBTU",
+    "Emissions SO2 Lbs/MMBTU", "Emissions NOX Lbs/MMBTU",
+    "Emissions CH4 Lbs/MMBTU", "Emissions N2O Lbs/MMBTU",
+    "Emissions CO Lbs/MMBTU", "Emissions VOCs Lbs/MMBTU",
+]  # fmt: skip
+_RTS_GEN_ROWS = [
+    ["101_STEAM_1", "101", "STEAM", "Coal", "100", "30", "2.5", "2.0",
+     "10000", "0", "0", "0", "0", "1.0", "0", "0", "0", "0",
+     "210", "0.5", "", "0", "0", "0", "0"],
+    ["102_PV_1", "102", "PV", "Solar", "50", "0", "0", "0",
+     "", "", "", "", "", "", "", "", "", "",
+     "", "", "", "", "", "", ""],
+]  # fmt: skip
+
+
+@e2e("rts_gmlc_to_gtopt")
+def case_rts_gmlc_offline_cache(ctx: CliRun) -> None:
+    """Primed RTS-GMLC CSV cache (no download) -> gtopt JSON."""
+    cache = ctx.tmp_path / "rts"
+    cache.mkdir()
+    tables = {
+        "gen.csv": [_RTS_GEN_HEADER, *_RTS_GEN_ROWS],
+        "bus.csv": [["Bus ID", "Bus Name"], ["101", "Abel"], ["102", "Adams"]],
+        "branch.csv": [["UID", "From Bus", "To Bus"], ["A1", "101", "102"]],
+    }
+    for name, rows in tables.items():
+        with (cache / name).open("w", newline="", encoding="utf-8") as fp:
+            csv.writer(fp).writerows(rows)
+    out = ctx.tmp_path / "rts.json"
+    res = ctx.run(
+        ["--no-download", "--cache-dir", cache, "-o", out, "--pollutants", "co2"]
+    )
+    data = assert_planning_json(out)
+    assert len(data["system"]["generator_array"]) == 2
+    assert "Written:" in res.stdout

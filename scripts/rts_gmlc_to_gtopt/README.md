@@ -56,21 +56,21 @@ reach.
 2. **Parse** the 158 generators across 73 buses with their
    piecewise heat-rate (`HR_avg_0` + `HR_incr_1..4` × `Output_pct_0..4`).
 3. **Collapse to scalar HR** via pmax-weighted segment average
-   (same approach as `nrel118_to_gtopt`, pending the multi-fuel feature
-   in issue #510).
+   (same approach as `nrel118_to_gtopt`, pending multi-fuel support).
 4. **Unit conversion** for CO₂: Lbs/MMBTU → tCO₂/GJ via
    `× 0.4536e-3 × (1/1.055) = × 0.0004299`.
    Sanity check on coal `101_STEAM_3`: ships 210 Lbs CO₂/MMBTU =
    0.0903 tCO₂/GJ (matches IPCC sub-bituminous coal ~0.0961 ± 5%).
 5. **Emit per-gen `emission_factors[]`** with one row per pollutant
-   present in the source CSV. Default emission_array carries CO₂; the
-   `--emissions` master switch in the converter optionally adds
-   NOₓ / SO₂ pollutants if downstream LP cares.
+   present in the source CSV. Default emission_array carries CO₂;
+   `--pollutants co2,so2,nox` (comma-separated tags out of `co2`,
+   `so2`, `nox`, `ch4`, `n2o`, `co`, `vocs`; default `co2`) adds
+   further pollutants if downstream LP cares.
 
 ## CLI
 
 ```bash
-PYTHONPATH=. python -m rts_gmlc_to_gtopt --day N -o OUT.json
+rts_gmlc_to_gtopt --day N -o OUT.json   # or: python -m rts_gmlc_to_gtopt
 ```
 
 `--day N` selects a 24-hour representative day from the annual series.
@@ -78,7 +78,7 @@ PYTHONPATH=. python -m rts_gmlc_to_gtopt --day N -o OUT.json
 ### Reserves, day-ahead series and inertia
 
 ```bash
-PYTHONPATH=. python -m rts_gmlc_to_gtopt --day 200 --timeseries \
+rts_gmlc_to_gtopt --day 200 --timeseries \
   --reserves --inertia --inertia-requirement 20000 -o rts_d200.json
 ```
 
@@ -154,7 +154,8 @@ skip the nuclear/biomass entries.
 - Sister port `scripts/nrel118_to_gtopt/` covers per-fuel IPCC defaults
   on a different IEEE-class system; this port covers per-gen native
   multi-pollutant on the same scale.
-- The `--emissions` flag and IPCC defaults are shared infrastructure
+- The IPCC defaults (used by the `--emissions` flag of the other
+  converters; this one takes `--pollutants`) are shared infrastructure
   in `gtopt_shared.emissions` and
   `gtopt_shared/data/ipcc_emission_factors.json`.
 - Multi-pollutant LP coupling is exercised here for the first time

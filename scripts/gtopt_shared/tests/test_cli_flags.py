@@ -238,6 +238,20 @@ def test_line_losses_mode_default_override() -> None:
     assert args.line_losses_mode == "adaptive"
 
 
+def test_line_losses_mode_help_shows_actual_default() -> None:
+    """Help names the converter default when set, gtopt's when unset."""
+    parser = _parser()
+    add_line_losses_mode_argument(parser, default="tangent_signed_flow")
+    text = " ".join(parser.format_help().split())
+    assert "(default: tangent_signed_flow)" in text
+    assert "gtopt picks 'adaptive')" not in text
+
+    parser = _parser()
+    add_line_losses_mode_argument(parser)
+    text = " ".join(parser.format_help().split())
+    assert "(default: not set — gtopt picks 'adaptive')" in text
+
+
 def test_line_losses_mode_accepts_every_choice() -> None:
     """Every C++ enum value must round-trip through argparse."""
     for choice in LINE_LOSSES_MODE_CHOICES:

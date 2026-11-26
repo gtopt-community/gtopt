@@ -96,7 +96,7 @@ Identical surface to `plp2gtopt` where it makes sense:
 
 ```
 sddp2gtopt INPUT_DIR [-o OUTPUT_DIR] [-y SCENARIOS] [-s LAST_STAGE]
-                    [-S sddp|monolithic|cascade] [--info] [--validate]
+                    [--method sddp|monolithic|cascade] [--info] [--validate]
                     [--use-single-bus] [-l LOG_LEVEL]
 ```
 

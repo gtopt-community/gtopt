@@ -667,6 +667,19 @@ def install_solver_param_files(
     return installed
 
 
+def _zip_root_json(text: str, input_dir_name: str) -> str:
+    """Planning JSON *text* with its directories relative to the ZIP root."""
+    planning = json.loads(text)
+    if not isinstance(planning, dict):
+        return text
+    options = planning.setdefault("options", {})
+    old_input = str(options.get("input_directory", "."))
+    options["input_directory"] = input_dir_name
+    if options.get("output_directory") in ("results", f"{old_input}/results"):
+        options["output_directory"] = f"{input_dir_name}/results"
+    return json.dumps(planning, indent=2) + "\n"
+
+
 def create_zip_output(output_file: Path, output_dir: Path, zip_path: Path) -> None:
     """Create a ZIP archive containing the JSON file and all data files.
 
@@ -674,6 +687,12 @@ def create_zip_output(output_file: Path, output_dir: Path, zip_path: Path) -> No
 
     - ``{case_name}.json``  at the archive root
     - ``{input_directory}/{subdir}/{file}.parquet`` for data files
+
+    The root JSON's ``options.input_directory`` is rewritten to the data
+    prefix (``output_dir.name``): the on-disk JSON points at its own
+    location (``"."`` when it sits inside *output_dir*, else the full
+    *output_dir* path), which does not resolve inside the archive.  A
+    writer-default ``output_directory`` is moved under the same prefix.
 
     Args:
         output_file: Path to the main JSON configuration file.
@@ -686,12 +705,17 @@ def create_zip_output(output_file: Path, output_dir: Path, zip_path: Path) -> No
     logger.info("Creating ZIP archive: %s", zip_path)
 
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        # Add main JSON config at archive root
-        zf.write(output_file, arcname=f"{case_name}.json")
+        # Add main JSON config at archive root, pointing at the data prefix
+        zf.writestr(
+            f"{case_name}.json",
+            _zip_root_json(output_file.read_text(encoding="utf-8"), input_dir_name),
+        )
 
-        # Add all data files under the input_directory prefix
+        # Add all data files under the input_directory prefix (the JSON
+        # itself, when it lives in output_dir, is already at the root)
+        json_resolved = output_file.resolve()
         for data_file in sorted(output_dir.rglob("*")):
-            if data_file.is_file():
+            if data_file.is_file() and data_file.resolve() != json_resolved:
                 arcname = f"{input_dir_name}/{data_file.relative_to(output_dir)}"
                 zf.write(data_file, arcname=arcname)
 

@@ -18,7 +18,10 @@ from .battery_writer import BatteryWriter
 from .bus_parser import resolve_bus_voltages
 from .bus_writer import BusWriter
 from .demand_writer import DemandWriter
-from .falla_segments import build_falla_tiers
+from .falla_segments import (
+    DEFAULT_REAL_DEMAND_FAIL_COST_FALLBACK,
+    build_falla_tiers,
+)
 from .line_writer import LineWriter
 
 
@@ -84,8 +87,7 @@ class NetworkMixin:
         # (PLP data without any explicit curtailment encoding).  1000
         # $/MWh is the conventional PLP "very expensive" curtailment
         # price and matches gtopt's C++ default for ``demand_fail_cost``.
-        _DEFAULT_REAL_DEMAND_FAIL_COST_FALLBACK = 1000.0
-        default_real_fcost: float = _DEFAULT_REAL_DEMAND_FAIL_COST_FALLBACK
+        default_real_fcost: float = DEFAULT_REAL_DEMAND_FAIL_COST_FALLBACK
         if central_parser is not None:
             try:
                 avg = float(central_parser.avg_falla_cost())

@@ -28,7 +28,12 @@ from gtopt_shared.source_versions import (
 )
 from sienna2gtopt import VARIANTS
 from sienna2gtopt._battery_degeneracy import VALID_SUBCASES
-from sienna2gtopt._bundle import MANIFEST, BundleUnavailableError, extract_bundle
+from sienna2gtopt._bundle import (
+    CSV_BUNDLES,
+    MANIFEST,
+    BundleUnavailableError,
+    extract_bundle,
+)
 from sienna2gtopt._reader import load_case
 from sienna2gtopt._reserves import ORDC_MODES
 from sienna2gtopt.source_version import SOURCE_FORMAT, detect_version
@@ -60,9 +65,11 @@ def main(argv: list[str] | None = None) -> int:
         default="5bus",
         choices=sorted(MANIFEST),
         help=(
-            "Which Sienna data bundle to use (default: 5bus).  It is "
+            "Which Sienna data bundle to use (default: %(default)s).  It is "
             "downloaded from the pinned upstream commit on first use and "
-            "cached; set GTOPT_OFFLINE=1 to forbid downloads."
+            "cached; set GTOPT_OFFLINE=1 to forbid downloads.  Only "
+            f"{', '.join(CSV_BUNDLES)} carries the CSV tables the variants "
+            "read; the other bundles hold PowerSystems.jl data only."
         ),
     )
     parser.add_argument(
@@ -108,6 +115,13 @@ def main(argv: list[str] | None = None) -> int:
             args.variant,
         )
 
+    if args.bundle not in CSV_BUNDLES:
+        files = ", ".join(Path(path).name for path, _ in MANIFEST[args.bundle])
+        parser.error(
+            f"--bundle {args.bundle} holds only PowerSystems.jl data ({files}), "
+            f"not the CSV tables the {args.variant} variant reads; use "
+            f"--bundle {' or '.join(CSV_BUNDLES)}"
+        )
     try:
         case_dir = extract_bundle(args.bundle)
     except BundleUnavailableError as exc:

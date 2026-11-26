@@ -922,12 +922,12 @@ plp2gtopt \
     -i scripts/cases/plp_min_1bus \
     -o /tmp/plp_min_1bus \
     -f /tmp/plp_min_1bus/plp_min_1bus.json \
-    -S mono
+    -M monolithic
 ```
 
-> **Note**: `-S mono` selects the monolithic solver (single scene/phase),
-> suitable for small deterministic cases. For stochastic multi-stage
-> problems, use the default `-S sddp`.
+> **Note**: `-M monolithic` selects the monolithic solver (single
+> scene/phase), suitable for small deterministic cases. For stochastic
+> multi-stage problems, use the default `-M cascade` (or `-M sddp`).
 
 #### Step 2: Solve with GTOpt
 

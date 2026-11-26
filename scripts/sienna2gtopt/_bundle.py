@@ -111,6 +111,16 @@ MANIFEST: dict[str, list[tuple[str, str]]] = {
     ],
 }
 
+#: Bundles that carry the CSV tables (``bus.csv``, ``gen.csv``, ...) the
+#: variant builders read via :func:`sienna2gtopt._reader.load_case`.  The
+#: other bundles hold only PowerSystems.jl data files (``*.jl``), used by
+#: the Julia golden tools, not by the CLI converter.
+CSV_BUNDLES: tuple[str, ...] = tuple(
+    name
+    for name, files in MANIFEST.items()
+    if any(path.endswith("/bus.csv") for path, _ in files)
+)
+
 _DOWNLOAD_TIMEOUT_S = 30.0
 
 

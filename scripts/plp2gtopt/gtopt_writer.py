@@ -35,6 +35,7 @@ from ._writer_generation import GenerationMixin
 from ._writer_hydro import HydroMixin
 from ._writer_network import NetworkMixin
 from ._writer_time import TimeMixin
+from .falla_segments import DEFAULT_GLOBAL_DEMAND_FAIL_COST
 from .line_parser import LineParser
 from .plp_parser import PLPParser
 
@@ -1148,7 +1149,9 @@ class GTOptWriter(
         # 0 — the behaviour kept here.)
         user_demand_fail = src_model.get("demand_fail_cost")
         effective_demand_fail = (
-            user_demand_fail if user_demand_fail is not None else 0.0
+            user_demand_fail
+            if user_demand_fail is not None
+            else DEFAULT_GLOBAL_DEMAND_FAIL_COST
         )
 
         # Auto-promote to single-bus when the parsed PLP case has 0

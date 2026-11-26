@@ -1389,3 +1389,87 @@ def test_install_solver_param_files_warmstart_pins_no_algorithm(tmp_path, iterat
     highs = directives("highs_warmstart.opts")
     assert "simplex_strategy" not in highs
     assert {"solver", "presolve", "run_crossover"} <= set(highs)
+
+
+def test_create_zip_output_rewrites_input_directory(tmp_path):
+    """The root JSON points at the archive's data prefix, not at '.'."""
+    output_dir = tmp_path / "zcase"
+    (output_dir / "Demand").mkdir(parents=True)
+    (output_dir / "Demand" / "lmax.parquet").write_bytes(b"x")
+    # Default layout: the JSON lives inside output_dir with input '.'
+    output_file = output_dir / "zcase.json"
+    output_file.write_text(
+        json.dumps({"options": {"input_directory": ".", "output_directory": "results"}})
+    )
+    zip_path = tmp_path / "zcase.zip"
+    create_zip_output(output_file, output_dir, zip_path)
+
+    with zipfile.ZipFile(zip_path) as zf:
+        names = zf.namelist()
+        root = json.loads(zf.read("zcase.json"))
+    assert names.count("zcase.json") == 1
+    assert "zcase/zcase.json" not in names  # no stale duplicate
+    assert root["options"]["input_directory"] == "zcase"
+    assert root["options"]["output_directory"] == "zcase/results"
+    # on-disk JSON is untouched
+    on_disk = json.loads(output_file.read_text())
+    assert on_disk["options"]["input_directory"] == "."
+
+
+def test_create_zip_output_rewrites_absolute_input_directory(tmp_path):
+    """``-f`` elsewhere: the full output_dir path becomes the prefix."""
+    output_dir = tmp_path / "abs_case"
+    output_dir.mkdir()
+    output_file = tmp_path / "elsewhere.json"
+    output_file.write_text(
+        json.dumps(
+            {
+                "options": {
+                    "input_directory": str(output_dir),
+                    "output_directory": f"{output_dir}/results",
+                    "keep": 1,
+                }
+            }
+        )
+    )
+    zip_path = tmp_path / "abs_case.zip"
+    create_zip_output(output_file, output_dir, zip_path)
+    with zipfile.ZipFile(zip_path) as zf:
+        opts = json.loads(zf.read("elsewhere.json"))["options"]
+    assert opts == {
+        "input_directory": "abs_case",
+        "output_directory": "abs_case/results",
+        "keep": 1,
+    }
+
+
+def test_create_zip_output_keeps_custom_output_directory(tmp_path):
+    """A non-default output_directory and non-object JSON are left alone."""
+    output_dir = tmp_path / "c"
+    output_dir.mkdir()
+    output_file = tmp_path / "c.json"
+    output_file.write_text(json.dumps({"options": {"output_directory": "/x/out"}}))
+    create_zip_output(output_file, output_dir, tmp_path / "c.zip")
+    with zipfile.ZipFile(tmp_path / "c.zip") as zf:
+        opts = json.loads(zf.read("c.json"))["options"]
+    assert opts == {"input_directory": "c", "output_directory": "/x/out"}
+
+    output_file.write_text("[1, 2]")
+    create_zip_output(output_file, output_dir, tmp_path / "d.zip")
+    with zipfile.ZipFile(tmp_path / "d.zip") as zf:
+        assert zf.read("c.json") == b"[1, 2]"
+
+
+def test_zip_output_data_files_resolve(tmp_path):
+    """-z on a real PLP case: every data file resolves under input_directory."""
+    opts = _make_opts(_PLPMin1Bus, tmp_path, "gtopt_min1")
+    opts["zip_output"] = True
+    convert_plp_case(opts)
+    out_dir = opts["output_dir"]
+
+    extract = tmp_path / "unzipped"
+    with zipfile.ZipFile(tmp_path / f"{out_dir.name}.zip") as zf:
+        zf.extractall(extract)
+    planning = json.loads((extract / f"{out_dir.name}.json").read_text())
+    data_root = extract / planning["options"]["input_directory"]
+    assert (data_root / "Demand" / "lmax.parquet").is_file()

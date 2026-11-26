@@ -134,6 +134,8 @@ One line per console script installed by `pip install ./scripts`:
 | `sienna2gtopt` | Sienna (PowerSimulations.jl) reference systems → gtopt JSON (`sienna_to_gtopt` is a deprecated alias) | [sienna2gtopt](scripts/sienna2gtopt.md) |
 | `cucdata2gtopt` | Clustered-UC benchmark (Morales-España & Tejada-Arango 2019, IEEE 39/118-bus) → gtopt IUC case | [cucdata2gtopt](scripts/cucdata2gtopt.md) |
 | `dlr2gtopt` | Towers + weather → IEEE 738 span ratings → critical spans (Matus et al. 2012) → `Line.dlr` input | [dlr2gtopt](scripts/dlr2gtopt.md) |
+| `tcheby2gtopt` | tcheby SQLite test systems → gtopt JSON (hourly block and Chebyshev point-stage cases) | [tcheby2gtopt](scripts/tcheby2gtopt.md) |
+| `rts_gmlc_to_gtopt` | RTS-GMLC test system → single-day gtopt dispatch case with emissions, reserves and inertia | [rts\_gmlc\_to\_gtopt](scripts/rts_gmlc_to_gtopt.md) |
 | `igtopt` | Excel workbook → gtopt JSON (and `--make-template`) | [igtopt](scripts/igtopt.md) |
 | `cvs2parquet` | CSV → Parquet converter for gtopt input tables | [cvs2parquet](scripts/cvs2parquet.md) |
 | `ts2gtopt` | Project time series onto a gtopt block horizon | [ts2gtopt](scripts/ts2gtopt.md) |
@@ -785,7 +787,8 @@ gtopt cuc/cuc39_r10_s10.json --mip-gap 1e-4
 > **[→ Full documentation](scripts/sienna2gtopt.md)**
 
 Ports a test case of NREL-Sienna PowerSimulations.jl to a gtopt planning
-JSON.  The Sienna data bundle (`5bus` by default, or `14bus`) is
+JSON.  The Sienna data bundle (`5bus`, the only one with the CSV
+tables the variants read) is
 downloaded from a pinned upstream commit on first use and cached; set
 `GTOPT_OFFLINE=1` to forbid downloads.  `sienna_to_gtopt` is kept as a
 deprecated alias of the command.
@@ -800,7 +803,7 @@ sienna2gtopt reserves --golden reserves_uc.json --ordc auto -o res.json
 |----------|-------------|
 | `VARIANT` | `battery_degeneracy`, `cascading_hydro`, `fuel_cost_ts`, `hvdc`, `interruptible_load`, `monitored_line`, `pumped_storage`, `reserves`, `wecc_240` |
 | `-o, --output FILE` | Output JSON (default `<variant>.json`) |
-| `--bundle {5bus,14bus}` | Sienna data bundle |
+| `--bundle {5bus,14bus}` | Sienna data bundle; `14bus` holds only `data_14bus_pu.jl` (PowerSystems.jl data, no CSV tables) and is rejected with a usage error |
 | `--subcase {b,c,d,e,f}` | `battery_degeneracy` only |
 | `--golden FILE` | `reserves` only: a reserve golden written by `tools/sienna_solve_golden.jl`; its system data is the input (unit commitment, range reserves and ORDC) |
 | `--ordc {auto,stacked,omit}` | `reserves` only: ORDC as stacked priced reserve zones, omitted, or as in the golden |

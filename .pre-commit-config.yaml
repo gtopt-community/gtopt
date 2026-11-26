@@ -53,6 +53,9 @@ repos:
     hooks:
       - id: markdownlint
         args: [--config=.markdownlint.json]
+        # Dated investigation notes / plans, agent files, verbatim
+        # third-party licences and PAMPL documentation templates.
+        exclude: ^(docs/analysis|docs/scripts/plans|docs/tasks|\.claude)/|LICENSE|^scripts/gtopt_expand/templates/
 
   # Clang-format pinned to the same major version used by CI (Clang 21).
   # pre-commit/mirrors-clang-format ships clang-format as a self-contained

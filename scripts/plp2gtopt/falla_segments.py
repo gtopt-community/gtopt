@@ -60,6 +60,16 @@ FALLA_SEGMENT_CHOICES: Tuple[str, ...] = TIER_SEGMENT_CHOICES
 #: Default mode — keeps the historical single-``fcost`` output.
 DEFAULT_FALLA_SEGMENTS = DEFAULT_TIER_SEGMENTS
 
+#: Global ``model_options.demand_fail_cost`` written when
+#: ``--demand-fail-cost`` is not given.  PLP has no global curtailment
+#: cost: every real demand carries its own ``fcost`` (cheapest FALLA tier
+#: of its bus), so the global only reaches demands without one.
+DEFAULT_GLOBAL_DEMAND_FAIL_COST: float = 0.0
+#: Per-demand ``fcost`` for real demands on a bus without a FALLA central
+#: when the case has no FALLA centrals at all (otherwise the average
+#: first-tier FALLA cost is used).
+DEFAULT_REAL_DEMAND_FAIL_COST_FALLBACK: float = 1000.0
+
 
 @dataclass(frozen=True)
 class FallaTier:

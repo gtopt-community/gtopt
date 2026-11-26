@@ -30,6 +30,7 @@ from .plp2gtopt import (
     print_variable_scales_template,
     validate_plp_case,
 )
+from ._parsers import DEFAULT_METHOD
 from .line_writer import DEFAULT_LOSS_TANGENTS
 from .info_display import display_plp_info
 from .source_version import SOURCE_FORMAT, detect_version
@@ -51,7 +52,7 @@ _EPILOG = """
 Quick start:
   plp2gtopt plp_dir                      Convert with default settings
   plp2gtopt plp_dir -y 1-16              Select 16 hydrologies
-  plp2gtopt plp_dir -S sddp -a all       SDDP mode with all apertures
+  plp2gtopt plp_dir -M sddp -a all       SDDP mode with all apertures
   plp2gtopt --info plp_dir               Inspect PLP case structure
   plp2gtopt --validate plp_dir           Validate PLP data only
 
@@ -235,7 +236,7 @@ def make_parser() -> argparse.ArgumentParser:
             "the unique analytic-center point and the cut path keeps the unique "
             "interior duals, so the degenerate-vertex selection that dual "
             "simplex suffers (different equal-cost trajectory off vs compress) "
-            "cannot occur.  ~2x slower per solve and yields a different but "
+            "cannot occur.  Slower per solve and yields a different but "
             "equally valid solution than the dual-simplex default."
         ),
     )
@@ -265,9 +266,9 @@ def make_parser() -> argparse.ArgumentParser:
 # Keys and hard-coded defaults for the [plp2gtopt] config section.
 #
 # IMPORTANT: do NOT add ``demand_fail_cost`` here.  When unset (``None``)
-# the parser auto-derives the value from the average first-tier FALLA
-# gcost in plpcnfce.dat.  Writing ``demand_fail_cost = 0.0`` to the conf
-# disables that auto-detection silently — see _parsers.py:add_model_arguments.
+# the writer emits ``DEFAULT_GLOBAL_DEMAND_FAIL_COST`` and prices real
+# demands per bus from the FALLA centrals in plpcnfce.dat; a conf value
+# would silently override that global — see _parsers.py:add_model_arguments.
 _SECTION_DEFAULTS: dict[str, str] = {
     "compression": "zstd",
     # "zstd" matches the gtopt C++ default
@@ -288,7 +289,7 @@ _SECTION_DEFAULTS: dict[str, str] = {
     "layout": "long",
     # `cascade` is the production-grade default since 2026-05-15.  See
     # ``_parsers.py``'s ``--method`` default for the rationale.
-    "method": "cascade",
+    "method": DEFAULT_METHOD,
     "state_fail_cost": "1000.0",
     # Default 1.0 (was 1000): with the production-default `cascade` method,
     # scale_objective=1 keeps the LP basis well-conditioned (it is the dominant

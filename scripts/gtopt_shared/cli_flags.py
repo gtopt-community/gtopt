@@ -204,8 +204,8 @@ def add_emissions_arguments(
         action="store_true",
         default=d.get("only_emissions", False),
         help=(
-            "Configure the LP for pure-emissions objective mode (issue "
-            "#519).  Implies --emissions.  Emits "
+            "Configure the LP for pure-emissions objective mode.  "
+            "Implies --emissions.  Emits "
             "``model_options.objective_mode = 'emissions'`` (GTOpt swaps "
             "the LP objective from $-dispatch-cost to tCO2eq dispatch) "
             "AND stamps the synthesised EmissionZone with "
@@ -240,7 +240,7 @@ def add_emissions_arguments(
             "in --only-emissions mode.  Only consumed by plp2gtopt's "
             "boundary-cut writer when --only-emissions is also set. "
             "Default: 0.05 (5%% / yr, CNE reference for hydro least-cost "
-            "dispatch).  See issue #520."
+            "dispatch)."
         ),
     )
     parser.add_argument(
@@ -253,7 +253,7 @@ def add_emissions_arguments(
             "Horizon (in years) over which the emissions-ray NPV factor "
             "is computed.  Unset = perpetuity (NPV = 1 / discount_rate). "
             "Only consumed by plp2gtopt's boundary-cut writer when "
-            "--only-emissions is also set.  See issue #520."
+            "--only-emissions is also set."
         ),
     )
 
@@ -523,7 +523,11 @@ def add_line_losses_mode_argument(
             "single signed-flow column + K outer-approximation tangents "
             "and a |f|-aux chord upper bound — strongest LP relaxation, "
             "no bidirectional-flow degeneracy. "
-            "(default: not set — GTOpt picks 'adaptive')"
+            + (
+                "(default: not set — gtopt picks 'adaptive')"
+                if default is None
+                else "(default: %(default)s)"
+            )
         ),
     )
 

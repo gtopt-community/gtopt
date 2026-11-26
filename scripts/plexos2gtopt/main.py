@@ -229,6 +229,10 @@ def _add_reserve_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+#: Default ``--line-losses-mode`` (always emitted).
+DEFAULT_LINE_LOSSES_MODE = "tangent_signed_flow"
+
+
 def make_parser() -> argparse.ArgumentParser:
     """Build the argparse parser for ``plexos2gtopt``."""
     parser = argparse.ArgumentParser(
@@ -720,7 +724,7 @@ def make_parser() -> argparse.ArgumentParser:
     # phantom-flow degeneracy by construction.  The tangent count K is
     # sized per line by the adaptive cube-root rule, capped by
     # `--nseg-losses=10` below.
-    add_line_losses_mode_argument(parser, default="tangent_signed_flow")
+    add_line_losses_mode_argument(parser, default=DEFAULT_LINE_LOSSES_MODE)
     parser.add_argument(
         "--emin-eod-day1",
         dest="emin_eod_day1",
@@ -989,7 +993,7 @@ def make_parser() -> argparse.ArgumentParser:
             "tangent_signed_flow`` at LP-build time.  Composes with "
             "``--loss-sos2-auto``: the final set is the UNION of both "
             "selectors (this manual list always wins over an ``off`` "
-            "auto-rule).  Issue #504 task #5."
+            "auto-rule)."
         ),
     )
     parser.add_argument(
@@ -1004,8 +1008,7 @@ def make_parser() -> argparse.ArgumentParser:
             "lines in the TOP QUARTILE by peak loss ``R·envelope²`` get "
             "stamped.  ``all-lossy`` ⇒ every line with ``R > 0`` and "
             "non-zero peak loss gets stamped — aggressive, MIP-heavy.  "
-            "Composes with ``--loss-sos2-lines`` (union).  Issue #504 "
-            "task #5."
+            "Composes with ``--loss-sos2-lines`` (union)."
         ),
     )
     parser.add_argument(
@@ -1039,12 +1042,12 @@ def make_parser() -> argparse.ArgumentParser:
         help=(
             "OPF engine for ``--auto-lift-lines``.  ``pandapower`` "
             "(default): runs ``pp.rundcopp`` on the first block via "
-            "``gtopt2pp.convert``; ~10 s on CEN PCP weekly; needs the "
+            "``gtopt2pp.convert`` (fast); needs the "
             "``pandapower`` + ``gtopt2pp`` Python packages.  ``gtopt``: "
             "runs the actual ``gtopt --no-mip`` binary on a sibling "
             "bundle with every line demoted to ``enforce_level = 0``, "
             "then reads the first-block flows from the parquet output; "
-            "~30 s on CEN PCP weekly; needs only the ``gtopt`` binary "
+            "slower; needs only the ``gtopt`` binary "
             "in ``$PATH`` (or via ``$GTOPT_BIN``).  Use ``gtopt`` when "
             "you want the EXACT loss model + voltage assumptions the "
             "downstream solve will see, ``pandapower`` for speed."
@@ -1070,7 +1073,7 @@ def make_parser() -> argparse.ArgumentParser:
             "without the gate makes the LP primal-infeasible at "
             "blocks where the hydro is fractionally / fully off "
             "(verified on CEN PCP 2026-04-22: ``antucomin_constraint_"
-            "1263_1_1_40`` reported infeasible by presolve when "
+            "1263_1_1_40`` reported infeasible by the LP presolve when "
             "added to the hard list).  ``hard`` mode is available for "
             "debug / validation runs against a known-feasible "
             "horizon, BUT WILL FAIL on most CEN PCP weekly cases until "

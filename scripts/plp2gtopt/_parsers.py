@@ -35,8 +35,18 @@ from gtopt_shared.cli_flags import (
 )
 from gtopt_shared.resources import package_data_path
 
-from .falla_segments import DEFAULT_FALLA_SEGMENTS
+from .falla_segments import (
+    DEFAULT_FALLA_SEGMENTS,
+    DEFAULT_GLOBAL_DEMAND_FAIL_COST,
+    DEFAULT_REAL_DEMAND_FAIL_COST_FALLBACK,
+)
 from .line_writer import DEFAULT_LOSS_TANGENTS, parse_loss_tangents
+
+#: Default ``--method`` (also the ``[plp2gtopt] method`` conf default).
+DEFAULT_METHOD = "cascade"
+#: Default ``--line-losses-mode`` (always emitted as
+#: ``model_options.line_losses_mode``).
+DEFAULT_LINE_LOSSES_MODE = "tangent_signed_flow"
 
 
 # ---------------------------------------------------------------------------
@@ -460,7 +470,7 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         # `sddp` is retained as a CLI choice for diagnostic / one-level
         # runs but no longer the default.  `--plp-legacy` still pins
         # `sddp` to match the legacy PLP equivalence shim.
-        default=conf.get("method", "cascade"),
+        default=conf.get("method", DEFAULT_METHOD),
         # `mono` is kept as a deprecated alias for `monolithic` —
         # simulation_writer.py:58 normalises it back to `monolithic`.
         choices=[
@@ -473,7 +483,7 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         ],
         help=(
             "planning method controlling the simulation structure: "
-            "'sddp' (default) produces one scene per scenario and one phase "
+            "'sddp' produces one scene per scenario and one phase "
             "per stage (for Stochastic Dual Dynamic Programming); "
             "'cascade' uses a 4-level cascade with the full topology at "
             "every level (warmup, uninodal, transport, full_network); "
@@ -885,17 +895,25 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
 
 def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -> None:
     """Register demand-fail-cost, scale factors, kirchhoff, line losses, etc."""
-    # `default=None` signals "auto-derive from plpcnfce.dat's falla
-    # centrals" (CentralParser.avg_falla_cost — see gtopt_writer.py).
+    # `default=None` signals "not given": the writer emits
+    # DEFAULT_GLOBAL_DEMAND_FAIL_COST and prices real demands per bus from
+    # plpcnfce.dat's FALLA centrals (see gtopt_writer.py / _writer_network.py).
     # Explicit `--demand-fail-cost NNNN` or `demand_fail_cost = NNNN` in
-    # the conf still overrides.
+    # the conf still overrides the global.
     _default_dfc = conf.get("demand_fail_cost")
     add_demand_fail_cost_argument(
         parser,
         default=float(_default_dfc) if _default_dfc is not None else None,
         help_text=(
-            "cost penalty for demand curtailment in $/MWh "
-            "(default: average first-tier FALLA gcost from plpcnfce.dat)"
+            "global cost penalty for demand curtailment in $/MWh, "
+            "emitted as model_options.demand_fail_cost.  Real demands "
+            "carry their own fcost (cheapest FALLA tier of their bus in "
+            "plpcnfce.dat; buses without one get the average first-tier "
+            "FALLA cost, or "
+            f"{DEFAULT_REAL_DEMAND_FAIL_COST_FALLBACK:g} when the case has "
+            "no FALLA centrals), so the global only reaches demands "
+            "without an fcost "
+            f"(default: {DEFAULT_GLOBAL_DEMAND_FAIL_COST:g})"
         ),
     )
     parser.add_argument(
@@ -1131,7 +1149,7 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
     # for PLP-replication / LP-diff runs ONLY: it has no loss rows, so a
     # negative bus price makes the LP burn energy in fictitious losses
     # (and hides negative CMg) — it is NOT arbitrage-safe.
-    add_line_losses_mode_argument(parser, default="tangent_signed_flow")
+    add_line_losses_mode_argument(parser, default=DEFAULT_LINE_LOSSES_MODE)
     # ``loss_cost_eps``: UNSET by default — gtopt's built-in 0.1 $/MWh
     # applies (strictly breaks the PWL bidirectional-flow degeneracy and
     # the tangent_signed_flow |f|-aux slack with negligible LMP
@@ -1291,8 +1309,8 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
             "value is auto-resolved from plpmat.dat CCauFal.  Internally "
             "multiplied by FactTiempoH=3.6 to convert to GTOpt's "
             "$/(m³/s·h) per-block coefficient.  Use this flag to tune the "
-            "FlowRight slack penalty empirically; for CEN-IPLP the "
-            "auto value is 7000 $/Hm³ → 25200 $/(m³/s·h) internal."
+            "FlowRight slack penalty empirically; e.g. CCauFal = "
+            "7000 $/Hm³ → 25200 $/(m³/s·h) internal."
         ),
     )
 
@@ -1593,7 +1611,7 @@ def add_tech_arguments(parser: argparse.ArgumentParser, _conf: dict[str, str]) -
             "keywords (CEN suffix convention: ``_FV``→solar, "
             "``_EO``→wind, etc.).  Without this, many PLP renewables "
             "end up tagged ``type=thermal`` with HR=0 and no fuel, "
-            "which breaks downstream emission attribution (#524). "
+            "which breaks downstream emission attribution. "
             "(default: %(default)s — enabled by default since 2026-06)"
         ),
     )

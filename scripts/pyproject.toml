@@ -93,6 +93,8 @@ sienna2gtopt               = "sienna2gtopt.__main__:main"
 sienna_to_gtopt            = "sienna2gtopt.__main__:legacy_main"
 cucdata2gtopt              = "cucdata2gtopt.__main__:main"
 dlr2gtopt                  = "dlr2gtopt.__main__:main"
+tcheby2gtopt               = "tcheby2gtopt.main:main"
+rts_gmlc_to_gtopt          = "rts_gmlc_to_gtopt.__main__:main"
 
 
 [project.optional-dependencies]

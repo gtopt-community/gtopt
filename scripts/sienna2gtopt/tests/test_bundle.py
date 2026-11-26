@@ -160,3 +160,29 @@ def test_cli_rejects_unknown_bundle(tmp_path: Path) -> None:
     with pytest.raises(SystemExit) as exc:
         main(["hvdc", "--bundle", "nope", "-o", str(tmp_path / "x.json")])
     assert exc.value.code == 2
+
+
+def test_csv_bundles_are_the_ones_with_tables() -> None:
+    """Only bundles with bus.csv can feed the CSV variant builders."""
+    assert _bundle.CSV_BUNDLES == ("5bus",)
+
+
+def test_cli_rejects_jl_only_bundle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """``--bundle 14bus`` fails with a clear usage error, before any fetch."""
+    from sienna2gtopt.__main__ import main  # noqa: PLC0415
+
+    def _no_fetch(name: str) -> Path:
+        raise AssertionError(f"extract_bundle({name!r}) must not be called")
+
+    monkeypatch.setattr("sienna2gtopt.__main__.extract_bundle", _no_fetch)
+    with pytest.raises(SystemExit) as exc:
+        main(["hvdc", "--bundle", "14bus", "-o", str(tmp_path / "x.json")])
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "data_14bus_pu.jl" in err
+    assert "--bundle 5bus" in err
+    assert not (tmp_path / "x.json").exists()
