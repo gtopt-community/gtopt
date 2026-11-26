@@ -300,7 +300,7 @@ static_assert(
  * persist across SDDP iterations — dropping their collection would lose
  * that state.
  *
- * All other 22 collection types are pure `add_to_lp`-time consumers:
+ * Every other collection type is a pure `add_to_lp`-time consumer:
  * after `add_to_lp` populates each element's column / row indices, the
  * collection itself is never read again until `write_out` calls
  * `rebuild_collections_if_needed()` to revive every type from the parsed
@@ -317,14 +317,6 @@ concept HasUpdateLP = requires(T& obj,
                                const StageLP& stage) {
   { obj.update_lp(system_lp, scenario, stage) } -> std::same_as<int>;
 };
-
-/// Transitional alias — `HasUpdateLP<T>` is the canonical spelling for
-/// "post-`add_to_lp` resident".  This alias is preserved only for the
-/// parallel test-suite work in flight (`test_system_lp_lazy_rebuild`)
-/// and SHOULD be inlined to `HasUpdateLP<T>` at every call site once
-/// that integration lands.
-template<typename T>
-inline constexpr bool is_post_add_to_lp_resident_v = HasUpdateLP<T>;
 
 /**
  * @class SystemLP
@@ -829,9 +821,9 @@ private:
 
   /// True once the *full* collection set (HasUpdateLP + disposable
   /// element types) has been populated.  Goes false after
-  /// `clear_disposable_collections()` empties the 22 non-resident
-  /// types — at that point `m_collections_built_` STAYS true (the
-  /// HasUpdateLP types are still alive, with their per-(scen, stg)
+  /// `clear_disposable_collections()` empties the non-resident
+  /// (non-`HasUpdateLP`) types — at that point `m_collections_built_` STAYS
+  /// true (the HasUpdateLP types are still alive, with their per-(scen, stg)
   /// `update_lp` state preserved across SDDP iterations).
   ///
   /// `rebuild_collections_if_needed()` triggers if either flag is

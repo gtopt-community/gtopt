@@ -297,9 +297,9 @@ bool LineLP::add_to_lp(SystemContext& sc,
     // of the JSON-side `bus_a` / `bus_b` SingleId variant — `std::get<Uid>`
     // would throw if the JSON used a string name).
     metadata.emplace_back(
-        BusAKey, static_cast<double>(sc.element<BusLP>(bus_a_sid()).uid()));
+        BusAKey, ampl_metadata_uid(sc.element<BusLP>(bus_a_sid()).uid()));
     metadata.emplace_back(
-        BusBKey, static_cast<double>(sc.element<BusLP>(bus_b_sid()).uid()));
+        BusBKey, ampl_metadata_uid(sc.element<BusLP>(bus_b_sid()).uid()));
     sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
   }
 

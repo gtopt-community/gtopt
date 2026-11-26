@@ -539,7 +539,8 @@ family (see §10), and is shown here for the canonical PCP weekly:
 
 The `terminal_value` family routes constraints named `FCF*` /
 `alpha*`; the converter's own future-cost cut is written to
-`boundary_cuts.csv`, not as a UserConstraint (see §8). The `--pampl-uc-mode` CLI flag toggles between
+`boundary_cuts.csv`, not as a UserConstraint (see §8). The `--pampl-uc-mode` CLI
+flag toggles between
 `hard` (PLEXOS-stamped penalty per row, default), `soft` (force a
 slack penalty on EVERY row at `--default-uc-penalty`), and `off`
 (drop UCs entirely — diagnostic). `--pampl-uc-only` /
@@ -668,7 +669,8 @@ never emitted.
 (`*MinProvision` balances, `*_Def` / `*Calculation_e*` definitions,
 `_ConfTGA*` plant links).  The native model writes those rows `=` (its
 balances become `"eq"` zones: a fixed zone has both a shortage and a
-surplus slack, a plane zone's requirement column absorbs the surplus); `--reserve-model uc` keeps the
+surplus slack, a plane zone's requirement column absorbs the surplus);
+`--reserve-model uc` keeps the
 legacy `>=`, because there the balances are hard user constraints and
 the equalities were infeasible against the per-unit reserve caps.  In
 both modes a `*_Def` row keeps its PLEXOS RHS (0), not the
@@ -1425,7 +1427,6 @@ strict unresolved-reference check still reports it.
 | `--no-check` | Skip the post-conversion comparison + JSON validation. |
 | `--sanity-report PATH` | Write the post-conversion data-quality report as JSON (the summary is always logged): per-kV `|X|/V²` / `R/V²` distribution and lines below the tie threshold, kV-class impedance outliers, X/R, non-standard / mistyped bus kV, zero-rated units (and those still committed), profiles outside [0, 1], reservoirs without `emin` under an agreement reserve level, water-right rewards above the demand fail cost.  Same report on an existing case: `python -m gtopt_shared.sanity_report case.json` (skipped by `--no-check`). |
 
-
 ### Storage and generation data
 
 | Flag | Default | Effect |
@@ -1576,7 +1577,7 @@ python -m plexos2gtopt.aemo_isp "2026 ISP Step Change Model.xml" \
 | `Min Capacity Factor Year` (%, coal / gas) | yearly energy floor: not enforced by default; `--long-periods prorate` adds a window-sum `generation ≥ CF × Units × Max Capacity × (1 − Aux Incr) × hours` (capped at Σ `pmax`) |
 | `Outage Factor` (bands 2–3), `Maintenance Rate` (new entrants), `Min Capacity Factor` (0) | not modelled (no outages in a deterministic week) |
 
-#### Hydro levels and the end-of-week value
+### Hydro levels and the end-of-week value
 
 The XML stores volumes in 1000 m³ (converted ÷ 1000 to hm³), flows in
 m³/s and `Efficiency Incr` in MW/(m³/s), so every reservoir carries
@@ -2109,5 +2110,6 @@ ODP network augmentations remain decision variables; the
 * `include/gtopt/{generator,line,battery,reservoir,turbine,waterway,reserve_provision,decision_variable,commitment}.hpp`
   + matching `_lp.cpp` — the GTOpt LP class catalogue (types,
   accessors registered via `add_ampl_variable`, schedule fields).
-* `$GTOPT_CASES_DIR/chile/daily_scheduling/pcp_2026-04-22/source/` — the canonical reference
+* `$GTOPT_CASES_DIR/chile/daily_scheduling/pcp_2026-04-22/source/` — the
+  canonical reference
   bundle the converter is exercised against in every release.

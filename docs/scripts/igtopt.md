@@ -260,7 +260,8 @@ the SDDP backward pass.
 | `count_stage` | integer | all remaining | Number of stages in the phase |
 | `apertures` | comma-separated uids | `""` | Comma-separated aperture UIDs to use in the SDDP backward pass for this phase; empty = use all apertures |
 
-**`apertures` column example** — enter a comma-separated list of UIDs directly in the cell:
+**`apertures` column example** — enter a comma-separated list of UIDs directly
+in the cell:
 
 ```
 1,3,5
@@ -322,7 +323,6 @@ ones are:
 | `reservoir_production_factor_array` | uid, name, reservoir | Volume-dependent turbine efficiency adjustments |
 | `user_constraint_array` | uid, name, ... | User-defined custom LP constraints |
 | `future_cost_array` | uid, name, cuts_file, mode, sharing, iteration_limit | Future-cost function (boundary cuts) — see [input-data](../input-data.md) |
-
 
 #### `reservoir_seepage_array` — Piecewise-Linear Seepage Model
 
@@ -470,7 +470,6 @@ and reads the column named `"d1"`.
 ---
 
 ## Tutorial: IEEE 57-Bus Case (Step by Step)
-
 
 This tutorial walks through creating an Excel workbook for the standard IEEE
 57-bus test network. The result is a single-snapshot DC Optimal Power Flow
@@ -1063,7 +1062,8 @@ python -m pytest igtopt/tests/ -m integration -q
   problems for GTOpt
 - [INPUT_DATA.md](../input-data.md) — Complete reference for GTOpt JSON
   input format and all available options
-- [MATHEMATICAL_FORMULATION.md](../formulation/mathematical-formulation.md) — The LP/MIP
+- [MATHEMATICAL_FORMULATION.md](../formulation/mathematical-formulation.md) —
+  The LP/MIP
   formulation that GTOpt assembles from igtopt's output
 - [pp2gtopt.md](pp2gtopt.md) — Converting pandapower cases to GTOpt (an
   alternative input path)

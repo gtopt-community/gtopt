@@ -99,8 +99,7 @@ bool GasSupplyLP::add_to_lp(SystemContext& sc,
     if (const auto& t = gas_supply().type) {
       metadata.emplace_back(GasNodeLP::TypeKey, *t);
     }
-    metadata.emplace_back(GasNodeLP::GasNodeKey,
-                          static_cast<double>(node.uid()));
+    metadata.emplace_back(GasNodeLP::GasNodeKey, ampl_metadata_uid(node.uid()));
     sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
   }
   return true;

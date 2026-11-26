@@ -47,14 +47,14 @@ case_name/
 Global settings that control solver behavior and I/O formats.  All fields are
 optional -- when absent, the solver applies built-in defaults (shown below).
 
-#### Input settings
+### Input settings
 
 | Field              | Type   | Default      | Description |
 |--------------------|--------|--------------|-------------|
 | `input_directory`  | string | `"input"`    | Root directory for external data files (resolved relative to JSON file) |
 | `input_format`     | string | `"parquet"`  | Preferred input format: `"parquet"` or `"csv"` |
 
-#### Model parameters (`options.model_options`)
+### Model parameters (`options.model_options`)
 
 These keys live in the `model_options` sub-object; the former flat copies
 at the top level of `options` are rejected (see
@@ -105,7 +105,7 @@ The table lists the commonly used ones; the full list is in
 > section (see [Section 2](#2-simulation)).  For backward
 > compatibility, it is still accepted here.
 
-#### Output settings
+### Output settings
 
 | Field                | Type    | Default      | Description |
 |----------------------|---------|--------------|-------------|
@@ -119,14 +119,14 @@ The table lists the commonly used ones; the full list is in
 > option to control the naming level.  See
 > [Planning Options → LpMatrixOptions](planning-options.md#lpmatrixoptions-fields).
 
-#### Solver selection
+### Solver selection
 
 | Field         | Type   | Default        | Description |
 |---------------|--------|----------------|-------------|
 | `method` | string | `"monolithic"` | Planning solver: `"monolithic"` (default), `"sddp"`, or `"cascade"`. See [SDDP Solver](methods/sddp.md), [Cascade Solver](methods/cascade.md), and [Monolithic Solver](methods/monolithic.md) |
 | `build_mode` | string | `"scene-parallel"` | How `PlanningLP::create_systems` assembles per-cell `SystemLP`s: `"serial"`, `"scene-parallel"` (default), `"full-parallel"`, or `"direct-parallel"`. Serial builds in the calling thread with no pool/build-buffer overhead |
 
-#### Logging and debugging
+### Logging and debugging
 
 | Field                       | Type    | Default  | Description |
 |-----------------------------|---------|----------|-------------|
@@ -142,13 +142,13 @@ The table lists the commonly used ones; the full list is in
 | `lp_debug_phase_max`        | integer | —        | Maximum phase UID (inclusive) for LP debug file saving |
 | `lp_fingerprint`            | boolean | `false`  | Compute LP structural fingerprint after solving. Output: `lp_fingerprint_scene_{S}_phase_{P}.json` per scene/phase. See [LP Fingerprint](lp-fingerprint.md) |
 
-#### Constraint handling
+### Constraint handling
 
 | Field             | Type   | Default    | Description |
 |-------------------|--------|------------|-------------|
 | `constraint_mode` | string | `"strict"` | User-constraint runtime error policy: `"normal"` (warn + drop offending constraint), `"strict"` (default; abort with diagnostic), `"debug"` (strict + verbose per-row lowering trace). See [User Constraints → constraint_mode](user-constraints.md#constraint_mode--runtime-error-policy) |
 
-#### Removed LP solver fields
+### Removed LP solver fields
 
 The former top-level `lp_algorithm`, `lp_threads` and `lp_presolve` keys
 are no longer part of the JSON contract; use the `solver_options`
@@ -619,7 +619,8 @@ Phase / Scene covering all stages / scenarios is created automatically.
 
 ### 2.1 Block
 
-A block is the smallest indivisible time unit. `energy [MWh] = power [MW] × duration [h]`.
+A block is the smallest indivisible time unit.
+`energy [MWh] = power [MW] × duration [h]`.
 
 | Field      | Type   | Units | Required | Description |
 |------------|--------|-------|----------|-------------|
@@ -1002,7 +1003,13 @@ tie that would split the dual arbitrarily.
 
 `dlr` limits the line flow, per block, by the thermal rating of its
 **critical spans**: the spans whose conductor temperature binds first
-(Matus et al. 2012, DOI [10.1109/TPWRD.2012.2185254](https://doi.org/10.1109/TPWRD.2012.2185254); Open access: [ResearchGate](https://www.researchgate.net/publication/254057820_Identification_of_Critical_Spans_for_Monitoring_Systems_in_Dynamic_Thermal_Rating), [PDF (Universidad de Chile)](https://www.cec.uchile.cl/~dsaez/wp-content/uploads/2011/09/06163401.pdf)). One representative
+(Matus et al. 2012, DOI
+[10.1109/TPWRD.2012.2185254](https://doi.org/10.1109/TPWRD.2012.2185254); Open
+access:
+[ResearchGate](https://www.researchgate.net/publication/254057820_Identification_of_Critical_Spans_for_Monitoring_Systems_in_Dynamic_Thermal_Rating),
+[PDF (Universidad de
+Chile)](https://www.cec.uchile.cl/~dsaez/wp-content/uploads/2011/09/06163401.pdf)).
+One representative
 span is valid and common. Choosing the spans is a pre-processing step
 (Python tooling); gtopt only consumes the list.
 
@@ -1077,7 +1084,10 @@ file per field can hold every span of the case.
 "Identification of Critical Spans for Monitoring Systems in Dynamic
 Thermal Rating", *IEEE Trans. Power Delivery* 27(2):1002–1009, 2012,
 DOI [10.1109/TPWRD.2012.2185254](https://doi.org/10.1109/TPWRD.2012.2185254);
-Open access: [ResearchGate](https://www.researchgate.net/publication/254057820_Identification_of_Critical_Spans_for_Monitoring_Systems_in_Dynamic_Thermal_Rating), [PDF (Universidad de Chile)](https://www.cec.uchile.cl/~dsaez/wp-content/uploads/2011/09/06163401.pdf)
+Open access:
+[ResearchGate](https://www.researchgate.net/publication/254057820_Identification_of_Critical_Spans_for_Monitoring_Systems_in_Dynamic_Thermal_Rating),
+[PDF (Universidad de
+Chile)](https://www.cec.uchile.cl/~dsaez/wp-content/uploads/2011/09/06163401.pdf)
 (gtopt consumes the span list; selecting the spans is done outside
 gtopt).  The ampacity follows the steady-state heat balance of IEEE Std
 738-2012.  See the formulation refs [9], [38].
@@ -1095,7 +1105,8 @@ Apertures represent hydrology; DLR weather does not vary per aperture.
 **Loss envelope.** The loss PWL is never driven by the per-block DLR rating:
 it keeps the static `tmax` (or `capacity`), or `loss_envelope` when set.
 With neither `tmax` nor `capacity` the stage envelope `1.05 · max_b T̄_b`
-stands in as the static cap and loss range. On lines that cannot be expanded, the range under `limit_mode = "replace"`
+stands in as the static cap and loss range. On lines that cannot be expanded,
+the range under `limit_mode = "replace"`
 is the larger of the static limit maximum and that envelope. The static
 limit maximum covers every set field, with the overload rating where one is
 given.
@@ -1137,7 +1148,8 @@ adding it to `loss_sol` counts a reverse-direction loss twice.
 
 **Outputs** (`Line/…`): `dlr_rating_sol` (effective normal rating, A→B, the
 remaining static cap included: a security or equipment limit, an outage
-rating, or the static rating under `limit_mode = "min"`), `dlr_rating_emergency_sol` (emergency tier),
+rating, or the static rating under `limit_mode = "min"`),
+`dlr_rating_emergency_sol` (emergency tier),
 `critical_span_sol` (uid of the binding span; `-1` when a static cap is
 lower) and `span_thermal_dual` (per-span rating dual `∂obj/∂T_k`, keyed by the
 **span** uid; same unfolding as the other `*_dual` outputs).
@@ -2102,7 +2114,8 @@ that `fuel`: a t/MWh `rate` (heat rate × heat content × factor) when
 `heat_rate` is a scalar, otherwise (per-block `heat_rate`,
 `heat_rate_segments`) a `fuel_rate` (heat content × factor) that the LP
 applies to the exact fuel burn, including the piecewise heat-rate
-slacks and the committed no-load burn `Commitment.noload_fuel · u`.  Generators with `fuel_per_block` are skipped with a warning.  Pollutants can be
+slacks and the committed no-load burn `Commitment.noload_fuel · u`.  Generators
+with `fuel_per_block` are skipped with a warning.  Pollutants can be
 referenced by name or by uid in zones, sources and fuels; both resolve
 against `emission_array`.
 

@@ -158,7 +158,8 @@ Options:
 - **Zero Configuration**: Automatically detects GTOpt binary and webservice
 - **Standalone operation**: Runs entirely in user space, no root required
 - **Auto port selection**: Automatically finds available ports if not specified
-- **Browser compatibility first**: Opens in regular browser mode by default; `--app-mode` is available for kiosk-style launch
+- **Browser compatibility first**: Opens in regular browser mode by default;
+  `--app-mode` is available for kiosk-style launch
 - **Graceful shutdown**: Press Ctrl+C to stop all services cleanly
 - **Cross-platform**: Works on Ubuntu, macOS, and WSL
 - **Modular**: Webservice runs in separate process, clean separation of concerns
@@ -281,7 +282,6 @@ gtopt_gui --port 8080 --no-browser
 # http://your-machine-ip:8080
 ```
 
-
 ## Troubleshooting
 
 ### "Webservice not available. Solve functionality disabled."
@@ -342,7 +342,8 @@ If you see "Failed to start webservice", check:
 
 ### Browser doesn't open in app mode
 
-App mode requires Chrome or Chromium and is only used when `--app-mode` is set. If not available:
+App mode requires Chrome or Chromium and is only used when `--app-mode` is set.
+If not available:
 - The browser opens in a regular tab instead
 - Omit `--app-mode` (default behavior) for maximum compatibility
 

@@ -359,12 +359,22 @@ z_{\text{OPEX}} = \sum_{s \in \mathcal{S}} \sum_{t \in \mathcal{T}}
 
 Additional OPEX terms may include:
 
-- **Reserve failure cost**: $\sum_{z} c_z^{\text{rfail}} (q_{z,s,t,b}^{\text{up}} + q_{z,s,t,b}^{\text{dn}})$
-- **Reserve provision cost**: $`\sum_{p} \bigl( c_{p,t}^{\text{ur}} \; r_{p,s,t,b}^{\text{up}} + c_{p,t}^{\text{dr}} \; r_{p,s,t,b}^{\text{dn}} \bigr)`$
+<!-- markdownlint-disable MD013 -->
+- **Reserve failure cost**:
+  $\sum_{z} c_z^{\text{rfail}} (q_{z,s,t,b}^{\text{up}} + q_{z,s,t,b}^{\text{dn}})$
+- **Reserve provision cost**:
+  $`\sum_{p} \bigl( c_{p,t}^{\text{ur}} \; r_{p,s,t,b}^{\text{up}} + c_{p,t}^{\text{dr}} \; r_{p,s,t,b}^{\text{dn}} \bigr)`$
 - **Spillway cost**: $`\sum_{r} c_{r,t}^{\text{spill}} \; \text{spill}_{r,s,t,b}`$
-- **Junction drain cost**: $`\sum_{j} c_{j}^{\text{drain}} \; \delta_{j,s,t,b}`$ (§5.10)
-- **Emission price and CCS cost**: $`\sum_{\nu} c^{\text{em}}_{z(\nu),t} \, (\alpha^{\text{em}}_{\nu,t,b} / \Delta_b) \, p_{g(\nu),s,t,b}`$ plus capture cost (§5.14 bis); soft emission-cap slack $`c^{\text{cap}}_{z,t} \, s^{\text{cap}}_{z,s,t}`$ is weighted by $\pi_s \delta_t / \sigma$ only
+- **Junction drain cost**: $`\sum_{j} c_{j}^{\text{drain}} \; \delta_{j,s,t,b}`$
+  (§5.10)
+- **Emission price and CCS cost**:
+  $`\sum_{\nu} c^{\text{em}}_{z(\nu),t} \, (\alpha^{\text{em}}_{\nu,t,b} / \Delta_b) \, p_{g(\nu),s,t,b}`$
+  plus capture cost (§5.14 bis); soft emission-cap slack
+  $`c^{\text{cap}}_{z,t} \, s^{\text{cap}}_{z,s,t}`$ is weighted by
+  $\pi_s \delta_t / \sigma$ only
 - **Generator profile spillover cost**: $`\sum_{g} c_{g,t}^{\text{spill}} \; \text{spill}_{g,s,t,b}`$
+
+<!-- markdownlint-enable MD013 -->
 
 ### 4.3 Investment Costs (CAPEX)
 
@@ -820,7 +830,8 @@ lossy line, so iterate until no new flags.
 > landed at $10^{-9}$ in the LP, below every solver's dual tolerance
 > (pin ineffective) and stretching the objective range to 9 decades;
 > $10^{-3}$ lands at $10^{-6}$.  `loss_flow_abs_cost = 1e-6`
-> reproduces the former LP exactly; `0` disables the pin.  The user $\varepsilon_l$ is **not** charged on $v_l$ —
+> reproduces the former LP exactly; `0` disables the pin.  The user
+> $\varepsilon_l$ is **not** charged on $v_l$ —
 > doing so would turn $\varepsilon_l$ into a transport toll on all
 > legitimate flow.  The pin is gated on $\varepsilon_l > 0$, so an
 > explicit $\varepsilon_l = 0$ reproduces the legacy pure-LP
@@ -956,7 +967,8 @@ gtopt therefore prices the tier.  With $\kappa_l$ the overflow price
 [\$/MWh] (JSON `loss_overflow_cost`, per line or via `model_options`;
 an explicit `0` disables it; unset, it defaults to the case's own global
 `demand_fail_cost`, e.g. the PLEXOS VoLL 467.19 \$/MWh of CEN PCP cases,
-itself $1000$ \$/MWh when unset, and falls back to $1000$ \$/MWh with a warning when it is an explicit 0;
+itself $1000$ \$/MWh when unset, and falls back to $1000$ \$/MWh with a warning
+when it is an explicit 0;
 per-demand `fcost` overrides are not consulted, since the price belongs
 to a line and the global value is the case's reference VoLL), every overflow
 column carries the objective cost $\kappa_l$ times the loss it adds:
@@ -1063,7 +1075,8 @@ else `model_options`) with ratio $\rho$ = `max_overload_ratio`
 (default 1.5):
 
 - `thermal` (default):
-  $`\overline{o} = \min(\overline{F} - F^{n},\;\rho\,F^{n})`$ — the conductor's thermal headroom (on DLR lines the
+  $`\overline{o} = \min(\overline{F} - F^{n},\;\rho\,F^{n})`$ — the conductor's
+  thermal headroom (on DLR lines the
   IEEE 738 emergency rating at `tmax_conductor_emergency` minus the
   normal rating at `tmax_conductor`, so the band is exactly
   $[F^n, \overline{F}]$), never above $`\rho\,F^n`$; $`\rho\,F^n`$ alone when
@@ -1084,7 +1097,8 @@ over ~15 min) [[43]](#ref43), [[44]](#ref44).
 When the slack sits at a finite bound that depends on the ratings
 ($\overline{o} = \overline{F} - F^n$ or $\rho F^n$), the reported span
 duals add the slack's reduced cost $r$ times
-$\partial\overline{o}/\partial T$ ($+r$ to the emergency span, $-r$ or $\rho r$ to the normal
+$\partial\overline{o}/\partial T$ ($+r$ to the emergency span, $-r$ or $\rho r$
+to the normal
 span), so $\partial z/\partial T$ is well defined even at the degenerate
 vertex where the flow equals the emergency rating.
 
@@ -1145,11 +1159,14 @@ $|f|$ segments $v_l$ of `tangent_signed_flow` — gets
 ```
 
 the most it carries in the ordered fill at $|f| \le \overline{F}$, so
-segment $k$ books at most $`c_l (b_{k-1} + b_k)\,\min(w_k, \overline{F} - b_{k-1})^{+}`$ and the segments together at most the
+segment $k$ books at most
+$`c_l (b_{k-1} + b_k)\,\min(w_k, \overline{F} - b_{k-1})^{+}`$ and the segments
+together at most the
 ordered secant at $\overline{F}$ — the same value as the loss-column cap
 above, $c_l \overline{F}^2$ when $\overline{F}$ is a breakpoint (for
 `piecewise`, whose segments
-carry $f^+ + f^-$, $\overline{F} = \max(\overline{F}^{ab}, \overline{F}^{ba})$).  It is a valid tightening bound: it removes no
+carry $f^+ + f^-$, $\overline{F} = \max(\overline{F}^{ab}, \overline{F}^{ba})$).
+It is a valid tightening bound: it removes no
 physical point and only bites when the segments reach past the flow cap
 (a `loss_envelope` above $\overline{F}$, where the last segment used to
 be unbounded, or a two-direction circulation).  Like the loss cap it
@@ -1164,7 +1181,8 @@ layout it is now $c_l \overline{F}^2$ instead of
 $c_l \max(\overline{F}, E_l)^2$.  The cap alone does not remove
 fictitious loss: below the rated flow only $\varepsilon_l$, the overflow
 price or SOS2 do that.  With split allocation the relaxation is exact
-only while $\tfrac12(\pi_a + \pi_b) > 0$ [[36]](#ref36).  `full` / `sending` add a second bound that
+only while $\tfrac12(\pi_a + \pi_b) > 0$ [[36]](#ref36).  `full` / `sending` add
+a second bound that
 binds once the line is loaded, $\ell \le (\overline{F} - f)/a$.
 
 **Validation against literature.**  The three modes reproduce the
@@ -1251,7 +1269,8 @@ in MW, with safety factor $\eta$, voltage $V$ [kV] and $n_{sub}$
 sub-conductors.  A precomputed per-span MW schedule (`rating`) replaces
 $T_{k,b}$ directly and is used verbatim ($\eta$, $v_{pu}$, pf, $n_{sub}$
 and $V$ apply only to the IEEE 738 path).  The ratings are per scenario:
-SDDP backward apertures (hydrology) reuse their scene's $T_{k,b}$.  When an emergency temperature is set, the same
+SDDP backward apertures (hydrology) reuse their scene's $T_{k,b}$.  When an
+emergency temperature is set, the same
 computation at $T_s^{e}$ gives $T^{e}_{k,b}$.
 
 Weather is data, so $T_{k,b}$ is a per-block right-hand side: the model
@@ -1667,7 +1686,8 @@ M_C \;=\; 2 \theta_{\max} \, |C| \, \text{row_scale}
 ```
 
 When every switchable line in the cycle is closed
-($`u_l = 1\;\forall\, l \in C \cap \text{switchable}`$) the slack collapses to zero and
+($`u_l = 1\;\forall\, l \in C \cap \text{switchable}`$) the slack collapses to
+zero and
 both inequalities reduce to the original equality.  Any open line
 ($u_l = 0$) widens the slack by exactly $M_C$, decoupling the
 cycle through that branch.  Validation now accepts every combination
@@ -2038,8 +2058,11 @@ changes:
   has its own uniform grid of $P_g$ = max(`commitment_period`, 1 h)
   cells (default 1 h) aligned to the stage start (for the converters'
   typical week: Wednesday 12:00).  Node $k$ inherits the status of cell
-  $c_g(k) = \min(\lfloor t_k / P_g \rfloor, C_g - 1)$, $C_g = \lceil H / P_g \rceil$: a node exactly on a cell boundary belongs to the
-  LATER cell, the end node $t_N = H$ to the last one.  $p_k \ge \underline P u_{c(k)}$, $p_k \le \overline P u_{c(k)}$; start-up /
+  $c_g(k) = \min(\lfloor t_k / P_g \rfloor, C_g - 1)$,
+  $C_g = \lceil H / P_g \rceil$: a node exactly on a cell boundary belongs to
+  the
+  LATER cell, the end node $t_N = H$ to the last one.
+  $p_k \ge \underline P u_{c(k)}$, $p_k \le \overline P u_{c(k)}$; start-up /
   shut-down $v, w$ exist only at cell boundaries, and a ramp row gets the
   SU·$v$ / SD·$w$ allowance only when its stencil crosses into a new cell
   (inside a cell the plain ramp limit $`R\,h\,u`$ holds) under the default
@@ -2066,7 +2089,8 @@ changes:
   dropped (periodic grids) node 0 already carries $w_0 + w_N$, so no
   end merge is needed.  Hourly prices are rebuilt CELL-CONSTANT by
   default: $\pi_k$ holds on $[\tau_{k-1}, \tau_k]$ and an hour's price
-  is the overlap-weighted mean, so $`\int \pi\,g\,dt = \sum_k \lambda_k u_k`$ for every cell-constant quantity and a nonnegative node
+  is the overlap-weighted mean, so $`\int \pi\,g\,dt = \sum_k \lambda_k u_k`$
+  for every cell-constant quantity and a nonnegative node
   price never gives a negative hourly price.  The coefficient-space
   adjoint is an option (`price_reconstruction = adjoint`).
   Quantities are rebuilt with the interpolant of the storage rule
@@ -2364,7 +2388,8 @@ $p + r^{\text{up}} - \bar{C}_{g,t} \le 0$; it is kept and a separate
 u-gated row $`p + \sum_p r_p^{\text{up}} - \bar{P}\,u \le 0`$ is added
 ($\bar{P}$ = generation column upper bound, the same big-M as the
 `gen_upper` row), so a de-committed unit offers no reserve.
-<!-- source: source/reserve_provision_lp.cpp (gate_reserve_provisions_by_status) -->
+<!-- source: source/reserve_provision_lp.cpp
+(gate_reserve_provisions_by_status) -->
 
 Down-reserve provision is limited by the generator's operating range:
 
@@ -2484,7 +2509,8 @@ discharge-side cap.
 **Expected deployment energy** (`reserve_energy_usage_up/down`
 $= a^{\uparrow}, a^{\downarrow}$ [MWh/MW/h] on the Battery, overridden per
 provision by `ReserveProvision.ur_energy_usage` / `dr_energy_usage`, so
-$a$ is per provision: PLEXOS uses 0.3 for CSF and 0 for CPF/CTF).  The SoC balance (§5.7) gets
+$a$ is per provision: PLEXOS uses 0.3 for CSF and 0 for CPF/CTF).  The SoC
+balance (§5.7) gets
 the same coefficient as $a$ MW of discharge per MW of up reserve and $a$
 MW of charge per MW of down reserve:
 
@@ -2752,7 +2778,8 @@ gives 50 MW surplus).  With planes, $R$ is a free column above its
 planes, so the excess lifts $R$ at no cost: `"eq"` is then equivalent
 to `"ge"`, exactly as in PLEXOS (whose requirement variable costs 0),
 and no surplus column is built (`validate_planning` warns when
-`ursurplus_cost` / `drsurplus_cost` is set on such a zone).  The CEN `CSF_{RS,LW}_Def` rows are not
+`ursurplus_cost` / `drsurplus_cost` is set on such a zone).  The CEN
+`CSF_{RS,LW}_Def` rows are not
 requirements but definitions (`CSF_RS_Requirement` := Σ provision,
 used by `MAXCSF_*` caps); they map to a UserConstraint or PAMPL
 expression, not to `requirement_sense`.
@@ -3261,7 +3288,8 @@ The annual investment cost is converted to an hourly rate and weighted by
 the stage discount factor:
 
 $$
-\text{cost}(m_{g,t}) = \frac{K_g^{\text{cap}}}{8760} \cdot M_g \cdot \frac{\delta_t \cdot T_t}{\sigma}
+\text{cost}(m_{g,t}) = \frac{K_g^{\text{cap}}}{8760} \cdot M_g \cdot
+\frac{\delta_t \cdot T_t}{\sigma}
 $$
 
 where $T_t$ is the stage duration in hours.
@@ -3390,7 +3418,8 @@ $$
 \begin{aligned}
 \underline{\xi}_{i,s,t,b} = \begin{cases}
 \bar{\xi}_{i,s,t,b} & \text{fixed mode (default)} \\
-0 & \text{variable mode: } \overline{F}_i > 0 \text{ and } \bar{\xi}_{i,s,t,b} = 0
+0 & \text{variable mode: } \overline{F}_i > 0
+\text{ and } \bar{\xi}_{i,s,t,b} = 0
 \end{cases}
 \end{aligned}
 $$
@@ -3639,7 +3668,8 @@ are both positive; the final-target slack only when `efin_cost` > 0
 (otherwise the `efin` row is hard).  `sendout_min` / `sendout_max` are
 part of the JSON schema but are **not** written into the LP: the
 send-out $\sum_g \eta^{hr}_g p_g$ is bounded only by the generator limits.
-<!-- source: source/lng_terminal_lp.cpp:66-136, include/gtopt/storage_lp.hpp:835-1060 -->
+<!-- source: source/lng_terminal_lp.cpp:66-136,
+include/gtopt/storage_lp.hpp:835-1060 -->
 
 #### State Variable
 
@@ -3651,7 +3681,8 @@ violation of that copy at `scost` (default
 `model_options.state_violation_cost`) × `mean_production_factor`
 (default 5 MWh/m³).  Without the state variable each stage is closed
 with $e_{\text{end}} = e_{\text{ini}}$.
-<!-- source: source/lng_terminal_lp.cpp:101-115, include/gtopt/storage_lp.hpp:1052-1084 -->
+<!-- source: source/lng_terminal_lp.cpp:101-115,
+include/gtopt/storage_lp.hpp:1052-1084 -->
 
 #### Fuel Offtake Limits (Take-or-Pay)
 
@@ -3683,7 +3714,9 @@ carry-forward bank).
 
 Let $\theta_{\tau,b}$ be minus the dual of the tank balance of block
 $b$ (objective decrease per extra m³); the reported
-`LngTerminal` energy-balance dual is $\vartheta_{\tau,b} = \theta_{\tau,b}/(\pi_s\delta_t)$ [\$/m³] (sign already flipped).
+`LngTerminal` energy-balance dual is
+$\vartheta_{\tau,b} = \theta_{\tau,b}/(\pi_s\delta_t)$ [\$/m³] (sign already
+flipped).
 Stationarity of $e^{\text{lng}}_b$, of the vent column and of a linked
 generator strictly between its bounds give
 
@@ -3721,7 +3754,9 @@ leftover is worth nothing, and the LP burns or vents it before the end.
   equality while $x > 0$.  `LngTerminal` has no such column; the
   converter band tanks below do.
 - **Priced `Fuel` with offtake rows**: for a unit strictly between its
-  bounds, $\lambda^{\text{bus}} = c^0_g + h_g(P_f - \hat\nu^{\min}_f + \hat\nu^{\max}_f)$ with $\hat\nu = \nu/(\pi_s\delta_t)$.  A binding
+  bounds,
+  $\lambda^{\text{bus}} = c^0_g + h_g(P_f - \hat\nu^{\min}_f + \hat\nu^{\max}_f)$
+  with $\hat\nu = \nu/(\pi_s\delta_t)$.  A binding
   ToP floor lowers the effective gas price (below zero if hard and the
   gas has no other use); a soft floor bounds the reduction by
   $c^{\min}_f$.  A binding cap adds the scarcity rent
@@ -3759,7 +3794,8 @@ $\alpha$ per tank is required: rows on one shared $\alpha$ give the
 max of the tank values, not their sum.  These future costs serve the
 single monolithic LP; under SDDP the tank values come from the cuts.
 Details: [plexos2gtopt](../scripts/plexos2gtopt.md).
-<!-- source: scripts/plexos2gtopt/_lng_inflexible.py, scripts/plexos2gtopt/_gas_tanks.py:114-153 -->
+<!-- source: scripts/plexos2gtopt/_lng_inflexible.py,
+scripts/plexos2gtopt/_gas_tanks.py:114-153 -->
 
 #### Not Modelled
 
@@ -3883,7 +3919,8 @@ pool, one row per (scenario, stage) sums the block tonnages:
   \;\leq\; \overline{E}_{z,t}
 \qquad \forall \; z \in \mathcal{EZ},\; s,t
 ```
-<!-- source: source/emission_zone_lp.cpp:80-122 ; source/emission_source_lp.cpp:238-242 -->
+<!-- source: source/emission_zone_lp.cpp:80-122 ;
+source/emission_source_lp.cpp:238-242 -->
 
 The slack $s^{\text{cap}}\_{z,s,t} \geq 0$ (`EmissionZone/cap_slack`)
 exists only when `cap_cost` $c^{\text{cap}}\_{z,t}$ is set (soft cap);
@@ -3921,7 +3958,8 @@ e_{a,s,t,b} \;=\;& e_{a,s,t,b-1}\,(1 - \lambda_a^h\,\Delta_b)
 \qquad \forall \; a,\; s,t,b
 \end{aligned}
 ```
-<!-- source: source/emission_source_lp.cpp:254-261 ; source/allowance_pool_lp.cpp -->
+<!-- source: source/emission_source_lp.cpp:254-261 ;
+source/allowance_pool_lp.cpp -->
 
 **Auction purchases (cap-and-trade market).** When `auction_price`
 $\rho_{a,t,b}$ is set, an `auction` column $\beta_{a,s,t,b}$ [tCO₂]
@@ -4204,8 +4242,11 @@ warning is logged and the `fixed` duals are kept (*fallback*).  Each
 (`pricing_mode, applied_mode, fallback, attempted, relaxed_columns,
 pinned_columns, status, reason`).  The SDDP simulation pass applies the
 same step around its integer fix.
-<!-- source: source/linear_interface_solve.cpp (solve_pricing_lp, install_pricing_duals), source/system_lp.cpp (SystemLP::resolve), source/commitment_lp.cpp (fast_start registration) -->
+<!-- source: source/linear_interface_solve.cpp (solve_pricing_lp,
+install_pricing_duals), source/system_lp.cpp (SystemLP::resolve),
+source/commitment_lp.cpp (fast_start registration) -->
 
+<!-- markdownlint-disable MD013 -->
 **Uplift.** With price $\lambda$ at the unit's bus, the unit's profit
 over the horizon is
 $\pi_g = \sum_t \bigl[(\lambda_t - c\_{g,t}) p\_{g,t} - \text{NL}\_g u\_{g,t}\bigr] T_t - \text{SU}\_g v\_{g,t} - \text{SD}\_g w\_{g,t}$.
@@ -4218,6 +4259,7 @@ commitment costs; ramps ignored).  Total uplift
 $\sum_g \text{MWP}\_g + \text{LOC}\_g$ is the criterion for comparing
 pricing modes: the lower it is, the better the prices support the
 dispatch (`scripts/gtopt_pricing_uplift`).
+<!-- markdownlint-enable MD013 -->
 
 ### 5.15 bis Power-Based Unit Commitment (`uc_formulation = "power_based"`)
 
@@ -4233,7 +4275,8 @@ Blocks $b = 1..B$ have real durations $\Delta_b$ and boundaries $\tau_b$
 (end of block $b$).  The commitment variables stay on the unit's
 commitment grid (§8 of `docs/unit-commitment.md`: per block, or
 `commitment_period` cells or `Block.commitment_cell` labels; a stage with
-blocks shorter than 1 h otherwise defaults to a 1 h grid), so a finer power grid adds no binaries.  Block $b$ lies
+blocks shorter than 1 h otherwise defaults to a 1 h grid), so a finer power grid
+adds no binaries.  Block $b$ lies
 in period $k(b)$; $E_b = 1$ if $\tau_b$ ends a period (next period
 $k^+$), $F_b = 1$ if block $b$ starts one; $T_k$ is the start of period
 $k$.  New columns per boundary: $p_b \ge 0$ (power above minimum) and
@@ -4288,10 +4331,13 @@ the boundaries is out of scope).  $\hat p_0$ uses $u_0$ =
 (else free within PB1 / PB3); cyclic stages identify boundary 0
 with boundary $B$.
 PB3–PB7 replace C2–C5 and the u-gated reserve headroom rows of §5.9
-(which keep only $r \le \overline P u$ and $r^- \le (\overline P - \underline P) u$); C1, C3, C6 and the start-cost tiers are unchanged.
+(which keep only $r \le \overline P u$ and
+$r^- \le (\overline P - \underline P) u$); C1, C3, C6 and the start-cost tiers
+are unchanged.
 Point-sampled stages and expandable generators keep the energy-block
 rows (warning).
-<!-- source: source/commitment_power_based.cpp, source/commitment_lp.cpp (add_power_based) -->
+<!-- source: source/commitment_power_based.cpp, source/commitment_lp.cpp
+(add_power_based) -->
 
 ### 5.16 Commitment on Non-Chronological Stages (Block Formulation)
 
@@ -4322,7 +4368,8 @@ as in the chronological formulation, and `Generator.pmin` stays an
 always-on floor on the generation column in both.  `relax`, `must_run`
 and `fixed_status` apply as in §5.15; startup / shutdown costs, ramps,
 min up/down times, start tiers / counts and `commitment_period` need
-chronology and are ignored on such a stage (one info note per element).  Reserve gating (§5.9) and inertia (§5.17) use the same rows
+chronology and are ignored on such a stage (one info note per element).  Reserve
+gating (§5.9) and inertia (§5.17) use the same rows
 in both formulations; on a chronological stage with one period per
 block and no startup / shutdown / ramp / min up-down data the two give
 the same optimum.
@@ -4565,7 +4612,8 @@ De Wolf & Smeers [[23]](#ref23); compressor fuel after Saldarriaga
 
 Here $\chi_c = 1$ for `drive: gas` and 0 for an electric drive (whose
 suction node supplies only $\Psi_c$).  The dual of the balance row is
-the nodal gas price $\lambda_n$ [\$/km³].  $c^{\varpi}\_n$ (`pressure_cost`) is a tiny *negative*
+the nodal gas price $\lambda_n$ [\$/km³].  $c^{\varpi}\_n$ (`pressure_cost`) is
+a tiny *negative*
 tie-break (e.g. $-10^{-4}$ \$/(bar² h)): among the LP-optimal
 dispatches it selects the highest pressure profile, i.e. the pressures
 of the exact Weymouth equation from the sources down.  Supplies
@@ -4577,7 +4625,8 @@ $\sum_b \Delta_b x\_{g,b} \le V_g$ (an LNG or pipeline allotment).  A
 pipe with `weymouth_mode: none` is a capacity-only arc $0 \le f \le \bar F$
 that enters the two balances without any pressure row, such as a
 delivery through a parallel system.
-<!-- source: source/gas_node_lp.cpp, source/gas_supply_lp.cpp, source/gas_demand_lp.cpp -->
+<!-- source: source/gas_node_lp.cpp, source/gas_supply_lp.cpp,
+source/gas_demand_lp.cpp -->
 
 #### Weymouth Pipe (Outer Approximation)
 
@@ -4602,7 +4651,8 @@ pack).  `tangent_layout`:
 
 $K$ [bar²/(km³/h)²] is `weymouth_k`, or the SI Weymouth (Menon [[24]](#ref24)
 eq. 2.62)
-$K = G T_f L Z / (3.7435\cdot10^{-3} E (T_b/P_b) D^{2.667})^2 \cdot 24000^2/10^4$ from `length` [km], `diameter` [mm], `efficiency`
+$K = G T_f L Z / (3.7435\cdot10^{-3} E (T_b/P_b) D^{2.667})^2 \cdot 24000^2/10^4$
+from `length` [km], `diameter` [mm], `efficiency`
 $E$ (0.92), `gravity` $G$ (0.6), `temperature` $T_f$ (288.15 K) and
 `z` (0.9).  The relaxation lets the LP drop more pressure than the flow
 needs; on a radial network the solution stays physically realisable
@@ -4740,9 +4790,11 @@ with $L_{\ell,0} = L^0_\ell$ (`linepack_ini`, default from the nodes'
 `p_init`) and $c$ [km³/bar] = `linepack_coeff` or the geometric volume
 $`\pi D^2 L/4\,/(Z P_b)\cdot(T_b/T)`$ ($T_b$ = 288.15 K, $P_b$ = 1.01325
 bar, $T$ the flowing temperature).  The line pack cycles within each
-stage (daily cycle); it is not an SDDP state variable.  The terminal row is dropped with
+stage (daily cycle); it is not an SDDP state variable.  The terminal row is
+dropped with
 `options.gas_options.linepack_cyclic: false`, so the pack may be drawn
-down to the pressure bounds (multi-day outage studies). The tangent-at-$p_r$ linearisation over-estimates $p$ by
+down to the pressure bounds (multi-day outage studies). The tangent-at-$p_r$
+linearisation over-estimates $p$ by
 $(p-p_r)^2/(2p_r)$ (≈ 5 % of the absolute line pack for ±20 bar).
 <!-- source: source/gas_pipe_lp.cpp -->
 
@@ -4897,7 +4949,8 @@ Multiply by $\sigma$ to recover the cost in original monetary units.
 ### 6.2 Voltage Angle Scaling
 
 Voltage angles are enlarged by `scale_theta` ($\sigma_\theta$):
-θ_LP = scale_theta · θ (rad); auto = 1/(3·median(X/V²)); 1 = radians; 1000 = milliradians.  The auto value puts the median line's KVL coefficients at
+θ_LP = scale_theta · θ (rad); auto = 1/(3·median(X/V²)); 1 = radians; 1000 =
+milliradians.  The auto value puts the median line's KVL coefficients at
 $\sigma_\theta X/V^2 \approx 1/3$: θ is a node potential accumulating
 ~$D$ line drops to the reference bus ($D \approx 8$–10 on the Chilean
 system), so the extra factor $\approx\sqrt{D} = 3$ balances the θ
@@ -5098,7 +5151,8 @@ The solver declares convergence when the **relative optimality gap** falls
 below a tolerance $\varepsilon$:
 
 $$
-\text{gap}^{(k)} = \frac{\text{UB}^{(k)} - \text{LB}^{(k)}}{\max\bigl(1, \lvert \text{UB}^{(k)} \rvert\bigr)} < \varepsilon
+\text{gap}^{(k)} = \frac{\text{UB}^{(k)} - \text{LB}^{(k)}}{\max\bigl(1, \lvert
+\text{UB}^{(k)} \rvert\bigr)} < \varepsilon
 \quad \text{and} \quad k \ge k_{\min}
 $$
 
@@ -5295,7 +5349,8 @@ where:
 - $\text{rc}\_i^{(k)}$ is the reduced cost of the dependent column for
   state variable $i$ in phase $t$, unscaled with that column's own
   scale:
-  $\text{rc}\_i = \text{rc}^{\text{LP}}\_i \cdot \sigma / \text{col\_scale}\_{\text{dep}}$ (`StateVariable::reduced_cost_physical`,
+  $\text{rc}\_i = \text{rc}^{\text{LP}}\_i \cdot \sigma / \text{col\_scale}\_{\text{dep}}$
+  (`StateVariable::reduced_cost_physical`,
   `include/gtopt/state_variable.hpp`).  The source column's scale must
   not be used: Ruiz equilibration scales the two columns independently
 - $x_{t-1,i}$ is the source column (decision variable) in phase $t{-}1$
@@ -6008,7 +6063,10 @@ Jiménez-Estévez, G., Palma-Behnke, R., Olguín, G., and Jorquera, P.
 Dynamic Thermal Rating." *IEEE Transactions on Power Delivery*, 27(2),
 pp. 1002–1009.
 DOI: [10.1109/TPWRD.2012.2185254](https://doi.org/10.1109/TPWRD.2012.2185254).
-Open access: [ResearchGate](https://www.researchgate.net/publication/254057820_Identification_of_Critical_Spans_for_Monitoring_Systems_in_Dynamic_Thermal_Rating), [PDF (Universidad de Chile)](https://www.cec.uchile.cl/~dsaez/wp-content/uploads/2011/09/06163401.pdf).
+Open access:
+[ResearchGate](https://www.researchgate.net/publication/254057820_Identification_of_Critical_Spans_for_Monitoring_Systems_in_Dynamic_Thermal_Rating),
+[PDF (Universidad de
+Chile)](https://www.cec.uchile.cl/~dsaez/wp-content/uploads/2011/09/06163401.pdf).
 
 > Addresses dynamic thermal rating of transmission lines — the real-time
 > capacity assessment problem complementary to the long-term transmission

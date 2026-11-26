@@ -32,7 +32,7 @@ Line) and `case/Line/dlr_<field>.{parquet,csv}` in gtopt's long layout
 `scenario,stage,block,uid,value`, where `uid` is the span uid (default
 `1000·line_uid + k`).
 
-### How many critical spans per segment
+## How many critical spans per segment
 
 The number of spans is **not fixed**. `critical-spans` adds spans until
 the estimate reaches `--target-rho` (default 0.9) and always writes the

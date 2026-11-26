@@ -6,7 +6,8 @@ Small hydrothermal power system test case for PLP-to-gtopt integration testing.
 
 - **4 buses**: b1 (hydro hub), b2 (run-of-river), b3 (demand), b4 (demand)
 - **5 transmission lines**: l1_2, l1_3, l2_3, l2_4, l3_4 (100–200 MW capacity)
-- **1 reservoir** (LakeA): 100 MW turbine, 100–1200 Mm³ storage, Vini=600 Mm³, Vfin=500 Mm³
+- **1 reservoir** (LakeA): 100 MW turbine, 100–1200 Mm³ storage, Vini=600 Mm³,
+  Vfin=500 Mm³
 - **1 turbine** (TurbineA): 100 MW series hydro downstream of LakeA
 - **1 run-of-river** (HydroRoR): 50 MW at b2
 - **1 thermal generator** (Thermal1): 200 MW at b2, cost 50 $/MWh

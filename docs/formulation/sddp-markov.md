@@ -100,6 +100,7 @@ LB \;=\; \sum_s \widehat V_s^{(0)}(x_0)
 *the expected optimum of the Markov-modulated process with the initial
 (scene, state) drawn from $p$.*
 
+<!-- markdownlint-disable MD013 -->
 *Proof (induction over phases, mirroring Theorems O2/M1).*  Base: the
 terminal $\varphi$ is pinned at $0$ (the model's definition of zero
 post-horizon cost) or bounded by boundary cuts (A5).  Step (LP side):
@@ -112,6 +113,7 @@ $\widehat V_r^{(t+1)} \le p_r U_r^{(t+1)}$; under A2,
 $p_r U_r^{(t+1)} \le \sum_{r' \in m(r)} p_{r'} U_{r'}^{(t+1)} = \Phi_{m(r)}^{(t+1)}$
 (equality for a singleton state — A2 not needed
 there), and the cut lands on $\varphi_{m(r)}$. $\qquad\blacksquare$
+<!-- markdownlint-enable MD013 -->
 
 ## 3. Within-state multiplicity — the v1 decision
 
@@ -127,7 +129,8 @@ expectation.  Consequences (do not hand-wave these):
   making $U < 0$) the within-state domination step fails and the mode
   is uncertified for multi-scene states.
 - **Exactness is lost**:
-  $\max_r p_r \tilde V_r < \sum_r p_r \tilde V_r$ whenever $k > 1$ scenes carry positive folded value, so the
+  $\max_r p_r \tilde V_r < \sum_r p_r \tilde V_r$ whenever $k > 1$ scenes carry
+  positive folded value, so the
   recursion is systematically loose (the future term is under-counted
   by up to the multiplicity factor) and the gap cannot close to zero.
   Treating within-state scenes as the within-state expectation would

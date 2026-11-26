@@ -1,6 +1,7 @@
 # Building GTOpt from Source
 
-This guide provides detailed instructions for building GTOpt from source, including dependency installation, build configuration, and verification steps.
+This guide provides detailed instructions for building GTOpt from source,
+including dependency installation, build configuration, and verification steps.
 
 ## Table of Contents
 
@@ -76,7 +77,8 @@ How each solver is obtained:
 
   `--no-detect` skips the search and only honours the variables.  Pass
   them to `bash`, not to `curl`:
-  `curl -fsSL .../install.sh | CPLEX_ROOT_DIR=/opt/ibm/ILOG/CPLEX_Studio2211/cplex bash`.
+  `curl -fsSL .../install.sh |
+  CPLEX_ROOT_DIR=/opt/ibm/ILOG/CPLEX_Studio2211/cplex bash`.
 
 The installer's selection logic is covered by `tools/test_install_sh.sh`
 (fake directory trees and a fake `nvidia-smi`); `.github/workflows/install.yml`
@@ -117,7 +119,8 @@ runtime. The default is auto-detected by priority: CPLEX > HiGHS > MindOpt > CBC
 Installing `coinor-libcbc-dev` provides CLP/CBC. HiGHS must be built from
 source on Ubuntu 24.04 (it is available via apt starting with Ubuntu 25.04).
 Use `--lp-solvers` to list available backends, or
-`--lp-solver highs` to select a specific one. Set `GTOPT_PLUGIN_DIR` to point to a custom
+`--lp-solver highs` to select a specific one. Set `GTOPT_PLUGIN_DIR` to point to
+a custom
 plugin directory.
 
 ## Installing Dependencies
@@ -168,7 +171,8 @@ clang++ --version   # clang version 21.x.x
 
 #### CMake 3.31+
 
-Ubuntu 22.04 and earlier ship with older CMake versions. If `cmake --version` shows < 3.31, install from the official site:
+Ubuntu 22.04 and earlier ship with older CMake versions. If `cmake --version`
+shows < 3.31, install from the official site:
 
 ```bash
 # Download and install the latest CMake
@@ -573,7 +577,8 @@ is not relaxed by `-DGTOPT_HIGHS_ALLOW_UNPINNED=ON` (only by
 with `-DGTOPT_SOLVER_LIB_FULL_HASH=ON` (default `OFF`) to also record the
 SHA-256 of every linked solver library and verify the content of the
 loaded file at each start (refuses a modified copy that kept the
-build-id; costs one hash of each solver library per process start).  Configure with an empty
+build-id; costs one hash of each solver library per process start).  Configure
+with an empty
 `-DGTOPT_HIGHS_PIN_VERSION=` to build an unpinned plugin.
 
 LP solver backends are selected at runtime via `--lp-solver`, not at build
@@ -745,7 +750,8 @@ Run a specific test by name (doctest filter syntax):
 
 ### End-to-End Integration Tests
 
-The standalone build includes end-to-end tests that run GTOpt against the sample case in `cases/c0/` and validate output against reference results:
+The standalone build includes end-to-end tests that run GTOpt against the sample
+case in `cases/c0/` and validate output against reference results:
 
 ```bash
 CC=gcc-14 CXX=g++-14 cmake -S standalone -B build -DCMAKE_BUILD_TYPE=Release
@@ -849,7 +855,9 @@ pkg-config --modversion cbc
 
 ### COIN-OR ABI Mismatch (undefined symbol errors)
 
-**Error**: `Failed to load plugin libgtopt_solver_osi.so: undefined symbol: _ZTv0_n24_N21OsiClpSolverInterface12initialSolveEv` (or similar undefined symbol errors involving COIN-OR classes)
+**Error**:
+`Failed to load plugin libgtopt_solver_osi.so: undefined symbol: _ZTv0_n24_N21OsiClpSolverInterface12initialSolveEv`
+(or similar undefined symbol errors involving COIN-OR classes)
 
 **Cause**: COIN-OR libraries (Osi, CoinUtils, Clp, OsiClp, Cbc, OsiCbc, Cgl)
 are loaded from different installations with incompatible ABIs. For example,
@@ -916,7 +924,7 @@ CC=gcc-14 CXX=g++-14 cmake -S standalone -B build
 
 **Error**: Tests fail during `ctest`
 
-**Solution**: 
+**Solution**:
 1. Check that the binary runs successfully: `./build/gtopt --version`
 2. Verify dependencies are correctly installed
 3. Try running tests with verbose output: `ctest --test-dir build/test --verbose`

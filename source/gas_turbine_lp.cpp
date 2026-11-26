@@ -134,9 +134,8 @@ bool GasTurbineLP::add_to_lp(SystemContext& sc,
     if (gt.type) {
       metadata.emplace_back(GasNodeLP::TypeKey, *gt.type);
     }
-    metadata.emplace_back(GasNodeLP::GasNodeKey,
-                          static_cast<double>(node.uid()));
-    metadata.emplace_back(GeneratorKey, static_cast<double>(gen.uid()));
+    metadata.emplace_back(GasNodeLP::GasNodeKey, ampl_metadata_uid(node.uid()));
+    metadata.emplace_back(GeneratorKey, ampl_metadata_uid(gen.uid()));
     sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
   }
 

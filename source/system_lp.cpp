@@ -1628,8 +1628,8 @@ SystemLP::SystemLP(const System& system,
     // Per-element drop: keep HasUpdateLP collections alive (their
     // per-(scen, stg) state — `m_bound_states_`, `m_states_`,
     // `m_coeff_indices_` — must persist across SDDP iterations);
-    // free the 22 disposable element types whose only role was
-    // to be visited during `add_to_lp` / `flatten`.  This replaces
+    // free the disposable (non-HasUpdateLP) element types whose only
+    // role was to be visited during `add_to_lp` / `flatten`.  This replaces
     // the previous full `m_collections_ = collections_t{}` drop
     // that forced every cell to pay a full-rebuild cost on its
     // first `update_lp` call.

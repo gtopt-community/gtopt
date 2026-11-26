@@ -2,7 +2,9 @@
 
 Detailed usage instructions, examples, and reference for the GTOpt solver.
 
-> **Note**: This guide assumes GTOpt is already installed. If you need build instructions, see [Building Guide](../BUILDING.md). For detailed input data structure specifications, see [Input Data Reference](input-data.md).
+> **Note**: This guide assumes GTOpt is already installed. If you need build
+> instructions, see [Building Guide](../BUILDING.md). For detailed input data
+> structure specifications, see [Input Data Reference](input-data.md).
 
 ## Table of Contents
 

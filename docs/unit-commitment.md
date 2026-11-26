@@ -2,7 +2,8 @@
 
 > **Status**: Implemented (Phases 1–3).  
 > **Since**: v0.9 (April 2025)  
-> **See also**: [Input Data Reference](input-data.md) · [Planning Guide](planning-guide.md) ·
+> **See also**: [Input Data Reference](input-data.md) · [Planning
+> Guide](planning-guide.md) ·
 > [Mathematical Formulation](formulation/mathematical-formulation.md) · [Usage](usage.md)
 
 ---
@@ -499,7 +500,8 @@ allowance on every block of a period (the energy-block option
 A boundary that ends period $k$ carries
 $`\underline P\,(u_k + v_{k+1}) = \underline P\,(u_{k+1} + w_{k+1})`$: the unit
 is at its minimum there if it is up on either side.  Let $E_b = 1$ when
-$\tau_b$ ends a period (the last block of period $k(b)$) and $F_b = 1$ when block $b$ starts one, and
+$\tau_b$ ends a period (the last block of period $k(b)$) and $F_b = 1$ when
+block $b$ starts one, and
 let $k^+(b) = k(b) + 1$ be the next period (wrapped on cyclic stages).
 
 **Variables** (per unit and boundary $b = 0..B$):
@@ -617,7 +619,8 @@ events of the first period.  A known initial power (`initial_power`, or
 `Generator.initial_generation` at the horizon start) fixes $\hat p_0$ —
 an instantaneous power, not the previous hour's average.  A unit that is
 off with zero output then cannot be up in the first period: it first
-needs its start-up block or trajectory.  Otherwise $\hat p_0$ is free within PB1 / PB3
+needs its start-up block or trajectory.  Otherwise $\hat p_0$ is free within PB1
+/ PB3
 at $\tau_0$: an on unit anywhere in $[\underline P, \overline P]$, an off
 unit at $`\underline P\,v_0`$ (the start-up boundary).  On a cyclic stage
 (`cycle = "stage"`) boundary 0 is boundary $B$.
@@ -923,7 +926,8 @@ Every stage is a partition into cells $[\tau_{k-1}, \tau_k]$,
 $\tau_k = \sum_{j \le k} w_j$ with $w_j$ the real block durations: on
 block stages the cells are the blocks; on point-sampled stages
 (`Stage.sampling = "point"`) they are the quadrature cells around the
-node times `Block.time` (validation requires $t_k \in [\tau_{k-1}, \tau_k]$).  A commitment period is a union of whole cells: cell k joins
+node times `Block.time` (validation requires $t_k \in [\tau_{k-1}, \tau_k]$).  A
+commitment period is a union of whole cells: cell k joins
 period $\lfloor m_k / P \rfloor$ with $m_k$ the cell midpoint, i.e. a
 nominal boundary $mP$ inside a cell snaps to the nearer cell end (error
 at most half that cell; a long cell spanning several boundaries leaves
@@ -945,7 +949,9 @@ When `commitment_period = 2.0` (hours) with 15-minute blocks:
 
 The no-load cost is scaled by the period duration:
 
-$$c^{\text{noload}} = c_{\text{noload}} \times \frac{\text{period\_duration}}{\text{rep\_block\_duration}} \times \text{ecost\_factor}$$
+$$c^{\text{noload}} = c_{\text{noload}} \times
+\frac{\text{period\_duration}}{\text{rep\_block\_duration}}
+\times \text{ecost\_factor}$$
 
 ### JSON Example
 

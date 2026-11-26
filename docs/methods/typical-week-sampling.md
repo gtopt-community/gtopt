@@ -53,7 +53,8 @@ On $x \in [-1, 1]$, mapped to $t = \tfrac{T}{2}(1 + x)$ with $T = 168$ h:
 - Chebyshev–Gauss (N nodes): $x_k = -\cos\frac{\pi(2k-1)}{2N}$,
   $k = 1..N$; weights = Fejér's first rule.  Exact for polynomials of
   degree $\le N - 1$.
-- Chebyshev–Gauss–Lobatto (N + 1 nodes, default): $x_k = -\cos\frac{\pi k}{N}$, $k = 0..N$; weights = Clenshaw–Curtis.  Exact for degree
+- Chebyshev–Gauss–Lobatto (N + 1 nodes, default): $x_k = -\cos\frac{\pi k}{N}$,
+  $k = 0..N$; weights = Clenshaw–Curtis.  Exact for degree
   $\le N$.
 
 Both weight sets are positive, symmetric and sum to $T$; they are
@@ -74,6 +75,7 @@ carrying $w_0 + w_N$ (symmetric on the circle).
 Chebyshev weeks are emitted as `Stage.sampling = "point"`
 (`docs/formulation/mathematical-formulation.md`, §5.7):
 
+<!-- markdownlint-disable MD013 -->
 - Integrals (costs, energy) are $\sum_k w_k x_k$.
 - **Storage** integrates between the nodes with the element's
   `storage_integration` (`cc`, `trapezoid`, `lg4_pos`, ...).  The
@@ -110,9 +112,12 @@ Chebyshev weeks are emitted as `Stage.sampling = "point"`
   slope $P_k - P_{k-1}$ by $`R\,h_k`$, $h_k = t_k - t_{k-1}$ (cyclic wrap
   at node 0).  `ramp_formula = "central2"` bounds the second-order
   non-uniform central difference
-  $P'(t_k) \approx \frac{h_-^2 P_{k+1} - h_+^2 P_{k-1} + (h_+^2 - h_-^2) P_k}{h_+ h_-(h_+ + h_-)}$, exact for quadratics.  It is opt-in:
+  $P'(t_k) \approx \frac{h_-^2 P_{k+1} - h_+^2 P_{k-1} + (h_+^2 - h_-^2) P_k}{h_+ h_-(h_+ + h_-)}$,
+  exact for quadratics.  It is opt-in:
   being a convex combination of two slopes, it lets a zig-zag dispatch
   through, and `validate_planning` warns.
+
+<!-- markdownlint-enable MD013 -->
 
 ## 4b. Sunrise / sunset refinement (`--ramp-refine`)
 

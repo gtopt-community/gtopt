@@ -69,7 +69,8 @@ That is not a bug.  What *is* a warning sign:
 When comparing, compare the objective first; compare primal and dual
 values only where the solution is known to be unique, or through
 aggregates that are less sensitive to ties (total cost, energy by
-technology, total spill) — these too can move when costs tie exactly.  Small tie-break costs (for example
+technology, total spill) — these too can move when costs tie exactly.  Small
+tie-break costs (for example
 `loss_cost_eps` on line losses) are a deliberate way to make some of these
 choices unique.
 

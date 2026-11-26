@@ -73,7 +73,8 @@ gas_turbine('G_T_gas').fuel <= 100
 
 ## Benchmark cases
 
-All cases except `gas_cc_renca227_*` are under `cases/` and run in CTest (`add_e2e_case`); the
+All cases except `gas_cc_renca227_*` are under `cases/` and run in CTest
+(`add_e2e_case`); the
 benchmark and literature groups are also re-solved by
 `scripts/gasnet2gtopt/tests/test_gtopt_integration.py`.
 

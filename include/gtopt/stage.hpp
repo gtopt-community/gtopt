@@ -110,7 +110,8 @@ struct Stage
   ///    nodes with `t_0` = period start and `t_N` = period end; durations
   ///    are quadrature weights, not intervals.  Storage balances then
   ///    integrate between nodes (`storage_integration`, default
-  ///    `trapezoid`), and ramps, minimum up / down times, commitment
+  ///    `lg4_pos` for reservoirs and `block` for other storages), and
+  ///    ramps, minimum up / down times, commitment
   ///    periods and daily cycle windows use the node spacing
   ///    `t_{k+1} − t_k`.
   OptName sampling {};

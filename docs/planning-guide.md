@@ -414,7 +414,9 @@ transmission lines. DC power flow (Kirchhoff's voltage law) is enabled.
 
 ![IEEE 9-bus electrical network](diagrams/ieee9b_electrical.svg)
 
-> 💾 Regenerate: `python3 scripts/gtopt_diagram.py cases/ieee_9b/ieee_9b.json --subsystem electrical -o docs/diagrams/ieee9b_electrical.svg`
+> 💾 Regenerate:
+> `python3 scripts/gtopt_diagram.py cases/ieee_9b/ieee_9b.json
+> --subsystem electrical -o docs/diagrams/ieee9b_electrical.svg`
 
 ### Run the bundled case
 
@@ -511,7 +513,9 @@ flowchart LR
 
 ![c0 planning time structure](diagrams/c0_planning.svg)
 
-> 💾 Regenerate: `python3 scripts/gtopt_diagram.py cases/c0/system_c0.json --diagram-type planning -o docs/diagrams/c0_planning.svg`
+> 💾 Regenerate:
+> `python3 scripts/gtopt_diagram.py cases/c0/system_c0.json
+> --diagram-type planning -o docs/diagrams/c0_planning.svg`
 
 ### Time structure
 
@@ -567,7 +571,9 @@ high-demand periods.
 
 ![bat_4b electrical network](diagrams/bat4b_electrical.svg)
 
-> 💾 Regenerate: `python3 scripts/gtopt_diagram.py cases/bat_4b/bat_4b.json --subsystem electrical -o docs/diagrams/bat4b_electrical.svg`
+> 💾 Regenerate:
+> `python3 scripts/gtopt_diagram.py cases/bat_4b/bat_4b.json
+> --subsystem electrical -o docs/diagrams/bat4b_electrical.svg`
 
 **Battery** (`bat1`) uses the **unified definition**: the `bus` field
 connects it to b3 and `pmax_charge`/`pmax_discharge` set the charge/discharge
@@ -809,7 +815,8 @@ coefficients.  For a system where generation costs are ~\$100/MWh and
 `scale_objective = 1000` this becomes 2.4, which is well-conditioned.
 
 Similarly, `model_options.scale_theta` normalises voltage-angle
-variables: θ_LP = scale_theta · θ (rad); auto = 1/(3·median(X/V²)); 1 = radians; 1000 = milliradians.  Leave it unset (auto) unless you have a reason; values
+variables: θ_LP = scale_theta · θ (rad); auto = 1/(3·median(X/V²)); 1 = radians;
+1000 = milliradians.  Leave it unset (auto) unless you have a reason; values
 below 1 shrink θ and trigger a load-time warning (the meaning was inverted
 before 2026-11, when values such as `1e-4` were common).
 
@@ -1183,7 +1190,8 @@ charge Demand, and Converter automatically.
 | **Turbine** | `uid`✱, `name`✱, `waterway`✱, `generator`✱, `production_factor`, `main_reservoir` | Hydro turbine |
 | **ReservoirEfficiency** | `uid`✱, `name`✱, `turbine`✱, `reservoir`✱, `mean_efficiency`, `segments` | Volume-dependent efficiency |
 
-> See **[Input Data Reference](input-data.md)** for full field descriptions, units, and all optional fields.
+> See **[Input Data Reference](input-data.md)** for full field descriptions,
+> units, and all optional fields.
 
 **Volume-dependent turbine efficiency**: when a `ReservoirEfficiency`
 element is defined, the turbine's conversion rate is updated during SDDP

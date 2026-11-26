@@ -1415,6 +1415,13 @@ public:
     return (it != m_ampl_params_.end()) ? it->second : nullptr;
   }
 
+  /// The whole (class, attribute) -> resolver table, for diagnostics and
+  /// for tests that pin the registered set.
+  [[nodiscard]] const AmplParamMap& ampl_params() const noexcept
+  {
+    return m_ampl_params_;
+  }
+
   /// Register the class-level activity probe (see `AmplActiveFn`).
   /// Called once per class from `system_lp.cpp`'s AMPL call_once block.
   void register_ampl_active(std::string_view class_name, AmplActiveFn fn)

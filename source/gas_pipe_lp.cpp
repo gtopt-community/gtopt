@@ -136,8 +136,8 @@ bool GasPipeLP::add_to_lp(SystemContext& sc,
     if (pipe.type) {
       metadata.emplace_back(GasNodeLP::TypeKey, *pipe.type);
     }
-    metadata.emplace_back(GasNodeAKey, static_cast<double>(node_a.uid()));
-    metadata.emplace_back(GasNodeBKey, static_cast<double>(node_b.uid()));
+    metadata.emplace_back(GasNodeAKey, ampl_metadata_uid(node_a.uid()));
+    metadata.emplace_back(GasNodeBKey, ampl_metadata_uid(node_b.uid()));
     sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
   }
   const auto& blocks = stage.blocks();

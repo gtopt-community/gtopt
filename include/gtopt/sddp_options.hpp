@@ -349,7 +349,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * pre-condition is not met, the call site falls back to the
    * native route with a one-time WARN log.
    *
-   * Default: false (preserve legacy behaviour).
+   * Default: true (`PlanningOptionsLP::sddp_aperture_use_manual_clone`).
    */
   OptBool aperture_use_manual_clone {};
 
@@ -775,9 +775,10 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   OptInt forward_max_fallbacks {};
 
-  /** @brief Scene-level fail-stop forward pass (default: true).
+  /** @brief Scene-level fail-stop forward pass (default: false, see
+   *  `PlanningOptionsLP::default_sddp_forward_fail_stop`).
    *
-   *  When true (the new default), an infeasible phase that produces a
+   *  When true (opt-in), an infeasible phase that produces a
    *  feasibility cut on its predecessor causes the scene's forward pass
    *  to **stop immediately for the current iteration**: the cut is
    *  installed on phase p-1, the scene is marked failed-this-iter, and
@@ -785,8 +786,8 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    *  from p1 with the newly accumulated cuts (preserved in the global
    *  cut store).
    *
-   *  When false, the legacy PLP-style backtracking forward pass is
-   *  restored: after installing the fcut on p-1, `phase_idx` is
+   *  When false (default), the PLP-style backtracking forward pass
+   *  runs: after installing the fcut on p-1, `phase_idx` is
    *  decremented and p-1 is re-solved under the new cut.  If p-1 is
    *  still infeasible, a fresh fcut is installed on p-2 and the
    *  cascade continues — bounded by `forward_max_attempts`.  Kept
@@ -796,7 +797,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   OptBool forward_fail_stop {};
 
   /** @brief Per-scene rollback on forward-pass infeasibility (default:
-   *  false).
+   *  true, see `PlanningOptionsLP::default_sddp_forward_infeas_rollback`).
    *
    *  When `true`, a scene declared infeasible in the forward pass has
    *  every cut it has accumulated in the global cut store deleted from
@@ -814,10 +815,9 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    *  `SolverError`/`no recovery path` error to avoid an infinite loop
    *  on degenerate single-scene runs or all-scenes-failed iterations.
    *
-   *  When `false` (default): cuts persist across iterations even when
-   *  the scene that produced them was declared infeasible — legacy
-   *  behaviour, preserved as the safe default until the rollback
-   *  feature has soaked.
+   *  When `false` (opt-out): cuts persist across iterations even when
+   *  the scene that produced them was declared infeasible — the legacy
+   *  behaviour.
    */
   OptBool forward_infeas_rollback {};
 

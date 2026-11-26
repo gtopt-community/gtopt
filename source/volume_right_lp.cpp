@@ -798,7 +798,7 @@ double VolumeRightLP::reward_objective(const ScenarioLP& scenario,
       continue;
     }
     for (const auto& [buid, col] : it->second) {
-      const double c_raw = obj[static_cast<std::size_t>(col)];
+      const double c_raw = obj[to_size(col)];
       if (c_raw < 0.0) {
         total += scale_obj * c_raw * sol[col] / li.get_col_scale(col);
       }

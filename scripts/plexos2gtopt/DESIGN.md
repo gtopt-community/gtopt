@@ -262,8 +262,8 @@ the dialect resolver at output time. Specific decisions:
 | Battery SOC | `Max SOC`, `Min SOC`, `Initial SOC` | `emax`, `emin`, `eini` | MWh |
 
 **Spill Penalty caveat**: PLEXOS expresses spill penalty in
-energy-equivalent ($/MWh) on the Storage object; gtopt expects flow-
-equivalent ($/(m³/s)/h). Conversion uses the average productibility
+energy-equivalent (\$/MWh) on the Storage object; gtopt expects flow-
+equivalent (\$/(m³/s)/h). Conversion uses the average productibility
 `fp_med` (MW per m³/s) from `Hydro_EfficiencyIncr.csv`:
 
 ```
@@ -292,7 +292,9 @@ plexos2gtopt INPUT [-o OUTPUT_DIR] [-l LOG_LEVEL]
 - A `RES{date}.zip[.xz]` solution archive (rejected for v0 — convert
   uses inputs only; comparing solutions is `gtopt_compare`'s job).
 
-Output dir inference: `$GTOPT_CASES_DIR/chile/daily_scheduling/pcp_2026-04-22/source/PLEXOS20260422.zip` →
+Output dir inference:
+`$GTOPT_CASES_DIR/chile/daily_scheduling/pcp_2026-04-22/source/PLEXOS20260422.zip`
+→
 `gtopt_PLEXOS20260422/`.
 
 ## 8. Test plan

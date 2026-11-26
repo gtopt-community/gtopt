@@ -1,4 +1,6 @@
+<!-- markdownlint-disable MD026 -->
 # Writing Style Guide — Marcelo Matus A.
+<!-- markdownlint-enable MD026 -->
 
 Style extracted from published papers (IEEE Transactions on Power Delivery,
 IEEE KPEC, Energy Procedia, IEEE PES General Meeting) for consistent

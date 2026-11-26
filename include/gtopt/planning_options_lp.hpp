@@ -2024,7 +2024,7 @@ public:
 
   /**
    * @brief Whether per-scene infeasibility rollback is enabled.
-   * @return true if forward_infeas_rollback is enabled (default: false).
+   * @return true if forward_infeas_rollback is enabled (default: true).
    */
   [[nodiscard]] constexpr auto sddp_forward_infeas_rollback() const
   {

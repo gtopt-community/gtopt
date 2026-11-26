@@ -6,20 +6,30 @@
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  *
- * Every shim below is a thin
- * `sc.get_element(ObjectSingleId<LP>{uid}).param_X(s, b)`
- * forwarder for one (LP class, attribute) pair.  The shim is registered
- * against the corresponding user-facing PAMPL spelling via
- * `SimulationLP::register_ampl_param`; the user-constraint resolver in
+ * `register_ampl_param_dispatchers` fills the `(class, attribute) ->
+ * AmplParamFn` table with one row per user-facing PAMPL attribute.  A
+ * row names the LP class and the `param_X` accessor; `param_shim`
+ * generates the resolver: `sc.get_element(ObjectSingleId<LP>{uid})`
+ * followed by the accessor call.  The user-constraint resolver in
  * `element_column_resolver.cpp` reaches it through a single
  * `find_ampl_param` probe.
  *
- * Per-stage `param_X(s)` accessors discard the block argument; the
- * resolver passes `(s, b)` uniformly so the call site stays branch-free.
+ * The resolver signature is uniform `(sc, uid, stage, block)`;
+ * per-stage accessors `param_X(s)` ignore the block and scalar ones
+ * `param_X()` ignore both — `param_shim` picks the call form from the
+ * accessor's signature at compile time.
  *
- * Adding a new (class, attribute) is one new shim + one
- * `register_ampl_param` line — no resolver edit.
+ * Adding a new (class, attribute) is one table row — no resolver edit.
+ * `test_ampl_param_registry_golden.cpp` pins the registered set and the
+ * value every resolver returns on a fixture.
  */
+
+#include <functional>
+#include <initializer_list>
+#include <optional>
+#include <string_view>
+#include <type_traits>
+#include <utility>
 
 #include <gtopt/allowance_pool_lp.hpp>
 #include <gtopt/ammonia_node_lp.hpp>
@@ -77,56 +87,58 @@ namespace gtopt
 namespace
 {
 
-// Generator
-std::optional<double> gen_param_pmax(const SystemContext& sc,
-                                     Uid uid,
-                                     StageUid s,
-                                     BlockUid b)
+/// Resolver for one (LP class, attribute): look the element up by uid
+/// and call its `Accessor` — a pointer to a const member function of
+/// `LP` (or of a base of `LP`) taking `(StageUid, BlockUid)`,
+/// `(StageUid)` or nothing.  The element type comes from `LP`, never
+/// from the accessor, so an inherited accessor (e.g. StorageLP's
+/// `param_emin`) still looks up the derived class's collection.
+template<typename LP, auto Accessor>
+std::optional<double> param_shim(const SystemContext& sc,
+                                 Uid uid,
+                                 [[maybe_unused]] StageUid s,
+                                 [[maybe_unused]] BlockUid b)
 {
-  return sc.get_element(ObjectSingleId<GeneratorLP> {uid}).param_pmax(s, b);
+  using A = decltype(Accessor);
+  static_assert(std::is_member_function_pointer_v<A>,
+                "Accessor must be &LP::param_X");
+  const auto& element = sc.get_element(ObjectSingleId<LP> {uid});
+  if constexpr (std::is_invocable_v<A, const LP&, StageUid, BlockUid>) {
+    return std::invoke(Accessor, element, s, b);
+  } else if constexpr (std::is_invocable_v<A, const LP&, StageUid>) {
+    return std::invoke(Accessor, element, s);
+  } else {
+    static_assert(std::is_invocable_v<A, const LP&>,
+                  "Accessor must take (StageUid, BlockUid), (StageUid) or "
+                  "nothing");
+    return std::invoke(Accessor, element);
+  }
 }
-std::optional<double> gen_param_pmin(const SystemContext& sc,
-                                     Uid uid,
-                                     StageUid s,
-                                     BlockUid b)
+
+/// `param_shim<LP, Accessor>` as an `AmplParamFn` table entry.
+template<typename LP, auto Accessor>
+constexpr AmplParamFn shim = &param_shim<LP, Accessor>;
+
+/// One row of a per-class parameter table: (attribute, resolver).
+using ParamEntry = std::pair<std::string_view, AmplParamFn>;
+
+/// Register every row of @p entries under the snake_case class name of
+/// `LP::Element` (e.g. "generator", "flow_right").
+template<typename LP>
+void register_params(SimulationLP& sim,
+                     std::initializer_list<ParamEntry> entries)
 {
-  return sc.get_element(ObjectSingleId<GeneratorLP> {uid}).param_pmin(s, b);
+  constexpr auto class_name = LP::Element::class_name.snake_case();
+  for (const auto& [attribute, fn] : entries) {
+    sim.register_ampl_param(class_name, attribute, fn);
+  }
 }
-std::optional<double> gen_param_gcost(const SystemContext& sc,
-                                      Uid uid,
-                                      StageUid s,
-                                      BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<GeneratorLP> {uid}).param_gcost(s, b);
-}
-std::optional<double> gen_param_lossfactor(const SystemContext& sc,
-                                           Uid uid,
-                                           StageUid s,
-                                           BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<GeneratorLP> {uid})
-      .param_lossfactor(s, b);
-}
-std::optional<double> gen_param_heat_rate(const SystemContext& sc,
-                                          Uid uid,
-                                          StageUid s,
-                                          BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<GeneratorLP> {uid})
-      .param_heat_rate(s, b);
-}
-std::optional<double> gen_param_emission_rate(const SystemContext& sc,
-                                              Uid uid,
-                                              StageUid s,
-                                              BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<GeneratorLP> {uid})
-      .param_emission_rate(s, b);
-}
+
 /// ``generator.initial_generation`` — the scalar ``t = 0⁻`` dispatch
 /// (``Generator.initial_generation``), stage/block independent.  Read by
 /// the ``_prev`` boundary rule in ``resolve_single_param`` as the value
 /// of ``generation_prev`` at the horizon start (``initial_<attr>``).
+/// Hand-written: it reads an input field, not a `param_X` accessor.
 std::optional<double> gen_param_initial_generation(const SystemContext& sc,
                                                    Uid uid,
                                                    StageUid /*s*/,
@@ -135,917 +147,6 @@ std::optional<double> gen_param_initial_generation(const SystemContext& sc,
   return sc.get_element(ObjectSingleId<GeneratorLP> {uid})
       .generator()
       .initial_generation;
-}
-
-// Fuel
-std::optional<double> fuel_param_price(const SystemContext& sc,
-                                       Uid uid,
-                                       StageUid s,
-                                       BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<FuelLP> {uid}).param_price(s, b);
-}
-std::optional<double> fuel_param_heat_content(const SystemContext& sc,
-                                              Uid uid,
-                                              StageUid s,
-                                              BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<FuelLP> {uid}).param_heat_content(s);
-}
-std::optional<double> fuel_param_combustion_emission_factor(
-    const SystemContext& sc, Uid uid, StageUid s, BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<FuelLP> {uid})
-      .param_combustion_emission_factor(s);
-}
-std::optional<double> fuel_param_upstream_emission_factor(
-    const SystemContext& sc, Uid uid, StageUid s, BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<FuelLP> {uid})
-      .param_upstream_emission_factor(s);
-}
-
-// Demand
-std::optional<double> dem_param_lmax(const SystemContext& sc,
-                                     Uid uid,
-                                     StageUid s,
-                                     BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<DemandLP> {uid}).param_lmax(s, b);
-}
-std::optional<double> dem_param_fcost(const SystemContext& sc,
-                                      Uid uid,
-                                      StageUid s,
-                                      BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<DemandLP> {uid}).param_fcost(s, b);
-}
-std::optional<double> dem_param_lossfactor(const SystemContext& sc,
-                                           Uid uid,
-                                           StageUid s,
-                                           BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<DemandLP> {uid}).param_lossfactor(s, b);
-}
-
-// Line
-std::optional<double> line_param_tmax_ab(const SystemContext& sc,
-                                         Uid uid,
-                                         StageUid s,
-                                         BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<LineLP> {uid}).param_tmax_ab(s, b);
-}
-std::optional<double> line_param_tmax_ba(const SystemContext& sc,
-                                         Uid uid,
-                                         StageUid s,
-                                         BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<LineLP> {uid}).param_tmax_ba(s, b);
-}
-std::optional<double> line_param_max_flow(const SystemContext& sc,
-                                          Uid uid,
-                                          StageUid s,
-                                          BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<LineLP> {uid}).param_tmax_ab(s, b);
-}
-std::optional<double> line_param_min_flow(const SystemContext& sc,
-                                          Uid uid,
-                                          StageUid s,
-                                          BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<LineLP> {uid}).param_min_flow(s, b);
-}
-std::optional<double> line_param_max_rating(const SystemContext& sc,
-                                            Uid uid,
-                                            StageUid s,
-                                            BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<LineLP> {uid}).param_max_rating(s, b);
-}
-std::optional<double> line_param_min_rating(const SystemContext& sc,
-                                            Uid uid,
-                                            StageUid s,
-                                            BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<LineLP> {uid}).param_min_rating(s, b);
-}
-std::optional<double> line_param_overload_max_rating(const SystemContext& sc,
-                                                     Uid uid,
-                                                     StageUid s,
-                                                     BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<LineLP> {uid})
-      .param_overload_max_rating(s, b);
-}
-std::optional<double> line_param_overload_min_rating(const SystemContext& sc,
-                                                     Uid uid,
-                                                     StageUid s,
-                                                     BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<LineLP> {uid})
-      .param_overload_min_rating(s, b);
-}
-std::optional<double> line_param_outage_max_rating(const SystemContext& sc,
-                                                   Uid uid,
-                                                   StageUid s,
-                                                   BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<LineLP> {uid})
-      .param_outage_max_rating(s, b);
-}
-std::optional<double> line_param_outage_min_rating(const SystemContext& sc,
-                                                   Uid uid,
-                                                   StageUid s,
-                                                   BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<LineLP> {uid})
-      .param_outage_min_rating(s, b);
-}
-std::optional<double> line_param_units_out(const SystemContext& sc,
-                                           Uid uid,
-                                           StageUid s,
-                                           BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<LineLP> {uid}).param_units_out(s, b);
-}
-std::optional<double> line_param_conductor_rating_ab(const SystemContext& sc,
-                                                     Uid uid,
-                                                     StageUid s,
-                                                     BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<LineLP> {uid})
-      .param_conductor_rating_ab(s, b);
-}
-std::optional<double> line_param_conductor_rating_ba(const SystemContext& sc,
-                                                     Uid uid,
-                                                     StageUid s,
-                                                     BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<LineLP> {uid})
-      .param_conductor_rating_ba(s, b);
-}
-std::optional<double> line_param_equipment_rating_ab(const SystemContext& sc,
-                                                     Uid uid,
-                                                     StageUid s,
-                                                     BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<LineLP> {uid})
-      .param_equipment_rating_ab(s, b);
-}
-std::optional<double> line_param_equipment_rating_ba(const SystemContext& sc,
-                                                     Uid uid,
-                                                     StageUid s,
-                                                     BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<LineLP> {uid})
-      .param_equipment_rating_ba(s, b);
-}
-std::optional<double> line_param_security_limit_ab(const SystemContext& sc,
-                                                   Uid uid,
-                                                   StageUid s,
-                                                   BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<LineLP> {uid})
-      .param_security_limit_ab(s, b);
-}
-std::optional<double> line_param_security_limit_ba(const SystemContext& sc,
-                                                   Uid uid,
-                                                   StageUid s,
-                                                   BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<LineLP> {uid})
-      .param_security_limit_ba(s, b);
-}
-std::optional<double> line_param_tcost(const SystemContext& sc,
-                                       Uid uid,
-                                       StageUid s,
-                                       BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<LineLP> {uid}).param_tcost(s, b);
-}
-std::optional<double> line_param_reactance(const SystemContext& sc,
-                                           Uid uid,
-                                           StageUid s,
-                                           BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<LineLP> {uid}).param_reactance(s);
-}
-std::optional<double> line_param_voltage(const SystemContext& sc,
-                                         Uid uid,
-                                         StageUid s,
-                                         BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<LineLP> {uid}).param_voltage(s);
-}
-std::optional<double> line_param_tap_ratio(const SystemContext& sc,
-                                           Uid uid,
-                                           StageUid s,
-                                           BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<LineLP> {uid}).param_tap_ratio(s);
-}
-std::optional<double> line_param_phase_shift_deg(const SystemContext& sc,
-                                                 Uid uid,
-                                                 StageUid s,
-                                                 BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<LineLP> {uid}).param_phase_shift_deg(s);
-}
-std::optional<double> line_param_lossfactor(const SystemContext& sc,
-                                            Uid uid,
-                                            StageUid s,
-                                            BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<LineLP> {uid}).param_lossfactor(s, b);
-}
-std::optional<double> line_param_resistance(const SystemContext& sc,
-                                            Uid uid,
-                                            StageUid s,
-                                            BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<LineLP> {uid}).param_resistance(s);
-}
-
-// Battery
-std::optional<double> bat_param_emin(const SystemContext& sc,
-                                     Uid uid,
-                                     StageUid s,
-                                     BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<BatteryLP> {uid}).param_emin(s, b);
-}
-std::optional<double> bat_param_emax(const SystemContext& sc,
-                                     Uid uid,
-                                     StageUid s,
-                                     BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<BatteryLP> {uid}).param_emax(s, b);
-}
-std::optional<double> bat_param_ecost(const SystemContext& sc,
-                                      Uid uid,
-                                      StageUid s,
-                                      BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<BatteryLP> {uid}).param_ecost(s, b);
-}
-std::optional<double> bat_param_input_efficiency(const SystemContext& sc,
-                                                 Uid uid,
-                                                 StageUid s,
-                                                 BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<BatteryLP> {uid})
-      .param_input_efficiency(s, b);
-}
-std::optional<double> bat_param_output_efficiency(const SystemContext& sc,
-                                                  Uid uid,
-                                                  StageUid s,
-                                                  BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<BatteryLP> {uid})
-      .param_output_efficiency(s, b);
-}
-
-// Reservoir
-std::optional<double> res_param_emin(const SystemContext& sc,
-                                     Uid uid,
-                                     StageUid s,
-                                     BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<ReservoirLP> {uid}).param_emin(s, b);
-}
-std::optional<double> res_param_emax(const SystemContext& sc,
-                                     Uid uid,
-                                     StageUid s,
-                                     BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<ReservoirLP> {uid}).param_emax(s, b);
-}
-std::optional<double> res_param_ecost(const SystemContext& sc,
-                                      Uid uid,
-                                      StageUid s,
-                                      BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<ReservoirLP> {uid}).param_ecost(s, b);
-}
-std::optional<double> res_param_capacity(const SystemContext& sc,
-                                         Uid uid,
-                                         StageUid s,
-                                         BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<ReservoirLP> {uid}).param_capacity(s);
-}
-
-// FlowRight
-std::optional<double> fr_param_fmin(const SystemContext& sc,
-                                    Uid uid,
-                                    StageUid s,
-                                    BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<FlowRightLP> {uid}).param_fmin(s, b);
-}
-std::optional<double> fr_param_fmax(const SystemContext& sc,
-                                    Uid uid,
-                                    StageUid s,
-                                    BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<FlowRightLP> {uid}).param_fmax(s, b);
-}
-std::optional<double> fr_param_target(const SystemContext& sc,
-                                      Uid uid,
-                                      StageUid s,
-                                      BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<FlowRightLP> {uid}).param_target(s, b);
-}
-std::optional<double> fr_param_fcost(const SystemContext& sc,
-                                     Uid uid,
-                                     StageUid s,
-                                     BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<FlowRightLP> {uid}).param_fcost(s, b);
-}
-std::optional<double> fr_param_uvalue(const SystemContext& sc,
-                                      Uid uid,
-                                      StageUid s,
-                                      BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<FlowRightLP> {uid}).param_uvalue(s, b);
-}
-
-// Turbine — per-stage schedules (production_factor, efficiency, capacity).
-// Exposed via PAMPL so user constraints can read the conversion factors
-// and flow cap as constants in `turbine('X').<field>` expressions.
-std::optional<double> tur_param_production_factor(const SystemContext& sc,
-                                                  Uid uid,
-                                                  StageUid s,
-                                                  BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<TurbineLP> {uid})
-      .param_production_factor(s);
-}
-std::optional<double> tur_param_efficiency(const SystemContext& sc,
-                                           Uid uid,
-                                           StageUid s,
-                                           BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<TurbineLP> {uid}).param_efficiency(s);
-}
-std::optional<double> tur_param_capacity(const SystemContext& sc,
-                                         Uid uid,
-                                         StageUid s,
-                                         BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<TurbineLP> {uid}).param_capacity(s);
-}
-
-// Waterway — per-(stage, block) fmin/fmax + per-stage capacity, lossfactor,
-// fcost.  Exposed via PAMPL so user constraints can reference the channel's
-// bound and cost schedules in ``waterway('X').<field>`` expressions.
-std::optional<double> ww_param_fmin(const SystemContext& sc,
-                                    Uid uid,
-                                    StageUid s,
-                                    BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<WaterwayLP> {uid}).param_fmin(s, b);
-}
-std::optional<double> ww_param_fmax(const SystemContext& sc,
-                                    Uid uid,
-                                    StageUid s,
-                                    BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<WaterwayLP> {uid}).param_fmax(s, b);
-}
-std::optional<double> ww_param_capacity(const SystemContext& sc,
-                                        Uid uid,
-                                        StageUid s,
-                                        BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<WaterwayLP> {uid}).param_capacity(s);
-}
-std::optional<double> ww_param_lossfactor(const SystemContext& sc,
-                                          Uid uid,
-                                          StageUid s,
-                                          BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<WaterwayLP> {uid}).param_lossfactor(s);
-}
-std::optional<double> ww_param_fcost(const SystemContext& sc,
-                                     Uid uid,
-                                     StageUid s,
-                                     BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<WaterwayLP> {uid}).param_fcost(s);
-}
-
-// VolumeRight
-std::optional<double> vr_param_fmax(const SystemContext& sc,
-                                    Uid uid,
-                                    StageUid s,
-                                    BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<VolumeRightLP> {uid}).param_fmax(s, b);
-}
-std::optional<double> vr_param_emin(const SystemContext& sc,
-                                    Uid uid,
-                                    StageUid s,
-                                    BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<VolumeRightLP> {uid}).param_emin(s, b);
-}
-std::optional<double> vr_param_emax(const SystemContext& sc,
-                                    Uid uid,
-                                    StageUid s,
-                                    BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<VolumeRightLP> {uid}).param_emax(s, b);
-}
-std::optional<double> vr_param_demand(const SystemContext& sc,
-                                      Uid uid,
-                                      StageUid s,
-                                      BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<VolumeRightLP> {uid}).param_demand(s);
-}
-std::optional<double> vr_param_saving_rate(const SystemContext& sc,
-                                           Uid uid,
-                                           StageUid s,
-                                           BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<VolumeRightLP> {uid})
-      .param_saving_rate(s, b);
-}
-std::optional<double> vr_param_fail_cost(const SystemContext& sc,
-                                         Uid uid,
-                                         StageUid /*s*/,
-                                         BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<VolumeRightLP> {uid}).param_fail_cost();
-}
-
-// EmissionZone
-std::optional<double> ez_param_cap(const SystemContext& sc,
-                                   Uid uid,
-                                   StageUid s,
-                                   BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<EmissionZoneLP> {uid}).param_cap(s);
-}
-std::optional<double> ez_param_cap_cost(const SystemContext& sc,
-                                        Uid uid,
-                                        StageUid s,
-                                        BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<EmissionZoneLP> {uid}).param_cap_cost(s);
-}
-std::optional<double> ez_param_price(const SystemContext& sc,
-                                     Uid uid,
-                                     StageUid s,
-                                     BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<EmissionZoneLP> {uid}).param_price(s);
-}
-
-// EmissionSource
-std::optional<double> es_param_rate(const SystemContext& sc,
-                                    Uid uid,
-                                    StageUid s,
-                                    BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<EmissionSourceLP> {uid}).param_rate(s);
-}
-std::optional<double> es_param_upstream_rate(const SystemContext& sc,
-                                             Uid uid,
-                                             StageUid s,
-                                             BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<EmissionSourceLP> {uid})
-      .param_upstream_rate(s);
-}
-
-// UserConstraint
-std::optional<double> uc_param_rhs(const SystemContext& sc,
-                                   Uid uid,
-                                   StageUid s,
-                                   BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<UserConstraintLP> {uid}).param_rhs(s, b);
-}
-
-// Fuel — max_offtake row (PR #487 / #492).  These are the
-// stage-level cap parameters used by ``FuelLP::add_to_lp`` when
-// building the per-(scenario, stage) row that bounds total
-// heat-rate-weighted dispatch on every generator referencing the
-// fuel.  Exposed via PAMPL so user constraints can read the cap
-// (e.g. for compliance-side audit constraints).
-std::optional<double> fuel_param_max_offtake(const SystemContext& sc,
-                                             Uid uid,
-                                             StageUid s,
-                                             BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<FuelLP> {uid}).param_max_offtake(s);
-}
-std::optional<double> fuel_param_max_offtake_cost(const SystemContext& sc,
-                                                  Uid uid,
-                                                  StageUid s,
-                                                  BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<FuelLP> {uid}).param_max_offtake_cost(s);
-}
-std::optional<double> fuel_param_min_offtake(const SystemContext& sc,
-                                             Uid uid,
-                                             StageUid s,
-                                             BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<FuelLP> {uid}).param_min_offtake(s);
-}
-std::optional<double> fuel_param_min_offtake_cost(const SystemContext& sc,
-                                                  Uid uid,
-                                                  StageUid s,
-                                                  BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<FuelLP> {uid}).param_min_offtake_cost(s);
-}
-
-// LngTerminal — delivery (m³/stage).  Per-stage scheduled LNG
-// arrival; the LP per-block inflow rate is ``delivery /
-// stage_duration``.  Exposed via PAMPL so user constraints can
-// reference the scheduled delivery in compliance / aggregation
-// rules.
-std::optional<double> lng_param_delivery(const SystemContext& sc,
-                                         Uid uid,
-                                         StageUid s,
-                                         BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<LngTerminalLP> {uid}).param_delivery(s);
-}
-
-// LngTerminal — tank-level bounds and holding cost (StorageLP schedules).
-std::optional<double> lng_param_emin(const SystemContext& sc,
-                                     Uid uid,
-                                     StageUid s,
-                                     BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<LngTerminalLP> {uid}).param_emin(s, b);
-}
-
-std::optional<double> lng_param_emax(const SystemContext& sc,
-                                     Uid uid,
-                                     StageUid s,
-                                     BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<LngTerminalLP> {uid}).param_emax(s, b);
-}
-
-std::optional<double> lng_param_ecost(const SystemContext& sc,
-                                      Uid uid,
-                                      StageUid s,
-                                      BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<LngTerminalLP> {uid}).param_ecost(s, b);
-}
-
-// Gas network — node pressure limits [bar] and pressure cost.
-std::optional<double> gn_param_pmin(const SystemContext& sc,
-                                    Uid uid,
-                                    StageUid s,
-                                    BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<GasNodeLP> {uid}).param_pmin(s);
-}
-
-std::optional<double> gn_param_pmax(const SystemContext& sc,
-                                    Uid uid,
-                                    StageUid s,
-                                    BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<GasNodeLP> {uid}).param_pmax(s);
-}
-
-std::optional<double> gn_param_pressure_cost(const SystemContext& sc,
-                                             Uid uid,
-                                             StageUid s,
-                                             BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<GasNodeLP> {uid}).param_pressure_cost(s);
-}
-
-// GasSupply — offtake limits [km³/h], unit cost, stage volume cap.
-std::optional<double> gs_param_fmin(const SystemContext& sc,
-                                    Uid uid,
-                                    StageUid s,
-                                    BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<GasSupplyLP> {uid}).param_fmin(s, b);
-}
-
-std::optional<double> gs_param_fmax(const SystemContext& sc,
-                                    Uid uid,
-                                    StageUid s,
-                                    BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<GasSupplyLP> {uid}).param_fmax(s, b);
-}
-
-std::optional<double> gs_param_cost(const SystemContext& sc,
-                                    Uid uid,
-                                    StageUid s,
-                                    BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<GasSupplyLP> {uid}).param_cost(s);
-}
-
-std::optional<double> gs_param_volume(const SystemContext& sc,
-                                      Uid uid,
-                                      StageUid /*s*/,
-                                      BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<GasSupplyLP> {uid}).param_volume();
-}
-
-// GasDemand — scheduled load [km³/h] and shedding cost.
-std::optional<double> gd_param_load(const SystemContext& sc,
-                                    Uid uid,
-                                    StageUid s,
-                                    BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<GasDemandLP> {uid}).param_load(s, b);
-}
-
-std::optional<double> gd_param_fail_cost(const SystemContext& sc,
-                                         Uid uid,
-                                         StageUid s,
-                                         BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<GasDemandLP> {uid}).param_fail_cost(s);
-}
-
-// GasPipe — flow capacity [km³/h].
-std::optional<double> gp_param_fmax(const SystemContext& sc,
-                                    Uid uid,
-                                    StageUid s,
-                                    BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<GasPipeLP> {uid}).param_fmax(s);
-}
-
-// GasCompressor — throughput cap, compression ratio, electric power cap.
-std::optional<double> gc_param_fmax(const SystemContext& sc,
-                                    Uid uid,
-                                    StageUid s,
-                                    BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<GasCompressorLP> {uid}).param_fmax(s);
-}
-
-std::optional<double> gc_param_max_ratio(const SystemContext& sc,
-                                         Uid uid,
-                                         StageUid /*s*/,
-                                         BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<GasCompressorLP> {uid})
-      .param_max_ratio();
-}
-
-std::optional<double> gc_param_power_max(const SystemContext& sc,
-                                         Uid uid,
-                                         StageUid /*s*/,
-                                         BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<GasCompressorLP> {uid})
-      .param_power_max();
-}
-
-// GasTurbine — heat rate [km³/MWh].
-std::optional<double> gt_param_heat_rate(const SystemContext& sc,
-                                         Uid uid,
-                                         StageUid s,
-                                         BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<GasTurbineLP> {uid})
-      .param_heat_rate(s, b);
-}
-
-// Storage peers (Battery / Reservoir already covered above) —
-// ThermalStorage / HydrogenStorage / AmmoniaStorage all derive
-// emin/emax/ecost from the StorageLP base + add
-// input_efficiency / output_efficiency on the Battery pattern.
-std::optional<double> ts_param_emin(const SystemContext& sc,
-                                    Uid uid,
-                                    StageUid s,
-                                    BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<ThermalStorageLP> {uid})
-      .param_emin(s, b);
-}
-std::optional<double> ts_param_emax(const SystemContext& sc,
-                                    Uid uid,
-                                    StageUid s,
-                                    BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<ThermalStorageLP> {uid})
-      .param_emax(s, b);
-}
-std::optional<double> ts_param_ecost(const SystemContext& sc,
-                                     Uid uid,
-                                     StageUid s,
-                                     BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<ThermalStorageLP> {uid})
-      .param_ecost(s, b);
-}
-std::optional<double> ts_param_input_efficiency(const SystemContext& sc,
-                                                Uid uid,
-                                                StageUid s,
-                                                BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<ThermalStorageLP> {uid})
-      .param_input_efficiency(s, b);
-}
-std::optional<double> ts_param_output_efficiency(const SystemContext& sc,
-                                                 Uid uid,
-                                                 StageUid s,
-                                                 BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<ThermalStorageLP> {uid})
-      .param_output_efficiency(s, b);
-}
-
-std::optional<double> hs_param_emin(const SystemContext& sc,
-                                    Uid uid,
-                                    StageUid s,
-                                    BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<HydrogenStorageLP> {uid})
-      .param_emin(s, b);
-}
-std::optional<double> hs_param_emax(const SystemContext& sc,
-                                    Uid uid,
-                                    StageUid s,
-                                    BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<HydrogenStorageLP> {uid})
-      .param_emax(s, b);
-}
-std::optional<double> hs_param_ecost(const SystemContext& sc,
-                                     Uid uid,
-                                     StageUid s,
-                                     BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<HydrogenStorageLP> {uid})
-      .param_ecost(s, b);
-}
-std::optional<double> hs_param_input_efficiency(const SystemContext& sc,
-                                                Uid uid,
-                                                StageUid s,
-                                                BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<HydrogenStorageLP> {uid})
-      .param_input_efficiency(s, b);
-}
-std::optional<double> hs_param_output_efficiency(const SystemContext& sc,
-                                                 Uid uid,
-                                                 StageUid s,
-                                                 BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<HydrogenStorageLP> {uid})
-      .param_output_efficiency(s, b);
-}
-
-std::optional<double> as_param_emin(const SystemContext& sc,
-                                    Uid uid,
-                                    StageUid s,
-                                    BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<AmmoniaStorageLP> {uid})
-      .param_emin(s, b);
-}
-std::optional<double> as_param_emax(const SystemContext& sc,
-                                    Uid uid,
-                                    StageUid s,
-                                    BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<AmmoniaStorageLP> {uid})
-      .param_emax(s, b);
-}
-std::optional<double> as_param_ecost(const SystemContext& sc,
-                                     Uid uid,
-                                     StageUid s,
-                                     BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<AmmoniaStorageLP> {uid})
-      .param_ecost(s, b);
-}
-std::optional<double> as_param_input_efficiency(const SystemContext& sc,
-                                                Uid uid,
-                                                StageUid s,
-                                                BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<AmmoniaStorageLP> {uid})
-      .param_input_efficiency(s, b);
-}
-std::optional<double> as_param_output_efficiency(const SystemContext& sc,
-                                                 Uid uid,
-                                                 StageUid s,
-                                                 BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<AmmoniaStorageLP> {uid})
-      .param_output_efficiency(s, b);
-}
-
-// CarrierConverter — multi-carrier converter (PR #485).
-std::optional<double> cc_param_efficiency(const SystemContext& sc,
-                                          Uid uid,
-                                          StageUid s,
-                                          BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<CarrierConverterLP> {uid})
-      .param_efficiency(s, b);
-}
-std::optional<double> cc_param_ocost(const SystemContext& sc,
-                                     Uid uid,
-                                     StageUid s,
-                                     BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<CarrierConverterLP> {uid})
-      .param_ocost(s, b);
-}
-
-// HydrogenDemand — hydrogen offtake with per-stage energy targets.
-std::optional<double> hd_param_lmax(const SystemContext& sc,
-                                    Uid uid,
-                                    StageUid s,
-                                    BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<HydrogenDemandLP> {uid})
-      .param_lmax(s, b);
-}
-std::optional<double> hd_param_lmin(const SystemContext& sc,
-                                    Uid uid,
-                                    StageUid s,
-                                    BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<HydrogenDemandLP> {uid})
-      .param_lmin(s, b);
-}
-std::optional<double> hd_param_price(const SystemContext& sc,
-                                     Uid uid,
-                                     StageUid s,
-                                     BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<HydrogenDemandLP> {uid})
-      .param_price(s, b);
-}
-std::optional<double> hd_param_min_energy(const SystemContext& sc,
-                                          Uid uid,
-                                          StageUid s,
-                                          BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<HydrogenDemandLP> {uid})
-      .param_min_energy(s);
-}
-std::optional<double> hd_param_max_energy(const SystemContext& sc,
-                                          Uid uid,
-                                          StageUid s,
-                                          BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<HydrogenDemandLP> {uid})
-      .param_max_energy(s);
-}
-
-// AllowancePool — CO₂ cap-and-trade pool (PR #495 / #496).
-// Inherits emin/emax/ecost from StorageLP base; exposes delivery
-// (free allocation per stage) on its own accessor.
-std::optional<double> ap_param_emin(const SystemContext& sc,
-                                    Uid uid,
-                                    StageUid s,
-                                    BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<AllowancePoolLP> {uid}).param_emin(s, b);
-}
-std::optional<double> ap_param_emax(const SystemContext& sc,
-                                    Uid uid,
-                                    StageUid s,
-                                    BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<AllowancePoolLP> {uid}).param_emax(s, b);
-}
-std::optional<double> ap_param_ecost(const SystemContext& sc,
-                                     Uid uid,
-                                     StageUid s,
-                                     BlockUid b)
-{
-  return sc.get_element(ObjectSingleId<AllowancePoolLP> {uid})
-      .param_ecost(s, b);
-}
-std::optional<double> ap_param_delivery(const SystemContext& sc,
-                                        Uid uid,
-                                        StageUid s,
-                                        BlockUid /*b*/)
-{
-  return sc.get_element(ObjectSingleId<AllowancePoolLP> {uid})
-      .param_delivery(s);
 }
 
 /// Class iterator: walks `sc.elements<LP>()` and emits every element's
@@ -1063,229 +164,316 @@ void iter_class(const SystemContext& sc, void* state, AmplIterCallback cb)
 
 void register_ampl_param_dispatchers(SimulationLP& sim)
 {
-  constexpr auto generator_cls = Generator::class_name.snake_case();
-  sim.register_ampl_param(generator_cls, "pmax", &gen_param_pmax);
-  sim.register_ampl_param(generator_cls, "pmin", &gen_param_pmin);
-  sim.register_ampl_param(generator_cls, "gcost", &gen_param_gcost);
-  sim.register_ampl_param(generator_cls, "lossfactor", &gen_param_lossfactor);
-  sim.register_ampl_param(generator_cls, "heat_rate", &gen_param_heat_rate);
-  sim.register_ampl_param(
-      generator_cls, "emission_rate", &gen_param_emission_rate);
-  sim.register_ampl_param(
-      generator_cls, "initial_generation", &gen_param_initial_generation);
-
-  constexpr auto fuel_cls = Fuel::class_name.snake_case();
-  sim.register_ampl_param(fuel_cls, "price", &fuel_param_price);
-  sim.register_ampl_param(fuel_cls, "heat_content", &fuel_param_heat_content);
-  sim.register_ampl_param(fuel_cls,
-                          "combustion_emission_factor",
-                          &fuel_param_combustion_emission_factor);
-  sim.register_ampl_param(fuel_cls,
-                          "upstream_emission_factor",
-                          &fuel_param_upstream_emission_factor);
-
-  constexpr auto demand_cls = Demand::class_name.snake_case();
-  sim.register_ampl_param(demand_cls, "lmax", &dem_param_lmax);
-  sim.register_ampl_param(demand_cls, "fcost", &dem_param_fcost);
-  sim.register_ampl_param(demand_cls, "lossfactor", &dem_param_lossfactor);
-
-  constexpr auto line_cls = Line::class_name.snake_case();
-  sim.register_ampl_param(line_cls, "tmax_ab", &line_param_tmax_ab);
-  sim.register_ampl_param(line_cls, "tmax_ba", &line_param_tmax_ba);
-  sim.register_ampl_param(line_cls, "max_flow", &line_param_max_flow);
-  sim.register_ampl_param(line_cls, "min_flow", &line_param_min_flow);
-  sim.register_ampl_param(line_cls, "max_rating", &line_param_max_rating);
-  sim.register_ampl_param(line_cls, "min_rating", &line_param_min_rating);
-  sim.register_ampl_param(
-      line_cls, "overload_max_rating", &line_param_overload_max_rating);
-  sim.register_ampl_param(
-      line_cls, "overload_min_rating", &line_param_overload_min_rating);
-  sim.register_ampl_param(
-      line_cls, "outage_max_rating", &line_param_outage_max_rating);
-  sim.register_ampl_param(
-      line_cls, "outage_min_rating", &line_param_outage_min_rating);
-  sim.register_ampl_param(line_cls, "units_out", &line_param_units_out);
-  sim.register_ampl_param(
-      line_cls, "conductor_rating_ab", &line_param_conductor_rating_ab);
-  sim.register_ampl_param(
-      line_cls, "conductor_rating_ba", &line_param_conductor_rating_ba);
-  sim.register_ampl_param(
-      line_cls, "equipment_rating_ab", &line_param_equipment_rating_ab);
-  sim.register_ampl_param(
-      line_cls, "equipment_rating_ba", &line_param_equipment_rating_ba);
-  sim.register_ampl_param(
-      line_cls, "security_limit_ab", &line_param_security_limit_ab);
-  sim.register_ampl_param(
-      line_cls, "security_limit_ba", &line_param_security_limit_ba);
-  sim.register_ampl_param(line_cls, "tcost", &line_param_tcost);
-  sim.register_ampl_param(line_cls, "reactance", &line_param_reactance);
-  sim.register_ampl_param(line_cls, "voltage", &line_param_voltage);
-  sim.register_ampl_param(line_cls, "tap_ratio", &line_param_tap_ratio);
-  sim.register_ampl_param(
-      line_cls, "phase_shift_deg", &line_param_phase_shift_deg);
-  sim.register_ampl_param(line_cls, "lossfactor", &line_param_lossfactor);
-  sim.register_ampl_param(line_cls, "resistance", &line_param_resistance);
-
-  constexpr auto battery_cls = Battery::class_name.snake_case();
-  sim.register_ampl_param(battery_cls, "emin", &bat_param_emin);
-  sim.register_ampl_param(battery_cls, "emax", &bat_param_emax);
-  sim.register_ampl_param(battery_cls, "ecost", &bat_param_ecost);
-  sim.register_ampl_param(
-      battery_cls, "input_efficiency", &bat_param_input_efficiency);
-  sim.register_ampl_param(
-      battery_cls, "output_efficiency", &bat_param_output_efficiency);
-
-  constexpr auto reservoir_cls = Reservoir::class_name.snake_case();
-  sim.register_ampl_param(reservoir_cls, "emin", &res_param_emin);
-  sim.register_ampl_param(reservoir_cls, "emax", &res_param_emax);
-  sim.register_ampl_param(reservoir_cls, "ecost", &res_param_ecost);
-  sim.register_ampl_param(reservoir_cls, "capacity", &res_param_capacity);
-
-  constexpr auto flow_right_cls = FlowRight::class_name.snake_case();
-  sim.register_ampl_param(flow_right_cls, "fmin", &fr_param_fmin);
-  sim.register_ampl_param(flow_right_cls, "fmax", &fr_param_fmax);
-  sim.register_ampl_param(flow_right_cls, "target", &fr_param_target);
-  sim.register_ampl_param(flow_right_cls, "fcost", &fr_param_fcost);
-  sim.register_ampl_param(flow_right_cls, "uvalue", &fr_param_uvalue);
-
-  constexpr auto turbine_cls = Turbine::class_name.snake_case();
-  sim.register_ampl_param(
-      turbine_cls, "production_factor", &tur_param_production_factor);
-  sim.register_ampl_param(turbine_cls, "efficiency", &tur_param_efficiency);
-  sim.register_ampl_param(turbine_cls, "capacity", &tur_param_capacity);
-
-  constexpr auto waterway_cls = Waterway::class_name.snake_case();
-  sim.register_ampl_param(waterway_cls, "fmin", &ww_param_fmin);
-  sim.register_ampl_param(waterway_cls, "fmax", &ww_param_fmax);
-  sim.register_ampl_param(waterway_cls, "capacity", &ww_param_capacity);
-  sim.register_ampl_param(waterway_cls, "lossfactor", &ww_param_lossfactor);
-  sim.register_ampl_param(waterway_cls, "fcost", &ww_param_fcost);
-
-  constexpr auto volume_right_cls = VolumeRight::class_name.snake_case();
-  sim.register_ampl_param(volume_right_cls, "fmax", &vr_param_fmax);
-  sim.register_ampl_param(volume_right_cls, "emin", &vr_param_emin);
-  sim.register_ampl_param(volume_right_cls, "emax", &vr_param_emax);
-  sim.register_ampl_param(volume_right_cls, "demand", &vr_param_demand);
-  sim.register_ampl_param(
-      volume_right_cls, "saving_rate", &vr_param_saving_rate);
-  sim.register_ampl_param(volume_right_cls, "fail_cost", &vr_param_fail_cost);
-
-  constexpr auto emission_zone_cls = EmissionZone::class_name.snake_case();
-  sim.register_ampl_param(emission_zone_cls, "cap", &ez_param_cap);
-  sim.register_ampl_param(emission_zone_cls, "cap_cost", &ez_param_cap_cost);
-  sim.register_ampl_param(emission_zone_cls, "price", &ez_param_price);
-
-  constexpr auto emission_source_cls = EmissionSource::class_name.snake_case();
-  sim.register_ampl_param(emission_source_cls, "rate", &es_param_rate);
-  sim.register_ampl_param(
-      emission_source_cls, "upstream_rate", &es_param_upstream_rate);
-
-  // UserConstraint: per-(stage, block) RHS override accessible from
-  // other constraints' expressions as `user_constraint("X").rhs`.
-  constexpr auto user_constraint_cls = UserConstraint::class_name.snake_case();
-  sim.register_ampl_param(user_constraint_cls, "rhs", &uc_param_rhs);
-
-  // Fuel — max_offtake cap row (PR #487 / #492).
-  sim.register_ampl_param(fuel_cls, "max_offtake", &fuel_param_max_offtake);
-  sim.register_ampl_param(
-      fuel_cls, "max_offtake_cost", &fuel_param_max_offtake_cost);
-  // Fuel — min_offtake floor row (PLEXOS take-or-pay; pids 595-602).
-  // Symmetric to the max-side params above; PAMPL exposes both so
-  // compliance / audit UCs can reference the floor identically.
-  sim.register_ampl_param(fuel_cls, "min_offtake", &fuel_param_min_offtake);
-  sim.register_ampl_param(
-      fuel_cls, "min_offtake_cost", &fuel_param_min_offtake_cost);
-
-  // LngTerminal — scheduled LNG delivery per stage.
-  constexpr auto lng_terminal_cls = LngTerminal::class_name.snake_case();
-  sim.register_ampl_param(lng_terminal_cls, "delivery", &lng_param_delivery);
-  sim.register_ampl_param(lng_terminal_cls, "emin", &lng_param_emin);
-  sim.register_ampl_param(lng_terminal_cls, "emax", &lng_param_emax);
-  sim.register_ampl_param(lng_terminal_cls, "ecost", &lng_param_ecost);
-
-  // Gas network (GasNode / GasSupply / GasDemand / GasPipe /
-  // GasCompressor / GasTurbine).
-  constexpr auto gas_node_cls = GasNode::class_name.snake_case();
-  sim.register_ampl_param(gas_node_cls, "pmin", &gn_param_pmin);
-  sim.register_ampl_param(gas_node_cls, "pmax", &gn_param_pmax);
-  sim.register_ampl_param(
-      gas_node_cls, "pressure_cost", &gn_param_pressure_cost);
-
-  constexpr auto gas_supply_cls = GasSupply::class_name.snake_case();
-  sim.register_ampl_param(gas_supply_cls, "fmin", &gs_param_fmin);
-  sim.register_ampl_param(gas_supply_cls, "fmax", &gs_param_fmax);
-  sim.register_ampl_param(gas_supply_cls, "cost", &gs_param_cost);
-  sim.register_ampl_param(gas_supply_cls, "volume", &gs_param_volume);
-
-  constexpr auto gas_demand_cls = GasDemand::class_name.snake_case();
-  sim.register_ampl_param(gas_demand_cls, "load", &gd_param_load);
-  sim.register_ampl_param(gas_demand_cls, "fail_cost", &gd_param_fail_cost);
-
-  constexpr auto gas_pipe_cls = GasPipe::class_name.snake_case();
-  sim.register_ampl_param(gas_pipe_cls, "fmax", &gp_param_fmax);
-
-  constexpr auto gas_compressor_cls = GasCompressor::class_name.snake_case();
-  sim.register_ampl_param(gas_compressor_cls, "fmax", &gc_param_fmax);
-  sim.register_ampl_param(gas_compressor_cls, "max_ratio", &gc_param_max_ratio);
-  sim.register_ampl_param(gas_compressor_cls, "power_max", &gc_param_power_max);
-
-  constexpr auto gas_turbine_cls = GasTurbine::class_name.snake_case();
-  sim.register_ampl_param(gas_turbine_cls, "heat_rate", &gt_param_heat_rate);
-
-  // ThermalStorage — molten-salt TES (PR #483).
-  constexpr auto thermal_storage_cls = ThermalStorage::class_name.snake_case();
-  sim.register_ampl_param(thermal_storage_cls, "emin", &ts_param_emin);
-  sim.register_ampl_param(thermal_storage_cls, "emax", &ts_param_emax);
-  sim.register_ampl_param(thermal_storage_cls, "ecost", &ts_param_ecost);
-  sim.register_ampl_param(
-      thermal_storage_cls, "input_efficiency", &ts_param_input_efficiency);
-  sim.register_ampl_param(
-      thermal_storage_cls, "output_efficiency", &ts_param_output_efficiency);
-
-  // HydrogenStorage — salt cavern / LH₂ / LOHC (PR #483).
-  constexpr auto hydrogen_storage_cls =
-      HydrogenStorage::class_name.snake_case();
-  sim.register_ampl_param(hydrogen_storage_cls, "emin", &hs_param_emin);
-  sim.register_ampl_param(hydrogen_storage_cls, "emax", &hs_param_emax);
-  sim.register_ampl_param(hydrogen_storage_cls, "ecost", &hs_param_ecost);
-  sim.register_ampl_param(
-      hydrogen_storage_cls, "input_efficiency", &hs_param_input_efficiency);
-  sim.register_ampl_param(
-      hydrogen_storage_cls, "output_efficiency", &hs_param_output_efficiency);
-
-  // AmmoniaStorage — refrigerated NH₃ tank (PR #483).
-  constexpr auto ammonia_storage_cls = AmmoniaStorage::class_name.snake_case();
-  sim.register_ampl_param(ammonia_storage_cls, "emin", &as_param_emin);
-  sim.register_ampl_param(ammonia_storage_cls, "emax", &as_param_emax);
-  sim.register_ampl_param(ammonia_storage_cls, "ecost", &as_param_ecost);
-  sim.register_ampl_param(
-      ammonia_storage_cls, "input_efficiency", &as_param_input_efficiency);
-  sim.register_ampl_param(
-      ammonia_storage_cls, "output_efficiency", &as_param_output_efficiency);
-
-  // CarrierConverter — multi-carrier converter (PR #485).
-  constexpr auto carrier_converter_cls =
-      CarrierConverter::class_name.snake_case();
-  sim.register_ampl_param(
-      carrier_converter_cls, "efficiency", &cc_param_efficiency);
-  sim.register_ampl_param(carrier_converter_cls, "ocost", &cc_param_ocost);
-
-  // HydrogenDemand — hydrogen offtake with per-stage energy targets.
-  constexpr auto hydrogen_demand_cls = HydrogenDemand::class_name.snake_case();
-  sim.register_ampl_param(hydrogen_demand_cls, "lmax", &hd_param_lmax);
-  sim.register_ampl_param(hydrogen_demand_cls, "lmin", &hd_param_lmin);
-  sim.register_ampl_param(hydrogen_demand_cls, "price", &hd_param_price);
-  sim.register_ampl_param(
-      hydrogen_demand_cls, "min_energy", &hd_param_min_energy);
-  sim.register_ampl_param(
-      hydrogen_demand_cls, "max_energy", &hd_param_max_energy);
-
-  // AllowancePool — CO₂ cap-and-trade pool (PR #495 / #496).
-  constexpr auto allowance_pool_cls = AllowancePool::class_name.snake_case();
-  sim.register_ampl_param(allowance_pool_cls, "emin", &ap_param_emin);
-  sim.register_ampl_param(allowance_pool_cls, "emax", &ap_param_emax);
-  sim.register_ampl_param(allowance_pool_cls, "ecost", &ap_param_ecost);
-  sim.register_ampl_param(allowance_pool_cls, "delivery", &ap_param_delivery);
+  {
+    using L = GeneratorLP;
+    register_params<L>(
+        sim,
+        {
+            {"pmax", shim<L, &L::param_pmax>},
+            {"pmin", shim<L, &L::param_pmin>},
+            {"gcost", shim<L, &L::param_gcost>},
+            {"lossfactor", shim<L, &L::param_lossfactor>},
+            {"heat_rate", shim<L, &L::param_heat_rate>},
+            {"emission_rate", shim<L, &L::param_emission_rate>},
+            {"initial_generation", &gen_param_initial_generation},
+        });
+  }
+  {
+    using L = FuelLP;
+    register_params<L>(
+        sim,
+        {
+            {"price", shim<L, &L::param_price>},
+            {"heat_content", shim<L, &L::param_heat_content>},
+            {"combustion_emission_factor",
+             shim<L, &L::param_combustion_emission_factor>},
+            {"upstream_emission_factor",
+             shim<L, &L::param_upstream_emission_factor>},
+            // max_offtake cap row (PR #487 / #492) and the symmetric
+            // min_offtake floor (PLEXOS take-or-pay; pids 595-602): the
+            // stage-level parameters of FuelLP's offtake rows, exposed so
+            // compliance / audit UCs can reference them.
+            {"max_offtake", shim<L, &L::param_max_offtake>},
+            {"max_offtake_cost", shim<L, &L::param_max_offtake_cost>},
+            {"min_offtake", shim<L, &L::param_min_offtake>},
+            {"min_offtake_cost", shim<L, &L::param_min_offtake_cost>},
+        });
+  }
+  {
+    using L = DemandLP;
+    register_params<L>(sim,
+                       {
+                           {"lmax", shim<L, &L::param_lmax>},
+                           {"fcost", shim<L, &L::param_fcost>},
+                           {"lossfactor", shim<L, &L::param_lossfactor>},
+                       });
+  }
+  {
+    using L = LineLP;
+    register_params<L>(
+        sim,
+        {
+            {"tmax_ab", shim<L, &L::param_tmax_ab>},
+            {"tmax_ba", shim<L, &L::param_tmax_ba>},
+            // `max_flow` is the PAMPL alias of the A->B thermal limit.
+            {"max_flow", shim<L, &L::param_tmax_ab>},
+            {"min_flow", shim<L, &L::param_min_flow>},
+            {"max_rating", shim<L, &L::param_max_rating>},
+            {"min_rating", shim<L, &L::param_min_rating>},
+            {"overload_max_rating", shim<L, &L::param_overload_max_rating>},
+            {"overload_min_rating", shim<L, &L::param_overload_min_rating>},
+            {"outage_max_rating", shim<L, &L::param_outage_max_rating>},
+            {"outage_min_rating", shim<L, &L::param_outage_min_rating>},
+            {"units_out", shim<L, &L::param_units_out>},
+            {"conductor_rating_ab", shim<L, &L::param_conductor_rating_ab>},
+            {"conductor_rating_ba", shim<L, &L::param_conductor_rating_ba>},
+            {"equipment_rating_ab", shim<L, &L::param_equipment_rating_ab>},
+            {"equipment_rating_ba", shim<L, &L::param_equipment_rating_ba>},
+            {"security_limit_ab", shim<L, &L::param_security_limit_ab>},
+            {"security_limit_ba", shim<L, &L::param_security_limit_ba>},
+            {"tcost", shim<L, &L::param_tcost>},
+            {"reactance", shim<L, &L::param_reactance>},
+            {"voltage", shim<L, &L::param_voltage>},
+            {"tap_ratio", shim<L, &L::param_tap_ratio>},
+            {"phase_shift_deg", shim<L, &L::param_phase_shift_deg>},
+            {"lossfactor", shim<L, &L::param_lossfactor>},
+            {"resistance", shim<L, &L::param_resistance>},
+        });
+  }
+  {
+    using L = BatteryLP;
+    register_params<L>(
+        sim,
+        {
+            {"emin", shim<L, &L::param_emin>},
+            {"emax", shim<L, &L::param_emax>},
+            {"ecost", shim<L, &L::param_ecost>},
+            {"input_efficiency", shim<L, &L::param_input_efficiency>},
+            {"output_efficiency", shim<L, &L::param_output_efficiency>},
+        });
+  }
+  {
+    using L = ReservoirLP;
+    register_params<L>(sim,
+                       {
+                           {"emin", shim<L, &L::param_emin>},
+                           {"emax", shim<L, &L::param_emax>},
+                           {"ecost", shim<L, &L::param_ecost>},
+                           {"capacity", shim<L, &L::param_capacity>},
+                       });
+  }
+  {
+    using L = FlowRightLP;
+    register_params<L>(sim,
+                       {
+                           {"fmin", shim<L, &L::param_fmin>},
+                           {"fmax", shim<L, &L::param_fmax>},
+                           {"target", shim<L, &L::param_target>},
+                           {"fcost", shim<L, &L::param_fcost>},
+                           {"uvalue", shim<L, &L::param_uvalue>},
+                       });
+  }
+  {
+    // Per-stage hydro conversion schedules and flow cap, readable as
+    // constants in `turbine('X').<field>` expressions.
+    using L = TurbineLP;
+    register_params<L>(
+        sim,
+        {
+            {"production_factor", shim<L, &L::param_production_factor>},
+            {"efficiency", shim<L, &L::param_efficiency>},
+            {"capacity", shim<L, &L::param_capacity>},
+        });
+  }
+  {
+    // Per-(stage, block) fmin/fmax + per-stage capacity, lossfactor,
+    // fcost of the channel.
+    using L = WaterwayLP;
+    register_params<L>(sim,
+                       {
+                           {"fmin", shim<L, &L::param_fmin>},
+                           {"fmax", shim<L, &L::param_fmax>},
+                           {"capacity", shim<L, &L::param_capacity>},
+                           {"lossfactor", shim<L, &L::param_lossfactor>},
+                           {"fcost", shim<L, &L::param_fcost>},
+                       });
+  }
+  {
+    using L = VolumeRightLP;
+    register_params<L>(sim,
+                       {
+                           {"fmax", shim<L, &L::param_fmax>},
+                           {"emin", shim<L, &L::param_emin>},
+                           {"emax", shim<L, &L::param_emax>},
+                           {"demand", shim<L, &L::param_demand>},
+                           {"saving_rate", shim<L, &L::param_saving_rate>},
+                           {"fail_cost", shim<L, &L::param_fail_cost>},
+                       });
+  }
+  {
+    using L = EmissionZoneLP;
+    register_params<L>(sim,
+                       {
+                           {"cap", shim<L, &L::param_cap>},
+                           {"cap_cost", shim<L, &L::param_cap_cost>},
+                           {"price", shim<L, &L::param_price>},
+                       });
+  }
+  {
+    using L = EmissionSourceLP;
+    register_params<L>(sim,
+                       {
+                           {"rate", shim<L, &L::param_rate>},
+                           {"upstream_rate", shim<L, &L::param_upstream_rate>},
+                       });
+  }
+  {
+    // Per-(stage, block) RHS override, readable from other constraints'
+    // expressions as `user_constraint("X").rhs`.
+    using L = UserConstraintLP;
+    register_params<L>(sim,
+                       {
+                           {"rhs", shim<L, &L::param_rhs>},
+                       });
+  }
+  {
+    // Scheduled LNG delivery per stage (the LP per-block inflow rate is
+    // `delivery / stage_duration`) and the tank-level bounds / holding
+    // cost.
+    using L = LngTerminalLP;
+    register_params<L>(sim,
+                       {
+                           {"delivery", shim<L, &L::param_delivery>},
+                           {"emin", shim<L, &L::param_emin>},
+                           {"emax", shim<L, &L::param_emax>},
+                           {"ecost", shim<L, &L::param_ecost>},
+                       });
+  }
+  // Gas network: node pressure limits [bar] and pressure cost; supply
+  // offtake limits [km³/h], unit cost and stage volume cap; scheduled
+  // load and shedding cost; pipe / compressor capacity, compression
+  // ratio and electric power cap; turbine heat rate [km³/MWh].
+  {
+    using L = GasNodeLP;
+    register_params<L>(sim,
+                       {
+                           {"pmin", shim<L, &L::param_pmin>},
+                           {"pmax", shim<L, &L::param_pmax>},
+                           {"pressure_cost", shim<L, &L::param_pressure_cost>},
+                       });
+  }
+  {
+    using L = GasSupplyLP;
+    register_params<L>(sim,
+                       {
+                           {"fmin", shim<L, &L::param_fmin>},
+                           {"fmax", shim<L, &L::param_fmax>},
+                           {"cost", shim<L, &L::param_cost>},
+                           {"volume", shim<L, &L::param_volume>},
+                       });
+  }
+  {
+    using L = GasDemandLP;
+    register_params<L>(sim,
+                       {
+                           {"load", shim<L, &L::param_load>},
+                           {"fail_cost", shim<L, &L::param_fail_cost>},
+                       });
+  }
+  {
+    using L = GasPipeLP;
+    register_params<L>(sim,
+                       {
+                           {"fmax", shim<L, &L::param_fmax>},
+                       });
+  }
+  {
+    using L = GasCompressorLP;
+    register_params<L>(sim,
+                       {
+                           {"fmax", shim<L, &L::param_fmax>},
+                           {"max_ratio", shim<L, &L::param_max_ratio>},
+                           {"power_max", shim<L, &L::param_power_max>},
+                       });
+  }
+  {
+    using L = GasTurbineLP;
+    register_params<L>(sim,
+                       {
+                           {"heat_rate", shim<L, &L::param_heat_rate>},
+                       });
+  }
+  // Storage peers of Battery / Reservoir (PR #483): emin / emax / ecost
+  // from the StorageLP base plus the Battery-pattern efficiencies.
+  {
+    using L = ThermalStorageLP;
+    register_params<L>(
+        sim,
+        {
+            {"emin", shim<L, &L::param_emin>},
+            {"emax", shim<L, &L::param_emax>},
+            {"ecost", shim<L, &L::param_ecost>},
+            {"input_efficiency", shim<L, &L::param_input_efficiency>},
+            {"output_efficiency", shim<L, &L::param_output_efficiency>},
+        });
+  }
+  {
+    using L = HydrogenStorageLP;
+    register_params<L>(
+        sim,
+        {
+            {"emin", shim<L, &L::param_emin>},
+            {"emax", shim<L, &L::param_emax>},
+            {"ecost", shim<L, &L::param_ecost>},
+            {"input_efficiency", shim<L, &L::param_input_efficiency>},
+            {"output_efficiency", shim<L, &L::param_output_efficiency>},
+        });
+  }
+  {
+    using L = AmmoniaStorageLP;
+    register_params<L>(
+        sim,
+        {
+            {"emin", shim<L, &L::param_emin>},
+            {"emax", shim<L, &L::param_emax>},
+            {"ecost", shim<L, &L::param_ecost>},
+            {"input_efficiency", shim<L, &L::param_input_efficiency>},
+            {"output_efficiency", shim<L, &L::param_output_efficiency>},
+        });
+  }
+  {
+    // Multi-carrier converter (PR #485).
+    using L = CarrierConverterLP;
+    register_params<L>(sim,
+                       {
+                           {"efficiency", shim<L, &L::param_efficiency>},
+                           {"ocost", shim<L, &L::param_ocost>},
+                       });
+  }
+  {
+    // Hydrogen offtake with per-stage energy targets.
+    using L = HydrogenDemandLP;
+    register_params<L>(sim,
+                       {
+                           {"lmax", shim<L, &L::param_lmax>},
+                           {"lmin", shim<L, &L::param_lmin>},
+                           {"price", shim<L, &L::param_price>},
+                           {"min_energy", shim<L, &L::param_min_energy>},
+                           {"max_energy", shim<L, &L::param_max_energy>},
+                       });
+  }
+  {
+    // CO₂ cap-and-trade pool (PR #495 / #496): StorageLP emin / emax /
+    // ecost plus the per-stage free allocation `delivery`.
+    using L = AllowancePoolLP;
+    register_params<L>(sim,
+                       {
+                           {"emin", shim<L, &L::param_emin>},
+                           {"emax", shim<L, &L::param_emax>},
+                           {"ecost", shim<L, &L::param_ecost>},
+                           {"delivery", shim<L, &L::param_delivery>},
+                       });
+  }
 }
 
 void register_ampl_iterator_dispatchers(SimulationLP& sim)

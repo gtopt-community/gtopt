@@ -737,7 +737,8 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// has enough cuts to be feasible).  Default now matches PLP's 5000.
   int forward_max_attempts {5000};
 
-  /// Scene-level fail-stop forward pass (default: true).
+  /// Scene-level fail-stop forward pass (default: false — this member
+  /// and the JSON-resolved `PlanningOptionsLP::sddp_forward_fail_stop`).
   ///
   /// When true, an infeasible phase that produces a feasibility cut on
   /// its predecessor causes the scene's forward pass to STOP for the
@@ -761,7 +762,10 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   // single-fcut-and-exit coordination strategy is opt-in.
   bool forward_fail_stop {false};
 
-  /// Per-scene rollback on forward-pass infeasibility (default: false).
+  /// Per-scene rollback on forward-pass infeasibility.  This member
+  /// defaults to false; the JSON-resolved default that the planning
+  /// path copies in (`PlanningOptionsLP::sddp_forward_infeas_rollback`)
+  /// is true.
   ///
   /// When `true` and a scene S is declared infeasible at iteration k's
   /// forward pass (`scene_feasible[S] == 0`):
@@ -780,7 +784,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   ///      with `Error{SolverError, "no recovery path"}` to avoid an
   ///      infinite-loop on degenerate single-scene / no-progress runs.
   ///
-  /// When `false` (legacy default): cuts S installed on its own bad
+  /// When `false` (legacy): cuts S installed on its own bad
   /// trajectory persist across iterations, and the run loops until
   /// `max_iterations` without rollback or stall detection.
   bool forward_infeas_rollback {false};
@@ -1016,7 +1020,9 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// the source phase LP must hold a decompressed `FlatLinearProblem`
   /// snapshot (typical for `low_memory_mode = compress` SDDP runs).
   /// When the pre-condition is not met, the call site falls back to
-  /// the native route.  Default: false (preserve legacy behaviour).
+  /// the native route.  This member defaults to false; the JSON-resolved
+  /// default the planning path copies in
+  /// (`PlanningOptionsLP::sddp_aperture_use_manual_clone`) is true.
   bool aperture_use_manual_clone {false};
 
   /// Under low_memory_mode = off, release each solver backend after its solve

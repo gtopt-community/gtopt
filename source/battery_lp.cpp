@@ -32,13 +32,19 @@ BatteryLP::BatteryLP(const Battery& pbattery, const InputContext& ic)
 /**
  * @brief Adds battery variables and constraints to the linear problem
  * @param sc System context containing current state
+ * @param scenario Scenario being built
+ * @param stage Stage being built
  * @param lp Linear problem to add variables and constraints to
- * @return True if successful, false otherwise
+ * @return True on success (including an inactive stage, which adds no
+ *         flow columns); false when the capacity or storage layer fails
+ *         (the storage failure is also logged as critical)
  *
  * This method creates:
- * 1. Flow variables for each time block (can be positive for discharge or
- * negative for charge)
+ * 1. Two non-negative flow columns per block: `finp` (charge, energy
+ *    drawn into the battery) and `fout` (discharge, energy delivered);
+ *    the bus coupling is done by the converter, not here
  * 2. State of charge tracking constraints between time blocks
+ *    (StorageBase)
  * 3. Capacity constraints linking battery operation to installed capacity
  */
 
@@ -57,20 +63,25 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
     return false;
   }
 
+  // F9: register filter metadata for sum(...) predicates.  Battery `bus`
+  // is optional (standalone batteries are decomposed by
+  // `System::expand_batteries()`), so we only register `type`.
+  // Registered BEFORE the activity check, like Bus / Generator / Demand /
+  // Line: metadata is a static attribute of the element, so a filtered
+  // `sum(battery(all : type=...).charge)` must see an inactive battery
+  // and count its term as an inactive drop, exactly as the unfiltered
+  // `sum(battery(all).charge)` does — not silently filter it out.
+  if (const auto& t = battery().type) {
+    AmplElementMetadata metadata;
+    metadata.emplace_back(TypeKey, *t);
+    sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
+  }
+
   // Out of service: no flow columns (StorageBase builds no energy balance
   // for an inactive stage, so free charge / discharge columns would be
   // unbounded energy for anything coupled to them).
   if (!is_active(stage)) {
     return true;
-  }
-
-  // F9: register filter metadata for sum(...) predicates.  Battery `bus`
-  // is optional (standalone batteries are decomposed by
-  // `System::expand_batteries()`), so we only register `type`.
-  if (const auto& t = battery().type) {
-    AmplElementMetadata metadata;
-    metadata.emplace_back(TypeKey, *t);
-    sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
   }
 
   // Get capacity information
@@ -101,7 +112,6 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   map_reserve(finps, blocks.size());
   map_reserve(fouts, blocks.size());
 
-  double fs = 1.0;
   for (auto&& block : blocks) {
     const auto buid = block.uid();
     finps[buid] = lp.add_col(SparseCol {
@@ -116,8 +126,12 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
         .variable_uid = uid(),
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
-    fs = lp.get_col_scale(finps[buid]);
   }
+  // The flow scale is a property of (class, variable, uid) — add_col
+  // resolves it from the VariableScaleMap, never per block — so the
+  // first finp column gives the scale of all of them.
+  const double fs =
+      finps.empty() ? 1.0 : lp.get_col_scale(finps.begin()->second);
   const StorageOptions opts {
       .use_state_variable = battery().use_state_variable.value_or(
           storage_state_defaults::battery.use_state_variable),

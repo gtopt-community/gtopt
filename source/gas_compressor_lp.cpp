@@ -117,8 +117,8 @@ bool GasCompressorLP::add_to_lp(SystemContext& sc,
     if (cs.type) {
       metadata.emplace_back(GasNodeLP::TypeKey, *cs.type);
     }
-    metadata.emplace_back(GasNodeInKey, static_cast<double>(node_in.uid()));
-    metadata.emplace_back(GasNodeOutKey, static_cast<double>(node_out.uid()));
+    metadata.emplace_back(GasNodeInKey, ampl_metadata_uid(node_in.uid()));
+    metadata.emplace_back(GasNodeOutKey, ampl_metadata_uid(node_out.uid()));
     sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
   }
   const auto& blocks = stage.blocks();

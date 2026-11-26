@@ -707,7 +707,6 @@ or `--set model_options.scale_objective=1000`.
 - [Cascade Method](methods/cascade.md) -- Cascade solver configuration
 - [Monolithic Method](methods/monolithic.md) -- Monolithic solver configuration
 
-
 ### Water-row dual conditioning (`water_dual_target`) — EXPERIMENTAL
 
 **Experimental, off by default.**  Measured on a 5-year hydrothermal case
@@ -734,7 +733,6 @@ correction is applied **after equilibration**: the row is multiplied by `c`
 - Trade-off: the row's coefficients now have max `c` instead of 1 after
   equilibration (spread vs. the junction rows grows by `c`); keep `k`
   small (default 1e3 is an upper bound, 1e1-1e2 is safer).
-
 
 ### KVL row dual conditioning (`kvl_row_scale`) — EXPERIMENTAL
 

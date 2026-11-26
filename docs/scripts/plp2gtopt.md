@@ -1,6 +1,7 @@
 # plp2gtopt — PLP to GTOpt Converter
 
-Converts a **PLP** (*Programación de Largo Plazo*) case directory into the GTOpt JSON + Parquet
+Converts a **PLP** (*Programación de Largo Plazo*) case directory into the GTOpt
+JSON + Parquet
 format, enabling legacy PLP hydro-thermal cases to be solved with the GTOpt
 solver.
 
@@ -365,7 +366,8 @@ emits the exact gtopt equivalent in the linear p.u./year convention:
 PLP writes `mloss = 0` both for "lossless" and "not specified", so a zero is
 treated as unspecified and the gtopt lithium default applies.  To reproduce
 a lossless PLP run exactly, set
-`model_options.battery_annual_standing_loss = 0` in the generated case (or `--set model_options.battery_annual_standing_loss=0`).
+`model_options.battery_annual_standing_loss = 0` in the generated case (or
+`--set model_options.battery_annual_standing_loss=0`).
 
 ### Co-located storage (plant + battery)
 
@@ -571,7 +573,8 @@ line-block also has 3 columns (flow, loss, `|f|`).  The default `double`
 places one tangent per PLP tramo in each flow direction (PLP's
 `Num.Tramos` counts tramos per direction), so its worst-case loss error
 equals PLP's secant error; `tramos` halves the tangent rows at 4× that
-error (for 3 tramos: 5 loss rows per line-block against 9).  The KVL row of each line is common to every mode and to PLP.
+error (for 3 tramos: 5 loss rows per line-block against 9).  The KVL row of each
+line is common to every mode and to PLP.
 
 `--line-losses-mode piecewise_direct` (bundled by `--plp-legacy`) reproduces
 PLP's own formulation: `2·Num.Tramos` segment columns, no loss rows, the

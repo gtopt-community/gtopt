@@ -169,6 +169,11 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     return false;
   }
 
+  // Resolve via `sc.element<BusLP>` (handles both Uid and Name forms
+  // of the JSON-side `bus` SingleId variant — `std::get<Uid>` would
+  // throw if the JSON used a string name).
+  const auto& bus_lp = sc.element<BusLP>(bus_sid());
+
   // F9: register filter metadata so sum(...) predicates work.
   {
     AmplElementMetadata metadata;
@@ -176,11 +181,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     if (const auto& t = demand().type) {
       metadata.emplace_back(TypeKey, *t);
     }
-    // Resolve via `sc.element<BusLP>` (handles both Uid and Name forms
-    // of the JSON-side `bus` SingleId variant — `std::get<Uid>` would
-    // throw if the JSON used a string name).
-    metadata.emplace_back(
-        BusKey, static_cast<double>(sc.element<BusLP>(bus_sid()).uid()));
+    metadata.emplace_back(BusKey, ampl_metadata_uid(bus_lp.uid()));
     sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
   }
 
@@ -188,7 +189,6 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     return true;
   }
 
-  const auto& bus_lp = sc.element<BusLP>(bus_sid());
   if (!bus_lp.is_active(stage)) [[unlikely]] {
     return true;
   }

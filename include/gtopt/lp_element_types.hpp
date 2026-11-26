@@ -207,11 +207,15 @@ struct lp_type_index_impl<T, std::tuple<Ts...>>
  * pointer in the `m_collection_ptrs_` array without including
  * `system_lp.hpp`.
  *
- * Example: `lp_type_index_v<BatteryLP>` evaluates to 6 (0-based).
+ * Example: `lp_type_index_v<BusLP>` is 0 (the first entry, pinned by the
+ * `static_assert` below).  Never hard-code the index of any other type:
+ * positions shift whenever an entry is added to `lp_element_types_t`.
  */
 template<typename T>
 inline constexpr std::size_t lp_type_index_v =
     detail::lp_type_index_impl<T, lp_element_types_t>::value;
+
+static_assert(lp_type_index_v<BusLP> == 0);
 
 // ── Shared void-pointer array type
 // ────────────────────────────────────────────

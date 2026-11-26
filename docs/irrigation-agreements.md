@@ -1038,7 +1038,8 @@ instead of soft equalities, spillage stays free.
   `+CostoRiegoNS105` (`:536`); with 1100 > 1000 every unit booked as
   shortfall was a net profit of 100 (plp_2y: ≈ −2.1 G\$ of phantom
   reward in the objective).  Adding the reward to the shortfall price
-  leaves `ValorRiego105 · delivered − CostoRiegoNS105 · shortfall`.  `validate_planning` now rejects any
+  leaves `ValorRiego105 · delivered − CostoRiegoNS105 · shortfall`.
+  `validate_planning` now rejects any
   FlowRight with `uvalue > 0` that has neither `junction_a` nor a
   UserConstraint reference (a rewarded flow with no physical tie).
 - **Manual years** — `pct_riego_manual` / `caudal_res105_manual` are read
@@ -1112,7 +1113,8 @@ instead of soft equalities, spillage stays free.
   pinned the Maule rights partition — and, through the anchor row, the
   physical Maule turbine — to zero.  The use value only applies to a
   right with `junction_a` or to blocks with `target > 0`: on a target-0
-  accounting-only right it paid for flow with no water behind it.  Explicit per-element `fcost` / `uvalue` are
+  accounting-only right it paid for flow with no water behind it.  Explicit
+  per-element `fcost` / `uvalue` are
   unchanged.
 
 - `VolumeRight.bound_rule` yields a volume [hm³]; it is now converted to

@@ -301,7 +301,8 @@ inform earlier phases within the same iteration.
 1. **Bootstrap solve**: the monolithic solver runs once to establish a
    baseline solution and warm-start the LP basis
 2. **Add α variables**: a future-cost variable $\alpha$ is added to every
-   phase except the last, bounded below by the cut-derived floor (or `alpha_min` when set) and with
+   phase except the last, bounded below by the cut-derived floor (or `alpha_min`
+   when set) and with
    objective coefficient 1.0
 3. **Discover state links**: for each phase, the solver enumerates all
    state variables and their dependent columns in the next phase
@@ -319,17 +320,17 @@ for phase = 0 to T-1:
     if phase > 0:
         propagate trial values from phase-1 solution
         (fix dependent columns to source column values)
-    
+
     update LP coefficients (see §4.6)
     solve phase LP
-    
+
     if infeasible:
         clone LP → apply elastic filter → solve clone
         use clone's solution for cost/cut data
         (original LP remains unmodified)
-    
+
     cache: forward_full_obj; mirror reduced costs onto each StateVariable
-    
+
     opex += objective - α value
 ```
 
@@ -362,10 +363,10 @@ For each scene (in parallel):
 for phase = T-1 down to 1:
     build Benders cut from cached reduced costs:
         α_{phase-1} ≥ z_phase + Σ rc_i · (x_{phase-1,i} - v̂_i)
-    
+
     add cut to phase-1 LP
     store cut for persistence
-    
+
     if phase > 1:
         re-solve phase-1 LP
         if infeasible:

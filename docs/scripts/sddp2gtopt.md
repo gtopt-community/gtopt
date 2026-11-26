@@ -566,7 +566,8 @@ N hourly blocks, the boundary cut wired into `monolithic_options`.
 splits the horizon into ≥ 2 stages and emits the SDDP decomposition layer
 (`phase_array` / `scene_array` / `aperture_array`), so the case runs under
 the **sddp** method (the cut moves to `sddp_options`) — and `cascade` by
-setting `options.method = cascade` (`gtopt --set method=cascade`).  Reservoir volumes then couple across
+setting `options.method = cascade` (`gtopt --set method=cascade`).  Reservoir
+volumes then couple across
 stages.  This is intended for genuine **multi-week** horizons; for a
 single week it adds the seasonal water value only as a near-constant
 terminal term (the high-value reservoirs are small daily-regulation ponds,
@@ -724,7 +725,8 @@ $ sddp2gtopt -i gu_case/ -o gu_tiers/ --deficit-segments split
   modelled.
 - Hydro production-factor × volume curves, evaporation, filtration and
   non-controllable spill: not modelled; FPMed is used.
-- Maximum total outflow (`mxtome`), joint reserves (`rsme`/`resger`), gas network, sum-of-circuit limits
+- Maximum total outflow (`mxtome`), joint reserves (`rsme`/`resger`), gas
+  network, sum-of-circuit limits
   (`csumcirc`), emission costs: not modelled.
 - Random generator/circuit outages: not modelled; only the deterministic
   Teif/Ih derating is applied.

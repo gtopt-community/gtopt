@@ -122,7 +122,8 @@ composition, in order:
 **Lemma S1 (scale invariance).**  *Steps 1–4 multiply the inequality
 $\alpha + \sum (-g_i) x_i \ge b$ by a positive scalar and apply a
 positive diagonal change of variables
-($x^{LP}_i = x_i / \text{col\_scale}_i$).  Both operations preserve the feasible set
+($x^{LP}_i = x_i / \text{col\_scale}_i$).  Both operations preserve the feasible
+set
 exactly; hence a cut valid in physical space is valid in LP space and
 vice versa.*
 
@@ -386,7 +387,8 @@ L_a = z^* + \sum_j \max(d_j, 0)\,\Delta l_j +
 ```
 
 *where $\Delta l_j = l_j^a - l_j^{rep}$,
-$\Delta u_j = u_j^a - u_j^{rep}$ range over the changed (flow) columns and $rc_i$ are the
+$\Delta u_j = u_j^a - u_j^{rep}$ range over the changed (flow) columns and
+$rc_i$ are the
 representative's state-column reduced costs — i.e. the representative's
 cut with its slope unchanged and its intercept moved by the
 bound-delta correction.*
@@ -608,7 +610,8 @@ deliverable 2).*
 > (deterministic in (iteration, scene, phase)) and pins the drawn
 > scene's stochastic bounds onto the phase LP via the per-element
 > `update_aperture` machinery (column-bound pins; the AR equality-row
-> RHS under `Flow.inflow_model`, replay-covered via `pending_rhs`).  The forward UB then estimates the SAME
+> RHS under `Flow.inflow_model`, replay-covered via `pending_rhs`).  The forward
+> UB then estimates the SAME
 > $q_r = p_r$ process the multicut LB certifies, dissolving the
 > Corollary-M2 mismatch by construction.  v1 caveat: the pure-Benders
 > backward pass builds scenario-$s$'s cut from scene-$s$'s LP carrying
@@ -631,7 +634,8 @@ $\varphi_r$ priced $1/N$, the substitution gives*
 ```
 
 *The future term carries weight
-$\frac{1}{Np_s}\sum_r p_r = \frac{1}{N p_s}$, which exceeds 1 whenever $p_s < 1/N$.  The recursion is then
+$\frac{1}{Np_s}\sum_r p_r = \frac{1}{N p_s}$, which exceeds 1 whenever
+$p_s < 1/N$.  The recursion is then
 the Bellman operator of no proper stochastic process (transition
 weights fail to sum to 1), and the fixed point can exceed every
 process value; the resulting LB can overshoot the true optimum of both
@@ -743,6 +747,7 @@ scenario's cuts to its own terminal $\varphi_s$
 (`sddp_boundary_cuts.cpp:540-575`) — same semantics as §8 at the
 horizon.
 
+<!-- markdownlint-disable MD013 -->
 **FutureCost `mode = phi_expectation` (PLP-literal terminal FCF,
 2026-07-12).**  PLP's last-stage LP carries `NVarPhi` φ columns — one
 per *plane hydrology* $j$ of `plpplem2.dat` (`leeplaem.f`), each priced
@@ -752,6 +757,7 @@ cuts of ITS hydrology only.  The terminal FCF is therefore the
 $\Phi(x) = \frac{1}{\text{NVarPhi}} \sum_j \max_{c \in j} (\rho_c + \langle \gamma_c, x\rangle)$
 — independent of the run's
 scene count.  GTOpt replicates this verbatim:
+<!-- markdownlint-enable MD013 -->
 
 - the CSV `scene` column is read as the plane index $j$ (NOT a GTOpt
   scene UID); `register_alpha_variables` lays down NVarPhi terminal

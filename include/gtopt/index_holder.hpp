@@ -23,8 +23,6 @@ namespace gtopt
 template<typename FirstIndex, typename Value = Index>
 using IndexHolder0 = gtopt::flat_map<FirstIndex, Value>;
 
-// #define FESOP_USE_UNORDERED_MAP
-
 template<typename key_type, typename value_type>
 using index_map_t = gtopt::flat_map<key_type, value_type>;
 

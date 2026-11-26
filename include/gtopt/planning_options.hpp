@@ -102,11 +102,12 @@ struct PlanningOptions
    *  rationale behind the default. */
   std::optional<CompressionCodec> output_compression {};
   /** @brief Round the on-disk value columns to N decimal places before
-   *  writing.  Default `8` — keeps the trailing mantissa bits zero so
-   *  `BYTE_STREAM_SPLIT + zstd` can compress the value stream 3-5×
-   *  better.  Set to a non-positive value (`0` or `-1`) to disable
-   *  rounding and store the full IEEE-754 binary, e.g. when verifying
-   *  bit-for-bit reproducibility of dispatch outputs. */
+   *  writing.  Default `7` (see `default_output_round_decimals` in
+   *  planning_options_lp.hpp; 1..7 store float32, >= 8 store double) —
+   *  keeps the trailing mantissa bits zero so `BYTE_STREAM_SPLIT + zstd`
+   *  can compress the value stream 3-5× better.  Set to a non-positive value
+   * (`0` or `-1`) to disable rounding and store the full IEEE-754 binary, e.g.
+   * when verifying bit-for-bit reproducibility of dispatch outputs. */
   OptInt output_round_decimals {};
   /** @brief Use element UIDs instead of names in output filenames */
   OptBool use_uid_fname {};

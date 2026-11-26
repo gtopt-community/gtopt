@@ -9,7 +9,7 @@
  *
  * Three groups of contracts pinned here:
  *
- *   C. `is_post_add_to_lp_resident_v<T>` trait — every `HasUpdateLP` type
+ *   C. `HasUpdateLP<T>` residency — every `HasUpdateLP` type
  *      stays alive after `add_to_lp` (collection survives compress drop);
  *      every other element type is disposable.
  *
@@ -49,43 +49,42 @@ using gtopt::test_fixtures::make_single_stage_phases;
 using gtopt::test_fixtures::make_uniform_blocks;
 using gtopt::test_fixtures::make_uniform_stages;
 
-// ─── C. is_post_add_to_lp_resident_v compile-time trait ─────────────────────
+// ─── C. HasUpdateLP residency compile-time trait ────────────────────────────
 
 // Resident: every HasUpdateLP type must stay alive across SDDP iterations
 // because update_lp() depends on per-(scen, stg) state stored in the
 // element wrappers.
-static_assert(is_post_add_to_lp_resident_v<FlowRightLP>);
-static_assert(is_post_add_to_lp_resident_v<ReservoirSeepageLP>);
-static_assert(is_post_add_to_lp_resident_v<ReservoirDischargeLimitLP>);
-static_assert(is_post_add_to_lp_resident_v<ReservoirProductionFactorLP>);
-static_assert(is_post_add_to_lp_resident_v<VolumeRightLP>);
+static_assert(HasUpdateLP<FlowRightLP>);
+static_assert(HasUpdateLP<ReservoirSeepageLP>);
+static_assert(HasUpdateLP<ReservoirDischargeLimitLP>);
+static_assert(HasUpdateLP<ReservoirProductionFactorLP>);
+static_assert(HasUpdateLP<VolumeRightLP>);
 
 // Disposable: pure add_to_lp consumers — everything they contributed has
 // already landed in the LP snapshot, so the collection is dead weight
 // after construction.
-static_assert(!is_post_add_to_lp_resident_v<GeneratorLP>);
-static_assert(!is_post_add_to_lp_resident_v<DemandLP>);
-static_assert(!is_post_add_to_lp_resident_v<BusLP>);
+static_assert(!HasUpdateLP<GeneratorLP>);
+static_assert(!HasUpdateLP<DemandLP>);
+static_assert(!HasUpdateLP<BusLP>);
 // IMPORTANT: ReservoirLP is now disposable.  Phase 2a's StateVariable
 // channel and the daily-cycle short-circuit removed every
 // `prev_sys->element<ReservoirLP>` lookup from update_lp's hot path.
-static_assert(!is_post_add_to_lp_resident_v<ReservoirLP>);
+static_assert(!HasUpdateLP<ReservoirLP>);
 
 // One runtime TEST_CASE so doctest reports the trait verifications as a
 // passing test (the `static_assert`s above already gate compilation).
-TEST_CASE(
-    "is_post_add_to_lp_resident_v: compile-time trait verified")  // NOLINT
+TEST_CASE("HasUpdateLP residency: compile-time trait verified")  // NOLINT
 {
-  CHECK(is_post_add_to_lp_resident_v<FlowRightLP>);
-  CHECK(is_post_add_to_lp_resident_v<ReservoirSeepageLP>);
-  CHECK(is_post_add_to_lp_resident_v<ReservoirDischargeLimitLP>);
-  CHECK(is_post_add_to_lp_resident_v<ReservoirProductionFactorLP>);
-  CHECK(is_post_add_to_lp_resident_v<VolumeRightLP>);
+  CHECK(HasUpdateLP<FlowRightLP>);
+  CHECK(HasUpdateLP<ReservoirSeepageLP>);
+  CHECK(HasUpdateLP<ReservoirDischargeLimitLP>);
+  CHECK(HasUpdateLP<ReservoirProductionFactorLP>);
+  CHECK(HasUpdateLP<VolumeRightLP>);
 
-  CHECK_FALSE(is_post_add_to_lp_resident_v<GeneratorLP>);
-  CHECK_FALSE(is_post_add_to_lp_resident_v<DemandLP>);
-  CHECK_FALSE(is_post_add_to_lp_resident_v<BusLP>);
-  CHECK_FALSE(is_post_add_to_lp_resident_v<ReservoirLP>);
+  CHECK_FALSE(HasUpdateLP<GeneratorLP>);
+  CHECK_FALSE(HasUpdateLP<DemandLP>);
+  CHECK_FALSE(HasUpdateLP<BusLP>);
+  CHECK_FALSE(HasUpdateLP<ReservoirLP>);
 }
 
 // ─── D / E. Runtime behavior fixture ────────────────────────────────────────

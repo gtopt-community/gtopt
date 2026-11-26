@@ -373,7 +373,8 @@ For the large case (236 → 50 buses, K=1 losses, cycle-basis KVL):
 
 * per-block LP rows: 1 800 → ~600 (down ~3×)
 * per-block LP cols: 4 650 → ~1 600 (down ~3×)
-* per-iteration wall time (extrapolating Pereira-Pinto's `cols^1.5`): 20 min → ~2.5 min.
+* per-iteration wall time (extrapolating Pereira-Pinto's `cols^1.5`): 20 min →
+  ~2.5 min.
 
 For comparable industry studies:
 

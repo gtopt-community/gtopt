@@ -16,7 +16,8 @@ preparing, converting, visualizing, and post-processing data for use with GTOpt.
   - [gtopt_diagram](#gtopt_diagram) · [full docs](scripts/gtopt_diagram.md)
   - [plp2gtopt](#plp2gtopt) · [full docs](scripts/plp2gtopt.md)
   - [gtopt-fetch](#gtopt-fetch)
-  - [plexos2gtopt](scripts/plexos2gtopt.md) — PLEXOS XML / CEN PCP bundles, typical weeks / days
+  - [plexos2gtopt](scripts/plexos2gtopt.md) — PLEXOS XML / CEN PCP bundles,
+    typical weeks / days
   - [sddp2gtopt](#sddp2gtopt) · [full docs](scripts/sddp2gtopt.md)
   - [psse2gtopt](#psse2gtopt) · [full docs](scripts/psse2gtopt.md)
   - [pp2gtopt](#pp2gtopt) · [full docs](scripts/pp2gtopt.md)
@@ -25,10 +26,14 @@ preparing, converting, visualizing, and post-processing data for use with GTOpt.
   - [sienna2gtopt](#sienna2gtopt) · [full docs](scripts/sienna2gtopt.md)
   - [gasnet2gtopt](scripts/gasnet2gtopt.md) — gas networks with native gas elements
   - [dlr2gtopt](scripts/dlr2gtopt.md) — dynamic line rating inputs (critical spans)
-  - [tcheby2gtopt](scripts/tcheby2gtopt.md) — Chebyshev point-stage test cases (`python -m`)
-  - [rts_gmlc_to_gtopt](scripts/rts_gmlc_to_gtopt.md) — RTS-GMLC emission / reserve benchmark (`python -m`)
+  - [tcheby2gtopt](scripts/tcheby2gtopt.md) — Chebyshev point-stage test cases
+    (`python -m`)
+  - [rts_gmlc_to_gtopt](scripts/rts_gmlc_to_gtopt.md) — RTS-GMLC emission /
+    reserve benchmark (`python -m`)
   - [gtopt2pp](#gtopt2pp) — convert gtopt JSON back to pandapower
-  - [igtopt](#igtopt) · [full docs](scripts/igtopt.md) · [Excel template](templates/gtopt_template.xlsx) · `igtopt --make-template` regenerates the template
+  - [igtopt](#igtopt) · [full docs](scripts/igtopt.md) · [Excel
+    template](templates/gtopt_template.xlsx) · `igtopt --make-template`
+    regenerates the template
   - [cvs2parquet](#cvs2parquet) · [full docs](scripts/cvs2parquet.md)
   - [ts2gtopt](#ts2gtopt) · [full docs](scripts/ts2gtopt.md)
   - [gtopt_compare](#gtopt_compare) · [full docs](scripts/gtopt_compare.md)
@@ -38,12 +43,18 @@ preparing, converting, visualizing, and post-processing data for use with GTOpt.
 - **Validation & Diagnostics**
   - [gtopt_check_json](#gtopt_check_json) — validate JSON planning files
   - [gtopt_check_lp](#gtopt_check_lp) — diagnose infeasible LP files
+  - gtopt_check_topology — network islands per stage, KVL loops, bridges · [full
+    docs](scripts/gtopt_check_topology.md)
   - [gtopt_check_output](#gtopt_check_output) — analyze solver output
-  - [gtopt_check_solvers](#gtopt_check_solvers) — discover and validate LP solver plugins
+  - [gtopt_check_solvers](#gtopt_check_solvers) — discover and validate LP
+    solver plugins
   - [gtopt_compress_lp](#gtopt_compress_lp) — compress LP debug files
-  - [gtopt_check_fingerprint](#gtopt_check_fingerprint) — LP structural fingerprint verification · [full docs](lp-fingerprint.md)
-  - [gtopt_check_pampl](#gtopt_check_pampl) — validate PAMPL expression syntax and LP resolution
-  - [gtopt_check_cases](#gtopt_check_cases) — check a case collection (`gtopt-cases`) against its catalog
+  - [gtopt_check_fingerprint](#gtopt_check_fingerprint) — LP structural
+    fingerprint verification · [full docs](lp-fingerprint.md)
+  - [gtopt_check_pampl](#gtopt_check_pampl) — validate PAMPL expression syntax
+    and LP resolution
+  - [gtopt_check_cases](#gtopt_check_cases) — check a case collection
+    (`gtopt-cases`) against its catalog
   - [plp_compress_case](#plp_compress_case) — compress PLP case files
 - **Utilities**
   - [gtopt_config](#gtopt_config) — unified configuration for all tools
@@ -73,7 +84,7 @@ development:
 pip install -e "./scripts[dev]"
 ```
 
-#### Bundled data files
+### Bundled data files
 
 Several tools read non-Python data files at runtime.  They ship inside
 the Python packages (declared in `[tool.setuptools.package-data]` of
@@ -379,7 +390,8 @@ reduction options:
 
 > **[→ Full documentation](scripts/plp2gtopt.md)**
 
-Converts a **PLP** (*Programación de Largo Plazo*) case directory to the GTOpt JSON + Parquet
+Converts a **PLP** (*Programación de Largo Plazo*) case directory to the GTOpt
+JSON + Parquet
 format.  Reads the standard PLP data files (`plpblo.dat`, `plpbar.dat`,
 `plpcosce.dat`, `plpcnfce.dat`, `plpcnfli.dat`, `plpdem.dat`, `plpeta.dat`,
 and others) and writes:
@@ -1177,7 +1189,8 @@ ts2gtopt load.csv -y 2023 -P case.json -o input/
 
 ### Reconstructing hourly output
 
-After running the `gtopt` solver (which produces `output/Generator/generation_sol.csv` etc.),
+After running the `gtopt` solver (which produces
+`output/Generator/generation_sol.csv` etc.),
 use the `hour_block_map` embedded in the planning JSON to expand block-level
 results back into a full hourly time-series:
 
@@ -1304,9 +1317,14 @@ post-flight checks and, on a terminal, shows a live Rich dashboard.
 
 <p>
   <img src="images/screenshots/run_gtopt_tui.png" width="49%"
-       alt="run_gtopt dashboard view during an SDDP run solved with HiGHS: header with lower and upper bound and gap, plan steps, gap progress towards the tolerance, solver statistics, iteration history table, CPU and memory bars and the solver log">
+       alt="run_gtopt dashboard view during an SDDP run solved with HiGHS:
+       header with lower and upper bound and gap, plan steps, gap progress
+       towards the tolerance, solver statistics, iteration history table, CPU
+       and memory bars and the solver log">
   <img src="images/screenshots/run_gtopt_tui_convergence.png" width="49%"
-       alt="run_gtopt convergence view: sparklines of the lower bound, upper bound and gap, a per-scene cost heatmap by iteration and per-scene cost trends">
+       alt="run_gtopt convergence view: sparklines of the lower bound, upper
+       bound and gap, a per-scene cost heatmap by iteration and per-scene cost
+       trends">
 </p>
 
 *An 8-scenario SDDP hydro-cascade run solved with HiGHS; keys and views
@@ -1781,7 +1799,8 @@ The tool searches for the `gtopt` binary in this order:
 ## gtopt_compress_lp
 
 Compresses **LP debug files** generated by the GTOpt solver (when
-`lp_debug=true` or `lp_only=true`, i.e. CLI `--lp-debug` / `--lp-only`).  Supports multiple compression
+`lp_debug=true` or `lp_only=true`, i.e. CLI `--lp-debug` / `--lp-only`).
+Supports multiple compression
 formats and integrates seamlessly with the solver's post-solve workflow.
 
 ### Basic usage
@@ -1956,8 +1975,10 @@ Interactive **solver monitoring dashboard** for GTOpt.  Polls the JSON status fi
 written by the GTOpt solver (SDDP or monolithic) and displays live charts in two
 figure windows:
 
-- **Figure 1** – Real-time charts: CPU load (%) and active worker threads vs wall-clock seconds.
-- **Figure 2** – Iteration-indexed charts: objective upper/lower bounds per scene and convergence
+- **Figure 1** – Real-time charts: CPU load (%) and active worker threads vs
+  wall-clock seconds.
+- **Figure 2** – Iteration-indexed charts: objective upper/lower bounds per
+  scene and convergence
   gap vs iteration number.
 
 ```bash

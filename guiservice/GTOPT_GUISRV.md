@@ -6,8 +6,10 @@ the webservice.
 
 ## Difference from gtopt_gui
 
-- **gtopt_gui**: Interactive launcher that opens a browser in kiosk/app mode for a standalone GUI experience
-- **gtopt_guisrv**: Web server launcher that runs the Flask app as a daemon/service without opening a browser
+- **gtopt_gui**: Interactive launcher that opens a browser in kiosk/app mode for
+  a standalone GUI experience
+- **gtopt_guisrv**: Web server launcher that runs the Flask app as a
+  daemon/service without opening a browser
 
 ## Installation
 
@@ -229,7 +231,8 @@ Common issues:
 - [GTOPT_GUI.md](GTOPT_GUI.md) - Interactive kiosk mode launcher
 - [README.md](README.md) - Full GUI service documentation
 - [INSTALL.md](INSTALL.md) - Detailed installation guide
-- [../webservice/GTOPT_WEBSRV.md](../webservice/GTOPT_WEBSRV.md) - Similar launcher for webservice
+- [../webservice/GTOPT_WEBSRV.md](../webservice/GTOPT_WEBSRV.md) - Similar
+  launcher for webservice
 
 ## Security
 

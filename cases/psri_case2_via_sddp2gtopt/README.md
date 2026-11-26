@@ -130,7 +130,8 @@ The case is an end-to-end test.  With a build configured with
 ctest --test-dir build -R '^e2e_psri_case2_via_sddp2gtopt_'
 ```
 
-This runs `e2e_psri_case2_via_sddp2gtopt_solve`, `e2e_psri_case2_via_sddp2gtopt_validate_solution` and one
+This runs `e2e_psri_case2_via_sddp2gtopt_solve`,
+`e2e_psri_case2_via_sddp2gtopt_validate_solution` and one
 `e2e_psri_case2_via_sddp2gtopt_compare_<Element>_<file>` test per reference CSV in
 `output/` (tolerance 1e-6).  To compare a manual run by hand:
 

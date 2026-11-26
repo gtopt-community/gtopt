@@ -181,7 +181,8 @@ See [GTOPT_GUISRV.md](GTOPT_GUISRV.md#security) for details.
 
 ## Input Data Documentation
 
-See [INPUT_DATA.md](../docs/input-data.md) for a comprehensive description of the GTOpt
+See [INPUT_DATA.md](../docs/input-data.md) for a comprehensive description of
+the GTOpt
 input data structure, including all element types and their fields.
 
 ## Licence and source offer (AGPL)

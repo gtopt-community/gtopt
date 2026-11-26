@@ -30,6 +30,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <span>
@@ -52,14 +53,17 @@ namespace gtopt
 
 /// Tag on each registered AMPL variable distinguishing ordinary LP
 /// columns from state-backed columns that bridge phases via the
-/// state-variable subsystem.  The user-constraint DSL will use this in
-/// Phase 2 to validate `state(...)` wrappers: the parser asserts
-/// authorial intent by requiring `state(elem.efin)` and the resolver
-/// checks that the referenced entry's `kind == StateBacked`.
+/// state-variable subsystem.
 ///
-/// Default is `Regular`: elements that want the state-backed tag call
-/// `SystemContext::add_ampl_state_variable` (same shape as
-/// `add_ampl_variable`) once the Phase 2 API lands.
+/// Current status: every entry is `Regular`.  No registration path sets
+/// `StateBacked` yet, and the parser's `state(<ref>)` wrapper
+/// (`ElementRef::state_wrapped`) is accepted but not checked against
+/// this tag — wrapped and unwrapped references resolve identically.
+/// Cross-phase state for user models is provided by
+/// `DecisionVariable` `state: true` (registered through
+/// `SystemContext::add_state_col`), which does not use this tag.  The
+/// tag is kept so a future resolver check can require `state(...)`
+/// exactly when the referenced entry is `StateBacked`.
 enum class AmplVariableKind : std::uint8_t
 {
   Regular,  ///< Ordinary LP column scoped to this (scene, phase)
@@ -174,9 +178,8 @@ struct AmplVariable
   };
   std::unique_ptr<Extras> extras {};
 
-  /// Regular LP column or state-backed column.  Default is Regular;
-  /// state-backed entries will be set by the Phase 2
-  /// `add_ampl_state_variable` API.
+  /// Regular LP column or state-backed column.  Always `Regular` today
+  /// (see `AmplVariableKind`).
   AmplVariableKind kind {AmplVariableKind::Regular};
 
   [[nodiscard]] std::optional<ColIndex> col_at(
@@ -344,6 +347,19 @@ using AmplMetadataValue = std::variant<std::string, double>;
 /// Small enough that linear search beats a map.
 using AmplElementMetadata =
     std::vector<std::pair<std::string_view, AmplMetadataValue>>;
+
+/// Metadata value for a reference to another element (a generator's
+/// `bus`, a gas pipe's `node_a`, …): the referenced element's uid,
+/// stored as a number so `sum(...)` predicates compare it numerically
+/// (`bus = 3`).  The one place a `Uid` becomes a metadata double.
+[[nodiscard]] inline AmplMetadataValue ampl_metadata_uid(Uid uid) noexcept
+{
+  static_assert(
+      std::numeric_limits<Uid>::digits <= std::numeric_limits<double>::digits,
+      "every Uid must be exactly representable as a double");
+  return AmplMetadataValue {std::in_place_type<double>,
+                            static_cast<double>(uid)};
+}
 
 /// Lookup key for the per-element metadata registry.
 struct AmplMetadataKey

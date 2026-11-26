@@ -128,7 +128,8 @@ The case is an end-to-end test.  With a build configured with
 ctest --test-dir build -R '^e2e_fast_hydro_thermal_'
 ```
 
-This runs `e2e_fast_hydro_thermal_solve`, `e2e_fast_hydro_thermal_validate_solution` and one
+This runs `e2e_fast_hydro_thermal_solve`,
+`e2e_fast_hydro_thermal_validate_solution` and one
 `e2e_fast_hydro_thermal_compare_<Element>_<file>` test per reference CSV in
 `output/` (tolerance 1e-6).  To compare a manual run by hand:
 

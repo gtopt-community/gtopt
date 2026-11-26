@@ -1295,7 +1295,7 @@ double FlowRightLP::reward_objective(const ScenarioLP& scenario,
   // 0): obj_phys = c_raw * scale_obj, x_raw = x_phys / col_scale.
   const auto term = [&](ColIndex col, double base) -> double
   {
-    const double c_raw = obj[static_cast<std::size_t>(col)];
+    const double c_raw = obj[to_size(col)];
     if (c_raw >= 0.0) {
       return 0.0;
     }

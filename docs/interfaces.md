@@ -37,7 +37,8 @@ screenshots](#regenerating-the-screenshots).*
 ### Quick Start with gtopt_gui
 
 The easiest way to launch the GUI is with the `gtopt_gui` command, which provides
-a complete integrated environment for editing, solving, and viewing optimization cases:
+a complete integrated environment for editing, solving, and viewing optimization
+cases:
 
 ```bash
 # Install guiservice (independent of gtopt binary)
@@ -149,7 +150,9 @@ solver, and download results — all through a browser or REST API.
 
 <p align="center">
   <img src="images/screenshots/webservice_jobs.png" width="560"
-       alt="Web service page: the case upload form, the job token returned after submitting cases/c0, and the job list with the job completed and ready to download">
+       alt="Web service page: the case upload form, the job token returned after
+       submitting cases/c0, and the job list with the job completed and ready to
+       download">
 </p>
 
 ### Quick Start with gtopt_websrv
@@ -214,9 +217,14 @@ history, CPU and memory use and the colour-coded solver log.
 
 <p>
   <img src="images/screenshots/run_gtopt_tui.png" width="49%"
-       alt="run_gtopt dashboard view during an SDDP run solved with HiGHS (iteration 6 of 100, forward pass): header with lower and upper bound and gap, plan steps, gap progress towards the tolerance, solver statistics, iteration history table, CPU and memory bars and the solver log">
+       alt="run_gtopt dashboard view during an SDDP run solved with HiGHS
+       (iteration 6 of 100, forward pass): header with lower and upper bound and
+       gap, plan steps, gap progress towards the tolerance, solver statistics,
+       iteration history table, CPU and memory bars and the solver log">
   <img src="images/screenshots/run_gtopt_tui_convergence.png" width="49%"
-       alt="run_gtopt convergence view after convergence: sparklines of the lower bound, upper bound and gap, a per-scene cost heatmap by iteration and per-scene cost trends">
+       alt="run_gtopt convergence view after convergence: sparklines of the
+       lower bound, upper bound and gap, a per-scene cost heatmap by iteration
+       and per-scene cost trends">
 </p>
 
 *Frames from an 8-scenario, 24-phase SDDP hydro-cascade run (built from

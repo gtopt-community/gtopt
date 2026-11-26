@@ -172,7 +172,8 @@ stored in `boost::container::flat_map` for cache-friendly iteration
 
 ### 3. Solver Interface and Plugins
 
-**Location:** `include/gtopt/solver_backend.hpp`, `include/gtopt/solver_registry.hpp`, `plugins/`
+**Location:** `include/gtopt/solver_backend.hpp`,
+`include/gtopt/solver_registry.hpp`, `plugins/`
 
 - **`SolverBackend`** is a pure virtual interface: `solve()`, `get_solution()`,
   `get_kappa()`, etc.
@@ -202,7 +203,8 @@ See [SDDP Method](methods/sddp.md), [Cascade Method](methods/cascade.md), and
 
 ### 5. I/O Layer
 
-**Location:** `include/gtopt/input_context.hpp`, `include/gtopt/output_context.hpp`, `source/array_index_traits.cpp`
+**Location:** `include/gtopt/input_context.hpp`,
+`include/gtopt/output_context.hpp`, `source/array_index_traits.cpp`
 
 - **Input**: Arrow table cache; reads Parquet (default) or CSV files on demand,
   keyed by `(component_type, field_name)`. Falls back to the other format

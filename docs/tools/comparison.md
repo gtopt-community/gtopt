@@ -127,9 +127,12 @@ transmission lines connect.
 | Kirchhoff override | `use_kirchhoff` (optional bool) | — | — | gtopt-only; overrides global Kirchhoff setting per bus. |
 
 **Conversion notes:**
-- `plp2gtopt`: Reads `plpbar.dat`, maps `number` → `uid`, `name` → `name`, `voltage` → `voltage`.
-- `pp2gtopt`: Maps `bus.index+1` → `uid`, generates name `"b{uid}"`, sets `reference_theta=0` for the slack bus.
-- **Comparability**: Bus definitions are one-to-one between all three tools. No transformation needed.
+- `plp2gtopt`: Reads `plpbar.dat`, maps `number` → `uid`, `name` → `name`,
+  `voltage` → `voltage`.
+- `pp2gtopt`: Maps `bus.index+1` → `uid`, generates name `"b{uid}"`, sets
+  `reference_theta=0` for the slack bus.
+- **Comparability**: Bus definitions are one-to-one between all three tools. No
+  transformation needed.
 
 ---
 
@@ -176,8 +179,10 @@ PLP has six central types, each mapping to different GTOpt elements:
 | Quadratic costs | Not supported | Not native (piecewise approximation) | `cp2` available but **ignored** by `pp2gtopt` |
 
 **Conversion notes:**
-- `plp2gtopt`: Reads `plpcosce.dat`, extracts the first cost segment's marginal cost as `gcost`. Also extracts `pmin`/`pmax` bounds from the cost curve.
-- `pp2gtopt`: Reads `poly_cost` table, uses `cp1_eur_per_mw` as `gcost`. Defaults: $20/MWh for slack (ext_grid), $40/MWh for PV generators.
+- `plp2gtopt`: Reads `plpcosce.dat`, extracts the first cost segment's marginal
+  cost as `gcost`. Also extracts `pmin`/`pmax` bounds from the cost curve.
+- `pp2gtopt`: Reads `poly_cost` table, uses `cp1_eur_per_mw` as `gcost`.
+  Defaults: $20/MWh for slack (ext_grid), $40/MWh for PV generators.
 
 ---
 
@@ -195,9 +200,13 @@ PLP has six central types, each mapping to different GTOpt elements:
 | Energy cost | `ecost` ($/MWh) | — | — | gtopt-only; penalty for energy shortfall. |
 
 **Conversion notes:**
-- `plp2gtopt`: Reads `plpdem.dat` with per-block demand profiles. Writes `Demand/lmax.parquet` with time-series data indexed by `(scenario, stage, block, uid)`.
-- `pp2gtopt`: Maps `load.p_mw` → `lmax = [[p_mw]]` (single block, wrapped in 2D list). Loads with `p_mw ≤ 0` are skipped.
-- **Key difference**: PLP and GTOpt support time-varying demand profiles; pandapower is a single snapshot.
+- `plp2gtopt`: Reads `plpdem.dat` with per-block demand profiles. Writes
+  `Demand/lmax.parquet` with time-series data indexed by
+  `(scenario, stage, block, uid)`.
+- `pp2gtopt`: Maps `load.p_mw` → `lmax = [[p_mw]]` (single block, wrapped in 2D
+  list). Loads with `p_mw ≤ 0` are skipped.
+- **Key difference**: PLP and GTOpt support time-varying demand profiles;
+  pandapower is a single snapshot.
 
 ---
 
@@ -233,8 +242,9 @@ x_pu = (x_ohm_per_km × length_km) / Z_base
 reactance (`x_pu < 1e-6`) are filtered out.
 
 **Conversion notes:**
-- `plp2gtopt`: Direct mapping; PLP already uses per-unit reactance matching GTOpt.
-- `pp2gtopt`: Converts Ω to p.u. using `x_pu = x_ohm / (vn_kv² / 100)`. Sets `tmax = max_i_ka × vn_kv × √3` or 9999 if unconstrained.
+- `plp2gtopt`: Direct mapping; PLP already uses per-unit reactance matching gtopt.
+- `pp2gtopt`: Converts Ω to p.u. using `x_pu = x_ohm / (vn_kv² / 100)`. Sets
+  `tmax = max_i_ka × vn_kv × √3` or 9999 if unconstrained.
 
 ---
 
@@ -258,15 +268,20 @@ reactance (`x_pu < 1e-6`) are filtered out.
 ### PLP ESS vs PLP Battery
 
 PLP has two mutually exclusive storage models:
-- **ESS** (`plpess.dat`): Energy Storage System with charge/discharge efficiency, energy bounds, and power limits. This is the **preferred** model.
-- **Battery** (`plpcenbat.dat`): Older battery model with investment/expansion data, discharge efficiency only.
+- **ESS** (`plpess.dat`): Energy Storage System with charge/discharge
+  efficiency, energy bounds, and power limits. This is the **preferred** model.
+- **Battery** (`plpcenbat.dat`): Older battery model with investment/expansion
+  data, discharge efficiency only.
 
-In `plp2gtopt`, when both ESS and Battery parsers provide data, **ESS takes priority** (implemented as `elif` in `battery_writer._all_entries()`).
+In `plp2gtopt`, when both ESS and Battery parsers provide data, **ESS takes
+priority** (implemented as `elif` in `battery_writer._all_entries()`).
 
 **Conversion notes:**
-- `plp2gtopt`: Creates a `Battery` + `Converter` + `Generator` (discharge) + `Demand` (charge) ensemble from each ESS/Battery central.
+- `plp2gtopt`: Creates a `Battery` + `Converter` + `Generator` (discharge) +
+  `Demand` (charge) ensemble from each ESS/Battery central.
 - `pp2gtopt`: Does **not** convert pandapower `storage` elements (not implemented).
-- `gtopt_compare`: Supports battery validation for the `bat_4b_24` case, adjusting effective loads per block for charge/discharge.
+- `gtopt_compare`: Supports battery validation for the `bat_4b_24` case,
+  adjusting effective loads per block for charge/discharge.
 
 ---
 
@@ -336,7 +351,8 @@ connecting reservoir → series → pasada centrals.
 | Drain | `drain` (bool) | — | Can spill without generating. |
 | Main reservoir | `main_reservoir` (uid) | Implicit from central | Volume-dependent efficiency (SDDP). |
 
-**Conversion**: `plp2gtopt` computes `conversion_rate = efficiency × 9.81 × head / 1000`
+**Conversion**: `plp2gtopt` computes
+`conversion_rate = efficiency × 9.81 × head / 1000`
 where head is derived from the reservoir geometry.
 
 ### 7.5 Flow / Inflow
@@ -411,8 +427,11 @@ framework. This is a gtopt-specific feature for spinning reserve requirements.
 | Scene | `scene_array`: uid, scenarios (for SDDP decomposition) | Not separate | Not applicable |
 
 **Conversion notes:**
-- `plp2gtopt`: Maps PLP blocks → GTOpt blocks with duration in hours; PLP stages → GTOpt stages with first_block/count_block computed from month boundaries; hydrologies → scenarios with configurable probability_factors.
-- `pp2gtopt`: Creates minimal time structure: 1 block, 1 stage, 1 scenario (static dispatch).
+- `plp2gtopt`: Maps PLP blocks → GTOpt blocks with duration in hours; PLP stages
+  → GTOpt stages with first_block/count_block computed from month boundaries;
+  hydrologies → scenarios with configurable probability_factors.
+- `pp2gtopt`: Creates minimal time structure: 1 block, 1 stage, 1 scenario
+  (static dispatch).
 
 ---
 
@@ -526,7 +545,8 @@ Results should be **identical** (within solver tolerance) when:
    - Same block structure and demand profiles
    - `plp2gtopt` → GTOpt should match PLP marginal costs exactly
 
-**Tolerance**: `gtopt_compare` uses ±0.1 MW for generation, ±max(1.0, cost×1e-3) for cost.
+**Tolerance**: `gtopt_compare` uses ±0.1 MW for generation, ±max(1.0, cost×1e-3)
+for cost.
 
 ### 13.2 Cases with Similar but not Identical Results
 
@@ -1091,7 +1111,8 @@ components), no integrated DC OPF or expansion planning.
 - [Input Data Reference](../input-data.md) — GTOpt input format specification
 - [Usage Guide](../usage.md) — CLI reference and output interpretation
 - [Planning Guide](../planning-guide.md) — Worked examples and concepts
-- [Mathematical Formulation](../formulation/mathematical-formulation.md) — LP/MIP formulation
+- [Mathematical Formulation](../formulation/mathematical-formulation.md) —
+  LP/MIP formulation
 - [plp2gtopt documentation](../scripts/plp2gtopt.md) — Full PLP converter reference
 - [pp2gtopt documentation](../scripts/pp2gtopt.md) — Full pandapower converter reference
 - [igtopt documentation](../scripts/igtopt.md) — Full Excel converter reference

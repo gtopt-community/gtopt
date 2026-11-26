@@ -200,7 +200,9 @@ in [docs/whats-new.md](docs/whats-new.md).
     "Identification of Critical Spans for Monitoring Systems in Dynamic
     Thermal Rating", IEEE Trans. Power Delivery 27(2):1002–1009, 2012,
     DOI 10.1109/TPWRD.2012.2185254 (open access: [ResearchGate](https://www.researchgate.net/publication/254057820_Identification_of_Critical_Spans_for_Monitoring_Systems_in_Dynamic_Thermal_Rating),
-    [PDF (Universidad de Chile)](https://www.cec.uchile.cl/~dsaez/wp-content/uploads/2011/09/06163401.pdf)). Selecting the spans is done outside
+    [PDF (Universidad de
+    Chile)](https://www.cec.uchile.cl/~dsaez/wp-content/uploads/2011/09/06163401.pdf)).
+    Selecting the spans is done outside
     gtopt. The ampacity follows IEEE Std 738-2012.
   - The input reference now also documents the existing Line fields
     `tmax_normal_ab` / `tmax_normal_ba`, `overload_penalty`,
@@ -619,7 +621,6 @@ in [docs/whats-new.md](docs/whats-new.md).
   first close was always priced cold.  Line startup / shutdown columns
   are binary (with the line status' domain): continuous ones admitted
   startup = shutdown = ½ on a line that stayed closed.
-
 
 ## [1.2.0] - 2026-11-24
 

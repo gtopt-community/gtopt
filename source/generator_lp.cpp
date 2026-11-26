@@ -96,6 +96,11 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     return false;
   }
 
+  // Resolve via `sc.element<BusLP>` (handles both Uid and Name forms
+  // of the JSON-side `bus` SingleId variant — `std::get<Uid>` would
+  // throw if the JSON used a string name).
+  const auto& bus = sc.element<BusLP>(bus_sid());
+
   // Register filter metadata (F9) so `sum(generator(all : type="hydro")...)`
   // predicates can be evaluated at row-assembly time.
   {
@@ -104,11 +109,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     if (const auto& t = generator().type) {
       metadata.emplace_back(TypeKey, *t);
     }
-    // Resolve via `sc.element<BusLP>` (handles both Uid and Name forms
-    // of the JSON-side `bus` SingleId variant — `std::get<Uid>` would
-    // throw if the JSON used a string name).
-    metadata.emplace_back(
-        BusKey, static_cast<double>(sc.element<BusLP>(bus_sid()).uid()));
+    metadata.emplace_back(BusKey, ampl_metadata_uid(bus.uid()));
     sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
   }
 
@@ -116,7 +117,6 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     return true;
   }
 
-  const auto& bus = sc.element<BusLP>(bus_sid());
   if (!bus.is_active(stage)) [[unlikely]] {
     return true;
   }
@@ -276,6 +276,10 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   // slack stash AND by the post-loop AMPL registration / output
   // bookkeeping).
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
+  // The heat_rate + heat_rate_segments conflict warning is once per
+  // element process-wide (`warn_once_per_key`); this local flag only
+  // avoids formatting the dedupe key again on every block.
+  bool warned_heat_rate_and_segments = false;
   for (auto&& block : blocks) {
     const auto buid = block.uid();
 
@@ -322,7 +326,10 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     // Validation: scalar `heat_rate` and `heat_rate_segments` are
     // mutually exclusive — earlier validate_planning has already
     // emitted the user-facing error; defensively short-circuit here.
-    if (has_pw && block_heat_rate > 0.0) [[unlikely]] {
+    if (has_pw && block_heat_rate > 0.0 && !warned_heat_rate_and_segments)
+        [[unlikely]]
+    {
+      warned_heat_rate_and_segments = true;  // build the key once per call
       warn_once_per_key(
           std::format("Generator:{}:heat_rate_and_segments", uid()),
           "GeneratorLP uid={}: both `heat_rate` and `heat_rate_segments` "
