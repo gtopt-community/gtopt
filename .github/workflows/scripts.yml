@@ -44,13 +44,32 @@ env:
   GTOPT_SOLVER: highs
 
 jobs:
+  # Known-vulnerability scan of the locked Python dependencies (scripts +
+  # guiservice).  Light: no install, a single query per lock file.
+  pip-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python with uv
+        uses: ./.github/actions/setup-python-uv
+
+      - name: pip-audit (locked dependencies)
+        run: |
+          for lock in scripts/requirements-lock.txt guiservice/requirements-lock.txt; do
+            echo "::group::pip-audit $lock"
+            uvx pip-audit==2.10.1 --disable-pip --require-hashes --progress-spinner off -r "$lock"
+            echo "::endgroup::"
+          done
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     name: unit-tests
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # Incremental testing (tools/affected_tests.py): the own test dirs of
       # the changed packages run in full with coverage; reverse dependencies
@@ -67,8 +86,14 @@ jobs:
       - name: Set up Python with uv
         uses: ./.github/actions/setup-python-uv
 
+      # Hash-pinned install from the lock (tools/update_python_locks.sh):
+      # reproducible and tamper-evident; the package itself goes in
+      # without resolving dependencies again.
       - name: Install scripts package and dev dependencies
-        run: uv pip install --system -e "./scripts[dev]" graphviz pytest-testmon
+        run: |
+          uv pip install --system --require-hashes -r scripts/requirements-lock.txt
+          uv pip install --system --no-deps -e ./scripts
+          uv pip install --system pytest-testmon
 
       - name: Selector self-test (tools/affected_tests.py)
         run: python -m pytest -q -n 0 -p no:cacheprovider tools/test_affected_tests.py
@@ -77,7 +102,7 @@ jobs:
       # test whose recorded dependencies changed since), so fall back to
       # the most recent one when this exact commit has none.
       - name: Restore testmon database
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: scripts/.testmondata
           key: testmon-scripts-${{ runner.os }}-py3.12-${{ github.sha }}
@@ -156,7 +181,7 @@ jobs:
 
       - name: Save testmon database
         if: always() && github.event_name == 'push'
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: scripts/.testmondata
           key: testmon-scripts-${{ runner.os }}-py3.12-${{ github.sha }}
@@ -261,7 +286,7 @@ jobs:
 
       - name: Upload coverage report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: python-coverage-xml
           path: scripts/coverage.xml
@@ -295,7 +320,7 @@ jobs:
     name: integration-tests
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: affected tests
         id: affected
@@ -416,7 +441,7 @@ jobs:
     needs: test
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Python with uv
         uses: ./.github/actions/setup-python-uv

@@ -90,6 +90,12 @@ DO_CONFIGURE=false
 DO_BUILD=false
 BUILD_TYPE=CIFast
 CLANG_VERSION=22
+# Fingerprint of the apt.llvm.org signing key (llvm-snapshot.gpg.key).
+LLVM_KEY_FPR=6084F3CF814B57C1CF12EFD515CF4D18AF4F7421
+# Private scratch dir (never fixed, shared /tmp names) for downloads and
+# the compiler hand-off between the parallel install jobs.
+SANDBOX_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gtopt-sandbox-XXXXXX")
+trap 'rm -rf "$SANDBOX_TMP"' EXIT
 TIDY_DB=true
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
@@ -327,15 +333,20 @@ install_compiler() {
   if (
     set -e
 
+    local key="${SANDBOX_TMP}/llvm-snapshot.gpg.key"
     for attempt in 1 2 3; do
-      wget -qO /tmp/llvm-snapshot.gpg.key \
+      wget -qO "$key" \
         https://apt.llvm.org/llvm-snapshot.gpg.key && break
       echo "Attempt ${attempt}/3: wget gpg key failed; retrying in 15 s..." >&2
       if [[ $attempt -lt 3 ]]; then sleep 15; else exit 1; fi
     done
+    if ! gpg --show-keys --with-colons "$key" 2>/dev/null \
+        | grep -q ":${LLVM_KEY_FPR}:"; then
+      echo "LLVM APT key fingerprint mismatch (expected ${LLVM_KEY_FPR})" >&2
+      exit 1
+    fi
 
-    sudo gpg --yes --dearmor -o /usr/share/keyrings/llvm-snapshot.gpg \
-      /tmp/llvm-snapshot.gpg.key
+    sudo gpg --yes --dearmor -o /usr/share/keyrings/llvm-snapshot.gpg "$key"
 
     echo "deb [signed-by=/usr/share/keyrings/llvm-snapshot.gpg] \
     https://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-${VER} main" \
@@ -364,13 +375,13 @@ install_compiler() {
         "$versioned" 100
     done
     ok "Clang ${VER} installed and registered as default 'clang'/'clang++'"
-    echo "clang" > /tmp/_sandbox_compiler
+    echo "clang" > "${SANDBOX_TMP}/compiler"
   else
     warn "Clang ${VER} installation failed (LLVM APT repo unreachable?)."
     warn "Falling back to GCC 14."
     sudo apt-get install -y --no-install-recommends gcc-14 g++-14
     ok "GCC 14 installed as fallback compiler"
-    echo "gcc" > /tmp/_sandbox_compiler
+    echo "gcc" > "${SANDBOX_TMP}/compiler"
   fi
 }
 
@@ -395,7 +406,7 @@ if ! $COMPILER_OK; then
 fi
 
 ARROW_INSTALLED_VIA="conda"
-if [[ -f /tmp/_sandbox_compiler ]] && [[ "$(cat /tmp/_sandbox_compiler)" == "clang" ]]; then
+if [[ -f "${SANDBOX_TMP}/compiler" ]] && [[ "$(cat "${SANDBOX_TMP}/compiler")" == "clang" ]]; then
   CLANG_INSTALLED=true
   CC=clang
   CXX=clang++
@@ -404,7 +415,6 @@ else
   CC=gcc-14
   CXX=g++-14
 fi
-rm -f /tmp/_sandbox_compiler
 
 # ── Step 4: Python scripts dependencies ──────────────────────────────────────
 # Pre-installing BEFORE cmake configure ensures cmake's

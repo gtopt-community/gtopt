@@ -55,7 +55,7 @@ jobs:
       gui: ${{ steps.affected.outputs.gui }}
       gui_tests: ${{ steps.affected.outputs.gui_tests }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: affected tests
         id: affected
         uses: ./.github/actions/affected-tests
@@ -70,7 +70,7 @@ jobs:
     if: needs.select.outputs.mode == 'full' || needs.select.outputs.gui != 'none'
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Python with uv
         uses: ./.github/actions/setup-python-uv
@@ -82,7 +82,7 @@ jobs:
         run: |
           uv pip install --system pytest pytest-cov pytest-xdist \
             ruff pylint mypy types-requests
-          uv pip install --system -r guiservice/requirements.txt
+          uv pip install --system --require-hashes -r guiservice/requirements-lock.txt
           # Test-only: requirements.txt omits pyarrow on purpose (see the
           # launcher job), but the tests write parquet and the topology
           # endpoints run scripts/gtopt_diagram, which needs networkx.
@@ -147,7 +147,7 @@ jobs:
 
       - name: upload Python coverage report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: python-guiservice-coverage-report
           path: coverage-guiservice/
@@ -168,7 +168,7 @@ jobs:
     if: needs.select.outputs.mode == 'full' || needs.select.outputs.gui != 'none'
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Python with uv
         uses: ./.github/actions/setup-python-uv

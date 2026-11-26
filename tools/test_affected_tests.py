@@ -397,6 +397,62 @@ def test_lint_lists(repo: Path) -> None:
     assert set(sel.type_py_packages) == {"beta"}
 
 
+def test_ci_python_lists_one_line_run(repo: Path) -> None:
+    pylint, mypy = at.Repo(repo).ci_python_lists()
+    assert pylint == {"alpha", "shared"}
+    assert mypy == {"alpha", "beta", "shared", "gamma"}
+
+
+def test_ci_python_lists_run_block(tmp_path: Path) -> None:
+    """``run: |`` blocks: the literal full list, not the ``$VAR`` line."""
+    wf = tmp_path / ".github" / "workflows" / "scripts.yml"
+    wf.parent.mkdir(parents=True)
+    wf.write_text(
+        "      - name: pylint\n"
+        "        run: |\n"
+        '          if [ "$MODE" = "full" ]; then\n'
+        "            pylint --jobs=0 alpha shared\n"
+        "          else\n"
+        "            pylint --jobs=0 $PYLINT\n"
+        "          fi\n"
+        "      - name: mypy\n"
+        "        run: |\n"
+        "            mypy $MYPY --ignore-missing-imports\n"
+        "            mypy alpha beta --ignore-missing-imports\n",
+        encoding="utf-8",
+    )
+    pylint, mypy = at.Repo(tmp_path).ci_python_lists()
+    assert pylint == {"alpha", "shared"}
+    assert mypy == {"alpha", "beta"}
+
+
+def test_ci_python_lists_absent(tmp_path: Path) -> None:
+    wf = tmp_path / ".github" / "workflows" / "scripts.yml"
+    wf.parent.mkdir(parents=True)
+    wf.write_text("      - name: pylint\n        run: pylint $PYLINT\n")
+    assert at.Repo(tmp_path).ci_python_lists() == (None, None)
+
+
+def test_command_packages_bare_shell_line() -> None:
+    text = "Lint:\n\n```bash\npylint --jobs=0 alpha beta\nmypy gamma --strict\n```\n"
+    assert at.command_packages(text, "pylint") == {"alpha", "beta"}
+    assert at.command_packages(text, "mypy") == {"gamma"}
+    assert at.command_packages(text, "ruff") is None
+
+
+def test_real_repo_python_lists() -> None:
+    """The repo's own scripts.yml (and the agent notes, when present)
+    yield non-empty lists."""
+    root = Path(__file__).resolve().parent.parent
+    repo = at.Repo(root)
+    lists = [repo.ci_python_lists()]
+    if (root / "CLAUDE.md").is_file():
+        lists.append(repo.doc_python_lists())
+    for pylint, mypy in lists:
+        assert pylint and "plp2gtopt" in pylint
+        assert mypy and "gtopt_shared" in mypy
+
+
 def test_sf_filter() -> None:
     assert (
         at.sf_filter(["test/source/test_b.cpp", "test/source/json/test_a.cpp"])

@@ -268,3 +268,46 @@ def test_download_zip_token_path_keeps_token_off_redirects(tmp_path):
     assert (tmp_path / "a.zip").read_bytes() == b"zip"
     assert seen["req"].unredirected_hdrs["Authorization"] == "Bearer tok"
     assert "Authorization" not in seen["req"].headers
+
+
+# ---------------------------------------------------------------------------
+# Download locations and key pinning
+# ---------------------------------------------------------------------------
+
+
+def test_default_ci_bin_dir_is_per_user():
+    """The artifact never lands in a fixed, shared /tmp directory."""
+    default = ggb._DEFAULT_CI_BIN_DIR  # pylint: disable=protected-access
+    assert not str(default).startswith("/tmp/")
+    assert default.parts[-2:] == ("gtopt", "ci-bin")
+
+
+def _colons(*fprs):
+    lines = ["pub:-:4096:1:15CF4D18AF4F7421:1:::-:::scESC::::::23::0:"]
+    lines += [f"fpr:::::::::{f}:" for f in fprs]
+    return "\n".join(lines) + "\n"
+
+
+@pytest.mark.parametrize(
+    ("stdout", "rc", "expected"),
+    [
+        (_colons("6084F3CF814B57C1CF12EFD515CF4D18AF4F7421"), 0, True),
+        (_colons("6084f3cf814b57c1cf12efd515cf4d18af4f7421"), 0, True),
+        (_colons("0000000000000000000000000000000000000000"), 0, False),
+        ("", 2, False),
+    ],
+)
+def test_gpg_key_fingerprint_check(tmp_path, stdout, rc, expected):
+    key = tmp_path / "k.asc"
+    key.write_text("key", encoding="utf-8")
+    proc = subprocess.CompletedProcess([], rc, stdout=stdout, stderr="")
+    with mock.patch.object(ggb.subprocess, "run", return_value=proc) as run:
+        assert (
+            ggb._gpg_key_has_fingerprint(  # pylint: disable=protected-access
+                "gpg",
+                key,
+                ggb._LLVM_KEY_FINGERPRINT,  # pylint: disable=protected-access
+            )
+            is expected
+        )
+    assert run.call_args.args[0][:3] == ["gpg", "--show-keys", "--with-colons"]

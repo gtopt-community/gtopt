@@ -110,7 +110,8 @@ python tools/get_gtopt_binary.py --force-download
 1. `GTOPT_BIN` environment variable.
 2. `gtopt` on `PATH`.
 3. Standard build directories (`build/standalone/gtopt`, etc.).
-4. `/tmp/gtopt-ci-bin/gtopt` – previously downloaded CI artifact.
+4. `~/.cache/gtopt/ci-bin/gtopt` – previously downloaded CI artifact
+   (per-user, `$XDG_CACHE_HOME` honoured; never a shared `/tmp` path).
 5. Download the `gtopt-binary-debug` CI artifact via `gh` CLI or
    `GITHUB_TOKEN`.  Only the artifact of the latest successful `ubuntu.yml`
    **push** run on `master` of this repository is used (never a pull
@@ -236,6 +237,32 @@ reached only through a hub (e.g. an element `_lp.cpp` exercised by a
 planning test that includes only `planning_lp.hpp`) is caught by the
 e2e smoke and the full runs, not by the unit subset.  Python
 tests that run the `gtopt` binary are not selected by C++ changes.
+
+---
+
+### `update_python_locks.sh`
+
+Regenerates the hash-pinned Python lock files from the loosely specified
+dependency lists:
+
+| Lock | Source |
+|------|--------|
+| `scripts/requirements-lock.txt` | `scripts/pyproject.toml` (runtime + `dev` extra) |
+| `guiservice/requirements-lock.txt` | `guiservice/requirements.txt` |
+
+```bash
+tools/update_python_locks.sh            # refresh after a pyproject change
+tools/update_python_locks.sh --upgrade  # move every pin to the newest version
+tools/update_python_locks.sh --check    # exit 1 when a lock is stale
+```
+
+CI installs from the locks with `--require-hashes` (then the package
+itself with `--no-deps`), and a light `pip-audit` job scans both locks
+for known vulnerabilities.  The nightly run repeats the scan, audits its
+venv (newest allowed versions) and checks lock freshness.
+`gtopt_shared/tests/test_requirements_sync.py` fails when a lock no
+longer satisfies the `pyproject.toml` / `requirements.txt` specifiers.
+Needs `uv` and network access to PyPI.
 
 ---
 

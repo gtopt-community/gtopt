@@ -38,7 +38,7 @@ Strategy (tried in order):
   1. ``GTOPT_BIN`` environment variable.
   2. ``gtopt`` already on ``PATH``.
   3. Standard build-directory paths relative to the repository root.
-  4. ``/tmp/gtopt-ci-bin/gtopt`` – previously downloaded artifact.
+  4. ``~/.cache/gtopt/ci-bin/gtopt`` – previously downloaded artifact.
   5. Download ``gtopt-binary-debug`` artifact from the latest successful
      ``ubuntu.yml`` **push run on master** (requires ``GITHUB_TOKEN`` or
      ``gh`` CLI).  Artifacts of ``pull_request`` runs (possibly built from
@@ -91,15 +91,16 @@ agents running inside CI don't need any extra configuration.
         "repos/gtopt-community/gtopt/actions/runs/${RUN_ID}/artifacts?name=gtopt-binary-debug" \\
         --jq '.artifacts | map(select(.expired|not)) | .[0].id')
 
-    # Download and unzip to /tmp/gtopt-ci-bin/
-    mkdir -p /tmp/gtopt-ci-bin
+    # Download and unzip to a private per-user directory
+    BIN_DIR=~/.cache/gtopt/ci-bin
+    mkdir -p -m 700 "$BIN_DIR"
     gh api repos/gtopt-community/gtopt/actions/artifacts/${ART_ID}/zip \\
-        --header "Accept: application/vnd.github+json" > /tmp/gtopt.zip
-    unzip -o /tmp/gtopt.zip -d /tmp/gtopt-ci-bin
-    chmod +x /tmp/gtopt-ci-bin/gtopt
+        --header "Accept: application/vnd.github+json" > "$BIN_DIR/gtopt.zip"
+    unzip -o "$BIN_DIR/gtopt.zip" -d "$BIN_DIR"
+    chmod +x "$BIN_DIR/gtopt"
 
     # Point tests at it
-    export GTOPT_BIN=/tmp/gtopt-ci-bin/gtopt
+    export GTOPT_BIN="$BIN_DIR/gtopt"
     pytest scripts/igtopt/tests/ -m integration -v
 
 Build-from-source step-by-step (Ubuntu 24.04)
@@ -121,8 +122,11 @@ below before calling cmake.  You can also run the steps manually:
     conda install -y -c conda-forge arrow-cpp parquet-cpp boost-cpp
 
     # STEP 4 – Clang 21 via LLVM APT (primary compiler; GCC 14 used as fallback)
-    wget -qO /tmp/llvm.gpg https://apt.llvm.org/llvm-snapshot.gpg.key
-    sudo gpg --dearmor -o /usr/share/keyrings/llvm.gpg /tmp/llvm.gpg
+    KEY=$(mktemp)
+    wget -qO "$KEY" https://apt.llvm.org/llvm-snapshot.gpg.key
+    gpg --show-keys --with-colons "$KEY" | grep -q \\
+        ':6084F3CF814B57C1CF12EFD515CF4D18AF4F7421:'   # expected fingerprint
+    sudo gpg --dearmor -o /usr/share/keyrings/llvm.gpg "$KEY"
     CODENAME=$(lsb_release -cs)
     echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] \\
         https://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-21 main" \\
@@ -173,6 +177,7 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.request
 import zipfile
 
@@ -186,7 +191,14 @@ _TRUSTED_BRANCH = "master"
 _TRUSTED_EVENT = "push"
 #: How many recent trusted runs to scan for a non-expired artifact.
 _MAX_RUNS_SCANNED = 30
-_DEFAULT_CI_BIN_DIR = pathlib.Path("/tmp/gtopt-ci-bin")
+#: Per-user (never world-writable) download directory for the CI artifact.
+_DEFAULT_CI_BIN_DIR = (
+    pathlib.Path(os.environ.get("XDG_CACHE_HOME") or pathlib.Path.home() / ".cache")
+    / "gtopt"
+    / "ci-bin"
+)
+#: Fingerprint of the apt.llvm.org signing key (llvm-snapshot.gpg.key).
+_LLVM_KEY_FINGERPRINT = "6084F3CF814B57C1CF12EFD515CF4D18AF4F7421"
 
 log = logging.getLogger(__name__)
 
@@ -211,7 +223,7 @@ def find_gtopt_binary() -> str | None:
        - ``build-standalone/gtopt``
        - ``all/build/gtopt``
 
-    4. ``/tmp/gtopt-ci-bin/gtopt`` – previously downloaded CI artifact.
+    4. ``~/.cache/gtopt/ci-bin/gtopt`` – previously downloaded CI artifact.
 
     Paths 1–3 indicate the binary was compiled locally (all runtime libraries
     are already installed as part of the build step).  Path 4 may be a
@@ -263,7 +275,7 @@ def download_gtopt_from_ci(
     ----------
     dest_dir:
         Destination directory for the extracted binary.
-        Default: ``/tmp/gtopt-ci-bin``.
+        Default: ``$XDG_CACHE_HOME/gtopt/ci-bin`` (``~/.cache/gtopt/ci-bin``).
     repo:
         GitHub repository in ``owner/name`` format.
     artifact_name:
@@ -280,7 +292,7 @@ def download_gtopt_from_ci(
         When the artifact cannot be found or downloaded.
     """
     dest_dir = pathlib.Path(dest_dir)
-    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     bin_path = dest_dir / "gtopt"
     zip_path = dest_dir / "gtopt-artifact.zip"
 
@@ -814,25 +826,28 @@ def _setup_arrow_apt_source() -> bool:
         f"https://packages.apache.org/artifactory/arrow/{distro}/"
         f"apache-arrow-apt-source-latest-{codename}.deb"
     )
-    deb_path = pathlib.Path("/tmp/apache-arrow-apt-source.deb")
+    # Private temp dir (never a fixed, shared /tmp name) for the .deb
+    # that is installed with sudo below.
+    with tempfile.TemporaryDirectory(prefix="gtopt-arrow-") as tmp:
+        deb_path = pathlib.Path(tmp) / "apache-arrow-apt-source.deb"
 
-    log.info("Downloading Apache Arrow APT source package from %s…", deb_url)
-    try:
-        _run_cmd(
-            [wget, "-q", "--timeout=30", deb_url, "-O", str(deb_path)],
-            "download Apache Arrow APT source .deb",
-        )
-    except RuntimeError:
-        log.warning(
-            "Failed to download Apache Arrow APT source (network may be blocked). "
-            "Arrow runtime libraries cannot be installed via APT."
-        )
-        return False
+        log.info("Downloading Apache Arrow APT source package from %s…", deb_url)
+        try:
+            _run_cmd(
+                [wget, "-q", "--timeout=30", deb_url, "-O", str(deb_path)],
+                "download Apache Arrow APT source .deb",
+            )
+        except RuntimeError:
+            log.warning(
+                "Failed to download Apache Arrow APT source (network may be "
+                "blocked). Arrow runtime libraries cannot be installed via APT."
+            )
+            return False
 
-    _apt_install(
-        [str(deb_path)],
-        "install Apache Arrow APT source package",
-    )
+        _apt_install(
+            [str(deb_path)],
+            "install Apache Arrow APT source package",
+        )
 
     # Targeted apt-get update for the Arrow source only
     apt = shutil.which("apt-get")
@@ -933,6 +948,26 @@ def install_runtime_deps() -> None:
         )
 
 
+def _gpg_key_has_fingerprint(
+    gpg: str, key_path: pathlib.Path, fingerprint: str
+) -> bool:
+    """True when the OpenPGP key file *key_path* holds *fingerprint*."""
+    proc = subprocess.run(
+        [gpg, "--show-keys", "--with-colons", str(key_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return False
+    fprs = {
+        line.split(":")[9].upper()
+        for line in proc.stdout.splitlines()
+        if line.startswith("fpr:") and len(line.split(":")) > 9
+    }
+    return fingerprint.upper() in fprs
+
+
 def install_clang21() -> bool:
     """Install Clang 21 from the LLVM APT repository on Ubuntu/Debian.
 
@@ -970,22 +1005,29 @@ def install_clang21() -> bool:
         return False
 
     log.info("Setting up LLVM APT repository for Clang 21…")
-    key_path = pathlib.Path("/tmp/llvm-snapshot.gpg.key")
     keyring_path = pathlib.Path("/usr/share/keyrings/llvm-snapshot.gpg")
     sources_path = pathlib.Path("/etc/apt/sources.list.d/llvm-21.list")
 
-    # Step 1: download GPG key
-    _run_cmd(
-        [wget, "-qO", str(key_path), "https://apt.llvm.org/llvm-snapshot.gpg.key"],
-        "download LLVM snapshot GPG key",
-    )
+    with tempfile.TemporaryDirectory(prefix="gtopt-llvm-key-") as tmp:
+        key_path = pathlib.Path(tmp) / "llvm-snapshot.gpg.key"
+        # Step 1: download GPG key and check its fingerprint
+        _run_cmd(
+            [wget, "-qO", str(key_path), "https://apt.llvm.org/llvm-snapshot.gpg.key"],
+            "download LLVM snapshot GPG key",
+        )
+        if not _gpg_key_has_fingerprint(gpg, key_path, _LLVM_KEY_FINGERPRINT):
+            log.warning(
+                "LLVM APT key fingerprint mismatch (expected %s) – not installing",
+                _LLVM_KEY_FINGERPRINT,
+            )
+            return False
 
-    # Step 2: dearmor key into keyring
-    prefix = [sudo] if sudo else []
-    _run_cmd(
-        prefix + ["gpg", "--dearmor", "-o", str(keyring_path), str(key_path)],
-        "dearmor LLVM GPG key",
-    )
+        # Step 2: dearmor key into keyring
+        prefix = [sudo] if sudo else []
+        _run_cmd(
+            prefix + [gpg, "--dearmor", "-o", str(keyring_path), str(key_path)],
+            "dearmor LLVM GPG key",
+        )
 
     # Step 3: get Ubuntu codename and write APT source
     codename_result = subprocess.run(

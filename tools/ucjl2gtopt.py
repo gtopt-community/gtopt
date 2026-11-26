@@ -346,6 +346,54 @@ def _expansion_fields(invest_cost, nameplate_mw, integer=False):
     return fields
 
 
+def _profile_must_run_floor(
+    curve_mw: list, must_run: Any, T: int, gname: str
+) -> list[float] | None:
+    """Per-block output floor of a must-run profiled unit, or ``None``.
+
+    UC.jl's minimum power is the first breakpoint ``curve_mw[0][t]``
+    and binds whenever the unit is on; ``Must run?`` keeps it on.  So a
+    must-run profiled unit with a one-breakpoint curve (``min = max``:
+    RTS-GMLC rooftop PV, run-of-river hydro) MUST produce its profile —
+    no curtailment — and one with ``[[0, ...], [profile]]`` may curtail
+    to 0.  Profiled units get no Commitment here, so the floor is
+    emitted as a per-block ``Generator.pmin`` on the must-run blocks.
+    A positive floor on a NOT-must-run block would need a commitment
+    binary; it is dropped with a warning.
+    """
+    first = curve_mw[0]
+    if not isinstance(first, list):
+        return None
+    floor = [float(v) for v in _time_series(first, T)]
+    runs = [bool(v) for v in _time_series(must_run, T)]
+    if any(f > 0.0 and not r for f, r in zip(floor, runs)):
+        print(
+            f"  warning: {gname}: profiled minimum power on blocks that are "
+            "not must-run needs a commitment binary; floor dropped there"
+        )
+    result = [f if r else 0.0 for f, r in zip(floor, runs)]
+    if not any(v > 0.0 for v in result):
+        return None
+    return result
+
+
+def _floor_within_profile(
+    floor: list[float], profile: list[float], pmax: float
+) -> list[float]:
+    """Emitted per-block pmin, never above the emitted profile cap.
+
+    The cap is ``round(pmax, 6) × round(profile[t], 6)`` as gtopt reads
+    it; a must-take floor equal to the UC.jl profile can exceed that by
+    the rounding (1.8 vs 1.7999982) and make the LP infeasible.  Clamp
+    to the cap and round DOWN to 6 decimals.
+    """
+    cap_mw = round(pmax, 6)
+    return [
+        math.floor(min(f, cap_mw * round(p, 6)) * 1e6) / 1e6
+        for f, p in zip(floor, profile)
+    ]
+
+
 def _detect_time_varying_capacity(curve_mw, T):
     """Extract a renewable / profiled gen's time-varying availability.
 
@@ -922,6 +970,7 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         # this naturally; thermal gens with the same shape would also
         # work (effective profile gates dispatch upper bound).
         profile_ts = None
+        profile_floor: list[float] | None = None
         curve_mw_raw = gdata.get("Production cost curve (MW)")
         if curve_mw_raw is not None:
             profile_ts, profile_nameplate = _detect_time_varying_capacity(
@@ -929,7 +978,10 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             )
             if profile_ts is not None:
                 pmax = float(profile_nameplate)
-                pmin = 0.0  # renewable: dispatch ≤ pmax × profile, no floor
+                pmin = 0.0  # renewable: dispatch ≤ pmax × profile
+                profile_floor = _profile_must_run_floor(
+                    curve_mw_raw, gdata.get("Must run?", False), T, gname
+                )
                 # The piecewise segments derived from the (cumulative)
                 # MW breakpoints are meaningless on a time-varying
                 # profile — drop them so gtopt's Commitment doesn't
@@ -970,7 +1022,11 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             "uid": gen_uid,
             "name": gname,
             "bus": bus_uid,
-            "pmin": round(emit_gen_pmin, 6),
+            "pmin": (
+                [_floor_within_profile(profile_floor, profile_ts, pmax)]
+                if profile_floor is not None and profile_ts is not None
+                else round(emit_gen_pmin, 6)
+            ),
             "pmax": round(pmax, 6),
             "gcost": round(gcost, 6),
             "capacity": round(pmax, 6),

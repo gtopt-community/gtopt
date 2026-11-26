@@ -61,3 +61,31 @@ race:libparquet.so
 race:libmimalloc.so
 race:libzstd.so
 race:libz.so.1
+
+# ---- MindOpt (libmindopt.so, libmindoptpower.so) -----------------------------
+# Closed-source, uninstrumented solver.  No gtopt frame or gtopt-owned
+# memory is involved in any MindOpt report (2026-11-25 nightly, 6 reports):
+#
+# * libmindoptpower.so: malloc in one MindOpt MIP worker thread, free in
+#   another, every frame inside MindOpt; the workers are spawned by
+#   MDOoptimize (pricing / UC tests).  Hand-off through MindOpt's own
+#   queue / allocator, synchronised by atomics TSan cannot see.
+# * libmindopt.so ("MindOpt backend: parallel create+load+clone"):
+#   reproduced with a plain C-API driver (no gtopt; each thread owns its
+#   env + model).  Serialising MDOemptyenv/MDOstartenv, MDOnewmodel or
+#   MDOcopymodel leaves both reports; serialising MDOoptimize removes them.
+#   Disassembly: every MDOoptimize builds the path
+#   "<dir>libmindoptcustomizer.so.X.Y.Z" and move-assigns it into a global
+#   std::string (libmindopt+0x826903..0x82697e, no lock), then reads a
+#   lazily initialised static under the statically linked __cxa_guard.
+#   The guard part is a TSan blind spot (gone after one warm-up solve);
+#   the global std::string write is a genuine upstream race, but its only
+#   fix on our side is a lock around MDOoptimize, which would serialise
+#   every parallel MindOpt solve (SDDP).  A normal-build run of the same
+#   C-API sequence was correct in every run actually made: 8 threads x 5
+#   reps = 40/40 and 16 threads x 20 reps = 320/320 (no crash, no wrong
+#   objective, start gate on).  No larger stress was run.  Suppressed
+#   pending an upstream fix; revisit if a MindOpt crash in MDOoptimize
+#   appears.
+race:libmindopt.so
+race:libmindoptpower.so

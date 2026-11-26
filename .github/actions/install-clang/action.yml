@@ -42,13 +42,18 @@ runs:
         VER=${{ inputs.version }}
         # Retry wget — apt.llvm.org is intermittently unreachable (wget exits 4 on
         # network failure, which would otherwise abort the whole step via set -e).
+        KEY="$(mktemp -d)/llvm-snapshot.gpg.key"
         for attempt in 1 2 3; do
-          wget -qO /tmp/llvm-snapshot.gpg.key https://apt.llvm.org/llvm-snapshot.gpg.key \
+          wget -qO "$KEY" https://apt.llvm.org/llvm-snapshot.gpg.key \
             && break
           echo "Attempt $attempt/3: wget failed, retrying in 15s..."
           sleep 15
         done
-        sudo gpg --dearmor -o /usr/share/keyrings/llvm-snapshot.gpg /tmp/llvm-snapshot.gpg.key
+        # Pin the apt.llvm.org signing key fingerprint.
+        gpg --show-keys --with-colons "$KEY" \
+          | grep -q ':6084F3CF814B57C1CF12EFD515CF4D18AF4F7421:' \
+          || { echo "::error::LLVM APT key fingerprint mismatch"; exit 1; }
+        sudo gpg --dearmor -o /usr/share/keyrings/llvm-snapshot.gpg "$KEY"
         CODENAME=$(lsb_release -cs)
         echo "deb [signed-by=/usr/share/keyrings/llvm-snapshot.gpg] \
           https://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-${VER} main" \

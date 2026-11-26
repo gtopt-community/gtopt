@@ -851,7 +851,10 @@ def test_synthetic_solves_with_gtopt(tmp_path: Path) -> None:
     reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE14_BASE}",
 )
 def test_real_case14_base_topology_counts(tmp_path: Path) -> None:
-    """UC.jl ``case14/base.json`` shape: 14 buses / 12 demands / 6 thermals / 20 lines / 6 commitments."""
+    """UC.jl ``case14/base.json`` shape.
+
+    14 buses / 12 demands / 6 thermals / 20 lines / 6 commitments.
+    """
     out = tmp_path / "g.json"
     proc = _run_converter(_VENDORED_CASE14_BASE, out)
     assert proc.returncode == 0, proc.stderr
@@ -1808,7 +1811,7 @@ def test_real_case118_initcond_topology_counts(tmp_path: Path) -> None:
 def test_real_case118_initcond_lprelax_solves(tmp_path: Path) -> None:
     """LP-relax solve on the 118-bus benchmark (~26 K cols × ~29 K rows).
 
-    Pins ``obj = 6 018 946.19`` (HiGHS / CPLEX / CLP agree).  A
+    Pins ``obj = 6 019 007.97`` (HiGHS / CPLEX / CLP agree).  A
     regression that drops generators or mis-builds the piecewise cost
     matrix would shift this obj materially; a regression in the
     reserve time-series path would leave the requirement unmet and
@@ -1838,6 +1841,13 @@ def test_real_case118_initcond_lprelax_solves(tmp_path: Path) -> None:
       * gtopt's in-horizon tier windows made strict like the
         initial-outage rule (offline exactly ``hot_start_time`` is warm,
         exactly ``cold_start_time`` cold): +85.56.
+
+    Then +61.78 to ``6 019 007.97`` from CommitmentLP alone (the
+    converted JSON is unchanged): the rows ``v ≤ u`` / ``w ≤ 1 − u``
+    that stop a unit staying on from taking ``v = w = ½`` to buy start /
+    stop ramp, and the first-block ramp-down row that now lets an online
+    unit shut down in block 1.  The relaxation tightens towards the MIP
+    optimum (≈ 6 019 571); HiGHS and CPLEX agree to 1e-9.
     """
     gtopt_bin = _find_gtopt_binary()
     assert gtopt_bin is not None
@@ -1853,7 +1863,7 @@ def test_real_case118_initcond_lprelax_solves(tmp_path: Path) -> None:
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0
-    assert obj == pytest.approx(6_018_946.19, rel=1e-5)
+    assert obj == pytest.approx(6_019_007.97, rel=1e-5)
 
 
 @pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
@@ -2577,6 +2587,97 @@ def test_reserve_aware_ramp_rows_match_ucjl(
     assert obj == pytest.approx(ucjl_obj, abs=1e-3)
 
 
+def _must_take_case(curve_mw: list[list[float]]) -> dict:
+    """One bus, 10 MW load; a must-run profiled pv1 with ``curve_mw``.
+
+    gT (online, pmin 8 MW: 80 $ at pmin, 10 $/MWh above) and gB
+    (100 $/MWh) are the thermal units.  If pv1 must deliver its profile
+    [5, 4] MW, gT cannot run (8 + 5 > 10) and gB covers the rest
+    (500 + 600); if pv1 may curtail, gT runs at 8 MW and pv1 gives 2.
+    """
+    return {
+        "Parameters": {
+            "Version": "0.3",
+            "Time (h)": 2,
+            "Power balance penalty ($/MW)": 1e6,
+        },
+        "Buses": {"b1": {"Load (MW)": [10.0, 10.0]}},
+        "Generators": {
+            "gT": {
+                "Bus": "b1",
+                "Production cost curve (MW)": [8, 20],
+                "Production cost curve ($)": [80, 200],
+                "Startup costs ($)": [0.0],
+                "Startup delays (h)": [1],
+                "Initial status (h)": 5,
+                "Initial power (MW)": 8.0,
+                "Must run?": False,
+            },
+            "gB": {
+                "Bus": "b1",
+                "Production cost curve (MW)": [0, 20],
+                "Production cost curve ($)": [0, 2000],
+                "Startup costs ($)": [0.0],
+                "Startup delays (h)": [1],
+                "Initial status (h)": 5,
+                "Initial power (MW)": 0.0,
+                "Must run?": False,
+            },
+            "pv1": {
+                "Bus": "b1",
+                "Production cost curve (MW)": curve_mw,
+                "Production cost curve ($)": [0.0] * len(curve_mw),
+                "Initial status (h)": -24,
+                "Initial power (MW)": 0,
+                "Must run?": True,
+            },
+        },
+    }
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.parametrize(
+    ("curve_mw", "pmin", "ucjl_obj"),
+    [
+        ([[5.0, 4.0]], [[5.0, 4.0]], 1_100.0),  # min = max: must take
+        ([[0.0, 0.0], [5.0, 4.0]], 0.0, 160.0),  # min 0: may curtail
+    ],
+)
+def test_profiled_must_run_floor_like_ucjl(
+    tmp_path: Path,
+    curve_mw: list[list[float]],
+    pmin: float | list[list[float]],
+    ucjl_obj: float,
+) -> None:
+    """A must-run profiled unit produces at least its first breakpoint.
+
+    UC.jl's minimum power is ``curve_mw[0][t]`` and ``Must run?`` keeps
+    the unit on, so a one-breakpoint curve (min = max) is must-take.
+    The converter gave every profiled unit ``pmin = 0`` and gtopt
+    curtailed free rooftop PV / run-of-river hydro to keep thermal units
+    on: 160 instead of 1 100 here, and part of the RTS-GMLC +3.48 %.
+    ``ucjl_obj`` is UnitCommitment.jl + HiGHS on the same JSON.
+    """
+    gtopt_bin = _find_gtopt_binary()
+    assert gtopt_bin is not None
+    mip_solver = _require_mip_solver(gtopt_bin)
+
+    src = _write_ucjl(tmp_path, _must_take_case(curve_mw))
+    out = tmp_path / "g.json"
+    proc = _run_converter(src, out, "--mip")
+    assert proc.returncode == 0, proc.stderr
+    gens = {
+        g["name"]: g for g in json.loads(out.read_text())["system"]["generator_array"]
+    }
+    assert gens["pv1"]["pmin"] == pmin
+
+    rc, log = _solve(gtopt_bin, out, tmp_path / "run", solver=mip_solver)
+    assert rc == 0, log
+    status, obj = _read_solution_status(tmp_path / "run" / "output")
+    assert status == 0
+    assert obj == pytest.approx(ucjl_obj, rel=1e-6)
+
+
 def _reserve_penalty_case(penalty: float | None) -> dict:
     """One bus, 100 MW load, 150 MW spinning reserve only gA can carry.
 
@@ -3152,8 +3253,14 @@ def _run_ucjl_cross_check(
     pinned_gens: tuple[str, ...] = (),
     forbidden_gens: tuple[str, ...] = (),
     drop_keys: tuple[str, ...] = (),
+    objective_rel: float | None = None,
 ) -> None:
     """Shared body for per-fixture UC.jl golden cross-checks.
+
+    ``objective_rel`` also checks gtopt's objective against the golden's,
+    for fixtures where the two objectives are the same function (no
+    price-sensitive loads, every reserve met); the tolerance is the MIP
+    gap both solves stop at.
 
     ``drop_keys`` removes top-level UC.jl sections before conversion —
     for sections the UC.jl version that produced the golden does not
@@ -3193,8 +3300,10 @@ def _run_ucjl_cross_check(
     rc, log = _solve(gtopt_bin, out, tmp_path / "run", solver=mip_solver)
     assert rc == 0, log
 
-    status, _ = _read_solution_status(tmp_path / "run" / "output")
+    status, obj = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0, f"gtopt solve status = {status}"
+    if objective_rel is not None:
+        assert obj == pytest.approx(golden["objective"], rel=objective_rel)
 
     gtopt_json = json.loads(out.read_text())
     _assert_ucjl_match(
@@ -3471,17 +3580,27 @@ def test_ucjl_golden_base_with_storage(tmp_path: Path) -> None:
 @pytest.mark.slow
 @pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
 def test_ucjl_golden_rts_gmlc(tmp_path: Path) -> None:
-    """rts_gmlc: large profile-heavy fixture; loose MW tolerance.
+    """rts_gmlc: large profile-heavy fixture; objective = UC.jl's.
 
-    ``slow``: the MIP takes seconds under CPLEX but many minutes under
-    HiGHS (the default MIP solver), so it runs only with
-    ``GTOPT_RUN_SLOW=1`` / ``-m slow`` rather than under a time limit.
+    ``slow``: the MIP takes minutes under CPLEX and hours under HiGHS
+    (the default MIP solver), so it runs only with ``GTOPT_RUN_SLOW=1``
+    / ``-m slow`` rather than under a time limit.
+
+    One bus, no price-sensitive loads, reserve met: gtopt's objective is
+    UC.jl's, checked to the default relative MIP gap (1e-4, CPLEX and
+    HiGHS).  gtopt was 1 277 044.12 (+3.48 %) against UC.jl's
+    1 234 123.18 until two fixes: units online at the horizon start
+    could not shut down in block 1 (C5 ramp-down) and must-run profiled
+    units with min = max were curtailable.  Now 1 234 123.14 (CPLEX).
+    The per-unit MW tolerance stays loose: identical units (e.g.
+    315_CT_6 / 315_CT_7) tie and the solvers pick either.
     """
     _run_ucjl_cross_check(
         tmp_path,
         "rts_gmlc",
         _VENDORED_RTS_GMLC,
         block_mw_tol=200.0,
+        objective_rel=1e-4,
     )
 
 

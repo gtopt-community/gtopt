@@ -291,6 +291,25 @@ def tidy_files(files: Iterable[str]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+def command_packages(text: str, tool: str) -> set[str] | None:
+    """Packages of the first ``<tool> ...`` command line in ``text``.
+
+    The line is a one-line ``run: <tool> ...``, a line of a ``run: |``
+    block, or a bare shell line (CLAUDE.md).  Flags (``--jobs=0``) and
+    variables are dropped; a line naming no package -- the affected-mode
+    ``pylint --jobs=0 $PYLINT`` -- is skipped.  ``None``: no such line.
+    """
+    for m in re.finditer(rf"^\s*(?:run:\s*)?{tool}\s+([^\n]*)$", text, re.MULTILINE):
+        pkgs = {
+            t
+            for t in m.group(1).split()
+            if not t.startswith(("-", "$")) and "=" not in t
+        }
+        if pkgs:
+            return pkgs
+    return None
+
+
 class Repo:  # pylint: disable=too-many-instance-attributes,too-many-public-methods
     """Lazily scanned static model of the repository."""
 
@@ -626,16 +645,12 @@ class Repo:  # pylint: disable=too-many-instance-attributes,too-many-public-meth
     def ci_python_lists(self) -> tuple[set[str] | None, set[str] | None]:
         """(pylint, mypy) package lists of ``.github/workflows/scripts.yml``."""
         text = self.text(".github/workflows/scripts.yml")
+        return command_packages(text, "pylint"), command_packages(text, "mypy")
 
-        def grab(tool: str) -> set[str] | None:
-            m = re.search(rf"run:\s*{tool}\s+([^\n]*)", text)
-            if not m:
-                return None
-            return {
-                t for t in m.group(1).split() if not t.startswith("-") and "=" not in t
-            }
-
-        return grab("pylint"), grab("mypy")
+    def doc_python_lists(self) -> tuple[set[str] | None, set[str] | None]:
+        """(pylint, mypy) package lists of the CLAUDE.md pre-commit commands."""
+        text = self.text("CLAUDE.md")
+        return command_packages(text, "pylint"), command_packages(text, "mypy")
 
     def tests_mentioning(
         self, token: str, roots: Iterable[str], context: str
