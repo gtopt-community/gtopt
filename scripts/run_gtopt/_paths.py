@@ -11,9 +11,10 @@ gtopt picks the output directory with this precedence (see
    a directory (``gtopt case/``), else the compiled-in ``output``.
 
 A relative value from 1-2 (the command line) is taken relative to the
-CWD; one from 3-4 is anchored at the planning JSON's parent directory.  run_gtopt uses this single resolver for the stale-file
-cleanup, the TUI status / stop file, the post-run report and the
-post-flight checks so all of them look where gtopt actually wrote.
+CWD; one from 3-4 is anchored at the planning JSON's parent directory.
+run_gtopt uses this single resolver for the stale-file cleanup, the TUI
+status / stop file, the post-run report and the post-flight checks so
+all of them look where gtopt actually wrote.
 """
 
 from __future__ import annotations

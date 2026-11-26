@@ -210,7 +210,7 @@ jobs:
           PYLINT: ${{ steps.affected.outputs.pylint }}
         run: |
           if [ "$MODE" = "full" ] || [ "$PY" = "full" ]; then
-            pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt gtopt2pp gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_solvers gtopt_compress_lp gtopt_config run_gtopt sddp2gtopt plexos2gtopt gasnet2gtopt gtopt_writer dlr2gtopt
+            pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt gtopt2pp gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_solvers gtopt_compress_lp gtopt_config run_gtopt sddp2gtopt plexos2gtopt gasnet2gtopt dlr2gtopt
           elif [ -n "$PYLINT" ]; then
             # shellcheck disable=SC2086
             pylint --jobs=0 $PYLINT
