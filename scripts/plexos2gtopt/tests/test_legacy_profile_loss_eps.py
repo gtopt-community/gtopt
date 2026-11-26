@@ -134,7 +134,7 @@ def test_clean_holds_loss_eps_and_cen_breaks_it(
     planning = _case(_load_term(profile))
     (tmp_path / "c.json").write_text(json.dumps(planning))
     proc = subprocess.run(
-        [str(binary), "c.json", "-d", "output", "--solver", "clp"],
+        [str(binary), "c.json", "-d", "output"],
         cwd=tmp_path,
         capture_output=True,
         text=True,
