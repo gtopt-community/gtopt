@@ -280,8 +280,20 @@ def test_cli_convert_without_simulation(reszone_db, tmp_path):
     assert blk["system"]["line_array"][0]["resistance"] == 30
 
 
+def _round_floats(obj: object) -> object:
+    """Floats to 10 significant digits: the quadrature weights and fitted
+    values differ in the last bits between numpy / scipy builds."""
+    if isinstance(obj, float):
+        return float(f"{obj:.10g}")
+    if isinstance(obj, dict):
+        return {k: _round_floats(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_round_floats(v) for v in obj]
+    return obj
+
+
 def _canon(path: Path) -> str:
-    return json.dumps(json.loads(path.read_text()), sort_keys=True)
+    return json.dumps(_round_floats(json.loads(path.read_text())), sort_keys=True)
 
 
 def test_library_mini_and_caso2emb_reproducible(tmp_path):
@@ -300,7 +312,7 @@ def test_library_tcheby_cases_reproducible(real_dbs, tmp_path):
         for mode in ("block", "point"):
             conv = convert_case(spec, real_dbs, mode)
             committed = REPO_CASES / spec.name / f"{spec.name}_{mode}.json"
-            got = json.dumps(conv.planning, sort_keys=True)
+            got = json.dumps(_round_floats(conv.planning), sort_keys=True)
             assert got == _canon(committed), committed
 
 
