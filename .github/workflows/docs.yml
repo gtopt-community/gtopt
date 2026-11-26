@@ -43,11 +43,14 @@ jobs:
 
       - name: Install lint dependencies
         run: |
+          # pytest-xdist: tools/conftest.py implements one of its hooks
           pip install markdown-it-py mdit-py-plugins pytest pytest-xdist
           npm ci --prefix tools/latex_lint --no-audit --no-fund
 
       - name: Test the lint
-        run: python -m pytest -q -p no:cacheprovider tools/test_check_latex_math.py
+        run: >-
+          python -m pytest -q -p no:cacheprovider
+          tools/test_check_latex_math.py tools/test_doxygen_md_math.py
 
       - name: Lint LaTeX math in Markdown
         run: |
@@ -103,7 +106,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends doxygen
-          pip3 install jinja2 Pygments
+          # markdown-it-py + mdit-py-plugins: the *.md math filter
+          # (tools/doxygen_md_math.py); MathJax runs in the browser.
+          pip3 install jinja2 Pygments markdown-it-py mdit-py-plugins
 
       - name: Build Doxygen documentation
         run: |
