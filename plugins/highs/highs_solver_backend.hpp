@@ -12,6 +12,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <gtopt/solver_backend.hpp>
@@ -163,6 +164,7 @@ public:
   [[nodiscard]] bool model_is_mip() const;
   [[nodiscard]] bool has_mip_incumbent() const override;
   [[nodiscard]] bool is_abandoned() const override;
+  [[nodiscard]] std::pair<int, std::string> raw_status() const override;
   [[nodiscard]] bool is_proven_primal_infeasible() const override;
   [[nodiscard]] bool is_proven_dual_infeasible() const override;
   // ---- options ----

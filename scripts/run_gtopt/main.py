@@ -141,7 +141,7 @@ def make_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="CASE",
         help=(
-            "PLP directory, GTOpt directory, or JSON file. "
+            "PLP directory, gtopt directory, or JSON file. "
             "When omitted, auto-detects from the current directory."
         ),
     )
@@ -276,7 +276,7 @@ def make_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help=(
-            "list live GTOpt runs (PID, case, status, gap, elapsed) and exit. "
+            "list live gtopt runs (PID, case, status, gap, elapsed) and exit. "
             "Reads $XDG_CACHE_HOME/gtopt/runs/."
         ),
     )
@@ -443,9 +443,7 @@ def convergence_exit_code(rc: int, output_dir: Path | None, since: float) -> int
         return rc
     # None: no status, unreadable, or a stale file from an earlier run
     # (older than the start minus the coarse-mtime slack).
-    status = read_status(
-        output_dir / STATUS_FILE, since=since - _STALE_MTIME_SLACK_S
-    )
+    status = read_status(output_dir / STATUS_FILE, since=since - _STALE_MTIME_SLACK_S)
     if status is None:
         return rc
     kind = classify(0, status).kind

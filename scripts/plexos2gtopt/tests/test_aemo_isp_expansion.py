@@ -10,7 +10,7 @@ one-year monthly-stage expansion case.
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -382,6 +382,8 @@ def test_day_masks_and_rep_mean() -> None:
     arr = np.repeat(np.arange(5.0), 24)  # day d has value d all day
     np.testing.assert_allclose(exp.rep_mean(arr, high), np.full(24, 2.0))
     np.testing.assert_allclose(exp.rep_mean(arr, low), np.full(24, 2.0))
+    half = np.repeat(np.arange(5.0), 48)  # half-hourly reads
+    np.testing.assert_allclose(exp.rep_mean(half, high, 48), np.full(48, 2.0))
     assert exp.fy_start_stages(exp.month_starts(2028, 1), 2)[:3] == [
         True,
         False,
@@ -515,6 +517,275 @@ def test_reservoir_terminal_rule_and_fill_year(xcase: tuple[Path, Path]) -> None
     assert st["hydro_added_later_turbine_array"] == 1
 
 
+def test_weekday_rep_days_and_cycle_group(xcase: tuple[Path, Path]) -> None:
+    case = _build(*xcase, rep_days=2, rep_kind="weekday", cycle_group=True)
+    sim = case.planning["simulation"]
+    st = sim["stage_array"]
+    assert len(st) == 24
+    # July 2027: 22 weekdays + 9 weekend days
+    assert case.stats["stage_days"][:2] == [22, 9]
+    assert st[0]["cycle_group"] == st[1]["cycle_group"] == 1
+    assert st[2]["cycle_group"] == 2
+    # weights: days per typical week, proportional to the days represented
+    assert st[0]["cycle_weight"] == pytest.approx(7 * 22 / 31)
+    assert st[0]["cycle_weight"] + st[1]["cycle_weight"] == pytest.approx(7.0)
+    assert case.stats["period"] == "rep_days:2:weekday"
+    with pytest.raises(ValueError):
+        _build(*xcase, rep_kind="weekday")
+
+
+@pytest.mark.parametrize(
+    ("spec", "nb"),
+    [("uniform:1", 168), ("uniform:2", 84), ("peak_ramp:4", 112), ("chebyshev:16", 16)],
+)
+def test_typical_week_samplers(xcase: tuple[Path, Path], spec: str, nb: int) -> None:
+    one = _build(*xcase)
+    wk = _build(*xcase, week_sampler=spec)
+    sim = wk.planning["simulation"]
+    st = sim["stage_array"]
+    assert len(st) == 12 and st[0]["count_block"] == nb
+    assert st[0]["period_hours"] == 168.0
+    assert wk.stats["blocks_per_stage"] == nb
+    # weighted durations: the stage stands for the whole month
+    dur = np.array([b["duration"] for b in sim["block_array"][:nb]])
+    assert dur.sum() == pytest.approx(31 * 24)
+    assert ("time" in sim["block_array"][0]) == spec.startswith("chebyshev")
+    # Chebyshev nodes are point samples; uniform / peak_ramp keep blocks
+    assert (st[0].get("sampling") == "point") == spec.startswith("chebyshev")
+    # point stages: cc (Clenshaw-Curtis) storage integration for batteries AND reservoirs
+    mo = wk.planning["options"]["model_options"]
+    point = spec.startswith("chebyshev")
+    assert (mo.get("battery_storage_integration") == "cc") == point
+    assert (mo.get("reservoir_storage_integration") == "cc") == point
+    # daily-sum constraint keeps the month total (mean day × days)
+    r1 = [row[0] for row in _ucs(one)["isp_GT1_Day"]["rhs"]]
+    rw = [row[0] for row in _ucs(wk)["isp_GT1_Day"]["rhs"]]
+    assert rw[0] == pytest.approx(r1[0])
+    # block values: the energy of the chosen week (uniform: exact means)
+    p = wk.schedules[("Generator", "pmax")][_gens(wk)["WF1"]["uid"]]
+    assert p.shape == (12, nb)
+    assert len(wk.stats["week_window_start_hour"]) == 12
+    assert wk.stats["steps_per_day"] == 48
+    hourly = _build(*xcase, week_sampler=spec, week_steps_per_day=24)
+    assert hourly.stats["steps_per_day"] == 24
+    if spec == "uniform:1":
+        # hourly blocks: the same values from hourly or half-hourly reads
+        ph = hourly.schedules[("Generator", "pmax")][_gens(hourly)["WF1"]["uid"]]
+        np.testing.assert_allclose(ph, p, rtol=1e-9, atol=1e-9)
+
+
+def test_rep_day_chebyshev_sampler(xcase: tuple[Path, Path]) -> None:
+    hourly = _build(*xcase, rep_days=2, rep_kind="weekday")
+    case = _build(*xcase, rep_days=2, rep_kind="weekday", day_sampler="chebyshev:8")
+    sim = case.planning["simulation"]
+    st = sim["stage_array"]
+    assert len(st) == 24 and st[0]["count_block"] == 8
+    assert st[0]["period_hours"] == 24.0 and st[0]["sampling"] == "point"
+    mo = case.planning["options"]["model_options"]
+    assert mo["battery_storage_integration"] == "cc"
+    assert mo["reservoir_storage_integration"] == "cc"
+    assert case.stats["period"] == "day:chebyshev:8"
+    # previous behaviour (gtopt's per-type defaults) stays reachable
+    prev = _build(
+        *xcase,
+        rep_days=2,
+        rep_kind="weekday",
+        day_sampler="chebyshev:8",
+        point_storage_integration="none",
+    )
+    pmo = prev.planning["options"]["model_options"]
+    assert "battery_storage_integration" not in pmo
+    assert "reservoir_storage_integration" not in pmo
+    cc = _build(
+        *xcase,
+        rep_days=2,
+        rep_kind="weekday",
+        day_sampler="chebyshev:8",
+        point_storage_integration="cc",
+    )
+    cmo = cc.planning["options"]["model_options"]
+    assert cmo["battery_storage_integration"] == "cc"
+    assert cmo["reservoir_storage_integration"] == "cc"
+    assert case.stats["blocks_per_stage"] == 8
+    assert case.stats["steps_per_day"] == 48
+    # July 2027: 22 weekdays; the stage weights stand for those days
+    blk = sim["block_array"]
+    dur = np.array([b["duration"] for b in blk[:8]])
+    assert dur.sum() == pytest.approx(22 * 24)
+    times = [b["time"] for b in blk[:8]]
+    assert times == sorted(times) and 0.0 <= times[0] and times[-1] < 24.0
+    # every (stage, block) schedule has the stage's block count
+    for (cls, fld), tables in case.schedules.items():
+        for arr in tables.values():
+            assert np.asarray(arr).shape[-1] == 8, (cls, fld)
+    # daily-sum constraint keeps the represented days' total
+    r1 = [row[0] for row in _ucs(hourly)["isp_GT1_Day"]["rhs"]]
+    rc = [row[0] for row in _ucs(case)["isp_GT1_Day"]["rhs"]]
+    assert rc[0] == pytest.approx(r1[0])
+    with pytest.raises(ValueError):
+        _build(*xcase, day_sampler="chebyshev:8", week_sampler="uniform:1")
+    with pytest.raises(ValueError):
+        exp.make_day_sampler("uniform:1")
+    d = exp.make_day_sampler("chebyshev:12")
+    assert d.window_hours == 24.0 and d.periodic == "C0"
+
+
+def test_rep_day_chebyshev_auto_order(xcase: tuple[Path, Path]) -> None:
+    case = _build(*xcase, day_sampler="chebyshev:auto:tol=0.5")
+    orders = case.stats["chebyshev_auto_orders"]
+    assert len(orders) == 12 and set(orders) <= set(exp.DAY_ORDERS)
+    assert case.stats["blocks_per_stage"] == max(orders)
+    assert case.stats["period"] == f"day:chebyshev:{max(orders)}"
+
+
+def test_chrono_reference_window(xcase: tuple[Path, Path]) -> None:
+    case = _build(*xcase, week_sampler="chrono:28", week_steps_per_day=24)
+    sim = case.planning["simulation"]
+    st = sim["stage_array"]
+    assert len(st) == 12 and st[0]["count_block"] == 28 * 24
+    assert st[0]["period_hours"] == 28 * 24.0 and "sampling" not in st[0]
+    dur = np.array([b["duration"] for b in sim["block_array"][: 28 * 24]])
+    assert dur.sum() == pytest.approx(31 * 24)  # July: scaled to the month
+    # the window is the first 28 days, hour by hour
+    assert case.stats["week_window_start_hour"] == [0] * 12
+    one = _build(*xcase)
+    p1 = one.schedules[("Generator", "pmax")][_gens(one)["WF1"]["uid"]]
+    pc = case.schedules[("Generator", "pmax")][_gens(case)["WF1"]["uid"]]
+    assert pc.shape == (12, 28 * 24)
+    # month-mean day of the reference ≈ the rep-day profile (28 of 31 days)
+    assert np.mean(pc[0]) == pytest.approx(np.mean(p1[0]), rel=0.2)
+
+
+def test_week_start_wednesday_noon(xcase: tuple[Path, Path]) -> None:
+    """Every typical-week sampler starts its window on Wednesday 12:00 by
+    default (``--week-start wed:12``); ``mon:0`` moves it."""
+    months = exp.month_starts(2028, 1)
+    for spec in ("uniform:2", "chebyshev:24"):
+        wk = _build(*xcase, week_sampler=spec, week_steps_per_day=24)
+        assert wk.stats["week_start"] == "wed:12"
+        for day0, h0 in zip(months, wk.stats["week_window_start_hour"]):
+            d, h = divmod(h0, 24)
+            assert (day0 + timedelta(days=d)).weekday() == 2 and h == 12
+    mon = _build(*xcase, week_sampler="uniform:2", week_start="mon:0")
+    for day0, h0 in zip(months, mon.stats["week_window_start_hour"]):
+        d, h = divmod(h0, 24)
+        assert (day0 + timedelta(days=d)).weekday() == 0 and h == 0
+    rep = _build(*xcase)
+    assert rep.stats["week_start"] is None
+    chrono = exp.make_sampler("chrono:28")
+    assert exp.with_week_start(chrono, "wed:12") is chrono
+
+
+def test_uniform_point_week(xcase: tuple[Path, Path]) -> None:
+    """``uniform:1:point``: the hourly week as a point stage (power-based
+    formulation): same grid and values as ``uniform:1``, node times at
+    the hour centres, sampling = point, cc storage integration."""
+    blk = _build(*xcase, week_sampler="uniform:1")
+    pt = _build(*xcase, week_sampler="uniform:1:point")
+    sb, sp = blk.planning["simulation"], pt.planning["simulation"]
+    assert sp["stage_array"][0]["sampling"] == "point"
+    assert "sampling" not in sb["stage_array"][0]
+    assert [b["time"] for b in sp["block_array"][:3]] == [0.5, 1.5, 2.5]
+    assert [b["duration"] for b in sp["block_array"]] == [
+        b["duration"] for b in sb["block_array"]
+    ]
+    pb = blk.schedules[("Generator", "pmax")][_gens(blk)["WF1"]["uid"]]
+    pp = pt.schedules[("Generator", "pmax")][_gens(pt)["WF1"]["uid"]]
+    np.testing.assert_allclose(pp, pb)
+    mo = pt.planning["options"]["model_options"]
+    assert mo["battery_storage_integration"] == "cc"
+    assert exp.make_sampler("uniform:2:point").point
+    assert not exp.make_sampler("uniform:2").point
+    with pytest.raises(ValueError):
+        exp.make_sampler("uniform:1:bogus")
+
+
+def test_ramp_refine_weeks(
+    xcase: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``--ramp-refine``: the 1 h block week gains 30 / 15 min blocks in
+    the sun windows (same total duration), the Chebyshev week gains the
+    nested 2N nodes (still a point stage with cc), "off" is a no-op.
+    The fixture's flat net load has no ramps: the events are stubbed
+    (detection is tested in test_week_sampler)."""
+    import plexos2gtopt.week_sampler as ws  # pylint: disable=import-outside-toplevel
+
+    monkeypatch.setattr(
+        ws, "ramp_events", lambda ref, step, day_hours=24.0: np.array([30.0, 90.0])
+    )
+
+    def blocks(case):
+        sim = case.planning["simulation"]
+        return sim["block_array"][: sim["stage_array"][0]["count_block"]]
+
+    def total(case) -> float:
+        return sum(b["duration"] for b in blocks(case))
+
+    base = _build(*xcase, week_sampler="uniform:1")
+    for res, spec in ((0.5, "30m"), (0.25, "15m")):
+        ref = _build(*xcase, week_sampler="uniform:1", ramp_refine=spec)
+        assert len(blocks(ref)) > len(blocks(base))
+        assert total(ref) == pytest.approx(total(base))
+        assert ref.stats["ramp_refine"] == spec
+        # binaries stay on the base hourly grid: 168 commitment cells
+        cells = [b["commitment_cell"] for b in blocks(ref)]
+        assert cells == sorted(cells) and len(set(cells)) == 168
+        scale = total(base) / 168.0
+        assert min(b["duration"] for b in blocks(ref)) == pytest.approx(res * scale)
+    off = _build(*xcase, week_sampler="uniform:1", ramp_refine="off")
+    assert len(blocks(off)) == len(blocks(base))
+
+    ch = _build(*xcase, week_sampler="chebyshev:16")
+    chr_ = _build(*xcase, week_sampler="chebyshev:16", ramp_refine="on")
+    assert 16 < len(blocks(chr_)) < 32
+    assert all("commitment_cell" not in b for b in blocks(chr_))
+    assert total(chr_) == pytest.approx(total(ch))
+    st = chr_.planning["simulation"]["stage_array"][0]
+    assert st["sampling"] == "point"
+    mo = chr_.planning["options"]["model_options"]
+    assert mo["battery_storage_integration"] == "cc"
+    with pytest.raises(ValueError):
+        _build(*xcase, week_sampler="chebyshev:16:gauss", ramp_refine="30m")
+    with pytest.raises(ValueError):
+        exp.with_ramp_refine(object(), "30m")  # type: ignore[arg-type]
+
+
+def test_week_sampler_gcost_schedule_width(xcase: tuple[Path, Path]) -> None:
+    wk = _build(*xcase, week_sampler="uniform:2")
+    for (cls, fld), tables in wk.schedules.items():
+        for arr in tables.values():
+            assert np.asarray(arr).shape[-1] == 84, (cls, fld)
+
+
+def test_make_sampler() -> None:
+    s = exp.make_sampler(
+        "chebyshev:64:gauss:periodic=C0:odd_terms=3:bound_mode=bounded"
+    )
+    assert s.n == 64 and s.kind == "gauss" and s.periodic == "C0"
+    assert s.odd_terms == 3 and s.bound_mode == "bounded"
+    assert exp.make_sampler("uniform:2").hours == 2.0
+    with pytest.raises(ValueError):
+        exp.make_sampler("chebyshev:8:bogus=1")
+    with pytest.raises(ValueError):
+        exp.make_sampler("daily")
+
+
+def test_chebyshev_auto_order(xcase: tuple[Path, Path]) -> None:
+    assert exp.split_auto_order("chebyshev:64") is None
+    spec, tol, metric = exp.split_auto_order(  # type: ignore[misc]
+        "chebyshev:auto:gauss:tol=0.05:metric=ramp"
+    )
+    assert spec == "chebyshev:{n}:gauss" and tol == 0.05 and metric == "ramp"
+    with pytest.raises(ValueError):
+        exp.split_auto_order("chebyshev:auto:metric=bogus")
+    wk = _build(*xcase, week_sampler="chebyshev:auto:tol=0.5")
+    orders = wk.stats["chebyshev_auto_orders"]
+    assert len(orders) == 12 and all(n >= 32 for n in orders)
+    nb = max(orders)  # periodic Lobatto: N blocks (node N ≡ node 0 dropped)
+    assert wk.stats["blocks_per_stage"] == nb
+    assert wk.stats["period"] == f"chebyshev:{max(orders)}"
+
+
 def test_feasible_cycle_eini_clips_retiring_battery(caplog):
     from plexos2gtopt.aemo_isp_expansion import (  # pylint: disable=import-outside-toplevel
         _feasible_cycle_eini,
@@ -526,6 +797,23 @@ def test_feasible_cycle_eini_clips_retiring_battery(caplog):
     ok = {"emax": [[8.9] * 24] * 2, "emin": [[1.0] * 24] * 2}
     assert _feasible_cycle_eini("B", 4.46, ok) == 4.46
     assert _feasible_cycle_eini("B", 0.5, ok) == 1.0
+
+
+def test_chebyshev_periodic_default_ends_agree():
+    from plexos2gtopt.aemo_isp_expansion import (  # pylint: disable=import-outside-toplevel
+        make_sampler,
+    )
+
+    s = make_sampler("chebyshev:32")
+    assert s.periodic == "C0"
+    assert make_sampler("chebyshev:32:periodic=none").periodic is None
+    t = (np.arange(336) + 0.5) * 0.5
+    y = 0.5 + 0.4 * np.sin(2 * np.pi * t / 24.0) + 0.002 * t
+    g = s.grid()
+    v = s.sample(y, 0.5, g)
+    # node N ≡ node 0 dropped: 32 blocks, no duplicated end instant
+    assert len(v) == 32 and g.times[-1] < 168.0
+    assert v @ g.durations == pytest.approx(y.sum() * 0.5, rel=1e-10)
 
 
 @pytest.mark.parametrize(

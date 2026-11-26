@@ -64,6 +64,18 @@ DEPRECATED_KEYS: dict[str, dict[str, str]] = {
     },
 }
 
+#: Keys of removed features the C++ contract still parses ONLY so old
+#: inputs load; gtopt ignores them with a warning.  Tools must not emit
+#: them.  ``{contract type: {key: why}}``.
+REMOVED_KEYS: dict[str, dict[str, str]] = {
+    "ModelOptions": {
+        "transition_status_rows": "commitment status rows removed 2026-11-26",
+    },
+    "Commitment": {
+        "transition_status_rows": "commitment status rows removed 2026-11-26",
+    },
+}
+
 # ── header parsing ─────────────────────────────────────────────────────────
 
 _CONTRACT_RE = re.compile(r"struct\s+json_data_contract\s*<\s*([A-Za-z_][\w:]*)\s*>")
@@ -313,9 +325,20 @@ def find_schema_problems(
             return
         fields = set(info["fields"])
         deprecated = DEPRECATED_KEYS.get(contract, {})
+        removed = REMOVED_KEYS.get(contract, {})
         for key, value in obj.items():
             kpath = f"{path}.{key}" if path else key
-            if key in deprecated:
+            if key in removed:
+                issues.append(
+                    SchemaIssue(
+                        "deprecated",
+                        kpath,
+                        key,
+                        contract,
+                        f"removed key '{kpath}' is ignored ({removed[key]})",
+                    )
+                )
+            elif key in deprecated:
                 issues.append(
                     SchemaIssue(
                         "deprecated",

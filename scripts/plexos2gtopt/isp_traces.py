@@ -24,7 +24,8 @@ from __future__ import annotations
 
 import csv
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from functools import lru_cache
@@ -79,19 +80,47 @@ def _read_rows(path: str) -> tuple[list[str], dict[date, list[float]]]:
     return header, rows
 
 
+#: samples per day of every series built from the traces (24 = hourly,
+#: the default; 48 = half-hourly, used by the typical-week samplers)
+_STEPS_PER_DAY = [24]
+
+
+def steps_per_day() -> int:
+    """Samples per day of the series read now (24 or 48)."""
+    return _STEPS_PER_DAY[0]
+
+
+@contextmanager
+def trace_resolution(spd: int) -> Iterator[None]:
+    """Read every trace at ``spd`` samples per day (24 or 48) inside the
+    ``with`` block."""
+    if spd not in (24, 48):
+        raise ValueError(f"steps per day must be 24 or 48, got {spd}")
+    old = _STEPS_PER_DAY[0]
+    _STEPS_PER_DAY[0] = spd
+    try:
+        yield
+    finally:
+        _STEPS_PER_DAY[0] = old
+
+
 def read_interval_trace(
     path: Path, start: date, days: int, *, fill: str = "nearest"
 ) -> np.ndarray:
-    """Return an hourly series (``24 × days``) from an interval or daily CSV.
+    """Return a series (``steps_per_day() × days``, hourly by default) from
+    an interval or daily CSV.
 
-    Half-hourly columns are averaged in pairs (MW average over the
-    hour); a single value column is held constant over the day.  A day
+    Half-hourly columns are averaged in pairs for an hourly series (MW
+    average over the hour) or kept as they are for a half-hourly one;
+    hourly columns are held over both half hours; a single value column
+    is held constant over the day.  A day
     missing from the file is filled from the nearest earlier day of the
     same calendar date one year back when ``fill == "nearest"`` (daily
     hydro files start at 2019/2020) or raises ``KeyError``.
     """
     _header, rows = _read_rows(str(path))
-    out = np.zeros(24 * days, dtype=np.float64)
+    spd = steps_per_day()
+    out = np.zeros(spd * days, dtype=np.float64)
     for k in range(days):
         day = start + timedelta(days=k)
         vals = rows.get(day)
@@ -99,7 +128,7 @@ def read_interval_trace(
             vals = _nearest(rows, day)
         if vals is None:
             raise KeyError(f"{path.name}: no row for {day}")
-        out[24 * k : 24 * (k + 1)] = _to_hourly(vals)
+        out[spd * k : spd * (k + 1)] = _to_steps(vals, spd)
     return out
 
 
@@ -122,6 +151,20 @@ def _shift_year(day: date, delta: int) -> date:
         return day.replace(year=day.year + delta)
     except ValueError:  # 29 Feb
         return day.replace(year=day.year + delta, day=28)
+
+
+def _to_steps(vals: list[float], spd: int) -> np.ndarray:
+    if spd == 24:
+        return _to_hourly(vals)
+    n = len(vals)
+    arr = np.asarray(vals, dtype=np.float64)
+    if n == 48:
+        return arr
+    if n == 24:
+        return np.repeat(arr, 2)
+    if n == 1:
+        return np.full(48, arr[0])
+    raise ValueError(f"unsupported interval count {n} (expected 48, 24 or 1)")
 
 
 def _to_hourly(vals: list[float]) -> np.ndarray:

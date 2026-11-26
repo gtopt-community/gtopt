@@ -87,7 +87,8 @@ def make_parser() -> argparse.ArgumentParser:
         help=(
             "paper: GAMS startup/shutdown capability and reserve-coupled "
             "ramps as user constraints (default); native: gtopt Commitment "
-            "ramp fields only (reserve not in the ramps)"
+            "ramp fields only (reserve not in the ramps); power_based: the "
+            "native fields under the power-based UC formulation"
         ),
     )
     p.add_argument(

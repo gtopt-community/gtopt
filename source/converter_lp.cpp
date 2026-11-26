@@ -504,6 +504,7 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
       if (exclusive && u_chg_col && u_dis_col) {
         auto row =
             SparseRow {
+                .pin_scale = true,  // pure commitment logic
                 .class_name = Element::class_name.full_name(),
                 .constraint_name = ChargeDischargeExclusiveName,
                 .variable_uid = uid(),

@@ -34,6 +34,7 @@
 #include <cstdlib>
 #include <expected>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <ranges>
 #include <string>
@@ -819,6 +820,7 @@ This directory contains the output of a `gtopt` run.
 | `solver_status.json` | One-line solver outcome (status, method, elapsed time, scenes done). |
 | `<Class>/` | Per-LP-class output Parquet streams (`Generator/generation_sol.parquet`, `Bus/balance_dual.parquet`, `Line/flowp_sol.parquet`, …).  Which fields appear depends on `--write-out`. |
 | `logs/` | Per-(scene, phase) solver logs (`cplex_sc0_ph0.log`, `gtopt_1.log`). |
+| `block_time.csv` | Only with point-sampled stages (`Stage.sampling = "point"`): node time of each block — values are samples at `time`, `duration` is a quadrature weight. |
 | `README.md` | This file. |
 
 ## Reproducing this run
@@ -859,6 +861,45 @@ jq '.system | keys' gtopt_state.json
         }
       } catch (const std::exception& ex) {
         spdlog::warn("  failed to write README {}: {}", readme_path, ex.what());
+      }
+
+      // block_time.csv — node time of every block when some stage is
+      // point-sampled (`Stage.sampling = "point"`): its block values are
+      // samples AT `time` (not steps of length `duration`, which is a
+      // quadrature weight there).  Join on (stage, block) with the
+      // long-format Parquet outputs.
+      const auto& sim = my_planning.simulation;
+      if (std::ranges::any_of(
+              sim.stage_array,
+              [](const auto& st)
+              { return st.sampling.value_or("block") == "point"; }))
+      {
+        const auto bt_path =
+            (std::filesystem::path(out_dir) / "block_time.csv").string();
+        std::ofstream f(bt_path, std::ios::trunc);
+        f << "stage,block,sampling,time,duration\n";
+        for (const auto& st : sim.stage_array) {
+          const auto sampling = st.sampling.value_or("block");
+          double clock = 0.0;
+          for (std::size_t b = st.first_block;
+               b < st.first_block + st.count_block
+               && b < sim.block_array.size();
+               ++b)
+          {
+            const auto& blk = sim.block_array[b];
+            const double t = blk.time.value_or(clock);
+            clock += blk.duration;
+            f << std::format("{},{},{},{:.12g},{:.12g}\n",
+                             st.uid,
+                             blk.uid,
+                             sampling,
+                             t,
+                             blk.duration);
+          }
+        }
+        if (f) {
+          spdlog::info("  block times: {}", bt_path);
+        }
       }
     }
 

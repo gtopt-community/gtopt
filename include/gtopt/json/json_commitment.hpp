@@ -24,6 +24,14 @@ using gtopt::OptStartsScope;
 // gtopt::Name).  daw::json picks the alternative matching the JSON
 // token type (number → Int, string → Name).
 using jvtl_StartsScope = json_variant_type_list<Int, Name>;
+// ``Commitment.commitment_period``: hours (number) or "auto" (string).
+using jvtl_CommitmentPeriod = json_variant_type_list<gtopt::Real, Name>;
+
+// Removed key `transition_status_rows` (bool or name): still parsed so
+// old inputs load, ignored (see transition_integrality.hpp).
+using jvtl_BoolOrName =
+    json_variant_type_list<json_bool_no_name<bool>,
+                           json_string_no_name<gtopt::Name>>;
 
 template<>
 struct json_data_contract<Commitment>
@@ -65,12 +73,23 @@ struct json_data_contract<Commitment>
       json_bool_null<"must_run", OptBool>,
       json_bool_null<"fast_start", OptBool>,
       json_string_null<"transition_integrality", OptName>,
-      json_bool_null<"transition_status_rows", OptBool>,
+      json_variant_null<"transition_status_rows",
+                        gtopt::OptBoolOrName,
+                        jvtl_BoolOrName>,
       json_string_null<"startup_tier_integrality", OptName>,
       json_variant_null<"fixed_status",
                         OptTBRealFieldSched,
                         jvtl_TBRealFieldSched>,
-      json_number_null<"commitment_period", OptReal>,
+      json_variant_null<"commitment_period",
+                        gtopt::OptCommitmentPeriod,
+                        jvtl_CommitmentPeriod>,
+      json_string_null<"commitment_grid", OptName>,
+      json_string_null<"ramp_allowance", OptName>,
+      json_string_null<"cycle", OptName>,
+      json_string_null<"long_transition", OptName>,
+      json_array_null<"long_transition_schedule",
+                      std::vector<Name>,
+                      std::string>,
       json_number_null<"hot_start_cost", OptReal>,
       json_number_null<"warm_start_cost", OptReal>,
       json_number_null<"cold_start_cost", OptReal>,
@@ -78,7 +97,15 @@ struct json_data_contract<Commitment>
       json_number_null<"cold_start_time", OptReal>,
       json_number_null<"max_starts", OptInt>,
       json_number_null<"min_starts", OptInt>,
-      json_variant_null<"starts_scope", OptStartsScope, jvtl_StartsScope>>;
+      json_variant_null<"starts_scope", OptStartsScope, jvtl_StartsScope>,
+      json_string_null<"uc_formulation", OptName>,
+      json_array_null<"startup_trajectory",
+                      std::vector<gtopt::Real>,
+                      json_number_no_name<gtopt::Real>>,
+      json_array_null<"shutdown_trajectory",
+                      std::vector<gtopt::Real>,
+                      json_number_no_name<gtopt::Real>>,
+      json_number_null<"trajectory_step", OptReal>>;
 
   constexpr static auto to_json_data(Commitment const& obj)
   {
@@ -112,6 +139,11 @@ struct json_data_contract<Commitment>
                                  obj.startup_tier_integrality,
                                  obj.fixed_status,
                                  obj.commitment_period,
+                                 obj.commitment_grid,
+                                 obj.ramp_allowance,
+                                 obj.cycle,
+                                 obj.long_transition,
+                                 obj.long_transition_schedule,
                                  obj.hot_start_cost,
                                  obj.warm_start_cost,
                                  obj.cold_start_cost,
@@ -119,7 +151,11 @@ struct json_data_contract<Commitment>
                                  obj.cold_start_time,
                                  obj.max_starts,
                                  obj.min_starts,
-                                 obj.starts_scope);
+                                 obj.starts_scope,
+                                 obj.uc_formulation,
+                                 obj.startup_trajectory,
+                                 obj.shutdown_trajectory,
+                                 obj.trajectory_step);
   }
 };
 

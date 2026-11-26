@@ -128,8 +128,12 @@ public:
   /// Validate zero / tiny line reactances (`tiny_reactance_mode`).
   ///
   /// Flags every line whose reactance is `0` or whose per-unit
-  /// susceptance term `|x_pu| = |X/V²|` falls below
-  /// `model_options.dc_line_reactance_threshold` (default `1e-6`).  The
+  /// susceptance term `|x_pu| = |X/V²|` falls below the effective floor
+  /// `effective_tiny_reactance_threshold` = max(
+  /// `model_options.dc_line_reactance_threshold` (default `1e-6`),
+  /// `tiny_reactance_rel_threshold` (default `0.01`) × median `|X/V²|`),
+  /// written back into `dc_line_reactance_threshold`.  Tie lines lose
+  /// their resistance / lossfactor unless `tie_line_losses = true`.  The
   /// check is dimensionally correct (susceptance, not raw `X`) so it
   /// handles per-unit and physical-unit (kV / Ω) inputs and catches
   /// V-vs-kV unit-typo lines that a raw-`|X|` cutoff misses.
@@ -147,6 +151,21 @@ public:
   /// modes and are not touched.  Static so it can be exercised by unit
   /// tests without standing up a full PlanningLP.
   static void validate_line_reactance(Planning& planning);
+
+  /// Median of the per-unit reactance `|X/V²|` over every line with a
+  /// nonzero reactance (scalar or first nonzero vector entry; file-backed
+  /// schedules are skipped).  `std::nullopt` when no line qualifies.
+  [[nodiscard]] static std::optional<double> median_line_reactance_pu(
+      const Planning& planning);
+
+  /// Effective zero-impedance floor on `|X/V²|`:
+  /// `max(dc_line_reactance_threshold, tiny_reactance_rel_threshold ×
+  /// median_line_reactance_pu)`.  `validate_line_reactance` writes it
+  /// back into `model_options.dc_line_reactance_threshold` so every later
+  /// consumer (KVL assemblers, island detection, `auto_scale_theta`)
+  /// classifies lines against the same floor.
+  [[nodiscard]] static double effective_tiny_reactance_threshold(
+      const Planning& planning);
 
   /// Validate line resistance values and clamp tiny ones to zero.
   ///

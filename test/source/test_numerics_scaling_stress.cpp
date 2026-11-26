@@ -355,6 +355,10 @@ constexpr std::array<Thermal, 7> kThermals = {{
   mo.demand_fail_cost = 1000.0;
   mo.use_single_bus = false;
   mo.use_kirchhoff = true;
+  // Keep the deliberate 5-decade reactance spread: the relative
+  // zero-impedance floor (0.01 × median) would otherwise turn the 1e-5 /
+  // 2e-6 line into a tie and remove the stress this test is about.
+  mo.tiny_reactance_rel_threshold = 0.0;
   if (!scaled) {
     // Everything off: raw physical units reach the solver.
     mo.auto_scale = false;

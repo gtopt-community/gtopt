@@ -37,13 +37,20 @@
 
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <span>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <variant>
+#include <vector>
 
 #include <gtopt/enum_option.hpp>
 #include <gtopt/lp_class_name.hpp>
 #include <gtopt/object.hpp>
+#include <gtopt/transition_integrality.hpp>
 
 namespace gtopt
 {
@@ -105,6 +112,12 @@ inline constexpr auto starts_scope_entries =
 // precedent (``variant<Uid, Name>`` ↔ ``json_variant_type_list<Uid, Name>``).
 using StartsScopeValue = std::variant<Int, Name>;
 using OptStartsScope = std::optional<StartsScopeValue>;
+
+/// ``Commitment.commitment_period``: a length in hours (Real, variant
+/// alternative 0 — keep aligned with ``json_variant_type_list<Real, Name>``
+/// in ``json_commitment.hpp``) or ``"auto"`` (Name).
+using CommitmentPeriodValue = std::variant<Real, Name>;
+using OptCommitmentPeriod = std::optional<CommitmentPeriodValue>;
 
 /**
  * @struct Commitment
@@ -257,18 +270,14 @@ struct Commitment
   OptBool fast_start {};
 
   /// Integrality of this unit's startup / shutdown columns (v / w):
-  /// `"auto"` (continuous with the transition status rows, binary
-  /// without), `"continuous"` or `"binary"`.  Unset →
+  /// `"auto"` (binary), `"continuous"` or `"binary"`.  Unset →
   /// `model_options.transition_integrality` (default `"auto"`).  See
   /// `TransitionIntegrality`.  `relax` still relaxes u, v, w together.
   OptName transition_integrality {};
 
-  /// Emit `v <= u` (`startup_status`) and `w <= 1 - u`
-  /// (`shutdown_status`) for this unit.  Unset →
-  /// `model_options.transition_status_rows` (default `true`).  With the
-  /// rows off and continuous v / w, a unit that stays on (or off) can
-  /// take v = w = 1/2 and use the start/stop ramp terms.
-  OptBool transition_status_rows {};
+  /// REMOVED 2026-11-26 (see `ModelOptions::transition_status_rows`):
+  /// parsed so old inputs load, ignored with a warning.
+  OptBoolOrName transition_status_rows {};
 
   /// Integrality of this unit's hot / warm / cold startup-tier
   /// selectors: `"continuous"` (TU tier rows) or `"integer"`.  Unset →
@@ -293,7 +302,172 @@ struct Commitment
   /// `commitment_period = 2.0` with 15-minute blocks yields one binary
   /// variable per 2-hour window (8 blocks), while generation variables
   /// remain at 15-minute resolution.  Default (nullopt) = one per block.
-  OptReal commitment_period {};
+  ///
+  /// Periods are unions of whole cells of the stage partition (blocks;
+  /// quadrature cells on `Stage.sampling = "point"` stages): see
+  /// `duration_groups` in cell_partition.hpp.  Uniform block stages keep
+  /// the legacy accumulated grouping.
+  ///
+  /// `"auto"`: P = max(smallest cell, ½·min(min_up_time,
+  /// min_down_time)); per-block binaries when neither min_up_time nor
+  /// min_down_time is set.
+  OptCommitmentPeriod commitment_period {};
+
+  /// Commitment grid: `"block"` — one status per block / cell (min up /
+  /// down, starts and hours-on in the real cell durations, also for
+  /// variable durations); `"overlay"` — a UC grid of `commitment_period`
+  /// periods laid over the blocks (each block / cell joins its period by
+  /// `duration_groups`, the status is shared by the blocks of a period).
+  /// Default: `"block"` when `commitment_period` is unset, `"overlay"`
+  /// when set.  `"block"` with a `commitment_period`, or `"overlay"`
+  /// without one, is a validation error.
+  ///
+  /// Point stages (`Stage.sampling = "point"`): unset / `"overlay"` = the
+  /// unit's uniform grid of max(commitment_period, 1 h) cells, nodes
+  /// mapped by their time (never one status per node).  The previous
+  /// behaviour stays reachable: `"block"` = one status per node, `"cells"`
+  /// (needs `commitment_period`) = periods as unions of the quadrature
+  /// cells (midpoint rule, see cell_partition.hpp).  On block stages
+  /// `"cells"` equals `"overlay"`.
+  OptName commitment_grid {};
+
+  /// Start-up / shut-down allowance of the ramp rows: `"boundary"`
+  /// (default, master's behaviour since the commitment tightening) —
+  /// SU·v / SD·w only on the ramp rows that cross a commitment-period
+  /// boundary (inside a period the plain ramp limit holds); `"period"` —
+  /// every block of a commitment period gets the allowance of its
+  /// period's v / w (the older, looser form).  Without
+  /// `commitment_period` every block is its own period and both are
+  /// identical.
+  OptName ramp_allowance {};
+
+  /// Resolved commitment grid: true for the overlay grid.
+  [[nodiscard]] bool uses_overlay_grid() const noexcept
+  {
+    return commitment_grid
+        ? (*commitment_grid == "overlay" || *commitment_grid == "cells")
+        : commitment_period.has_value();
+  }
+
+  /// Point stages keep the previous grid (`"block"` / `"cells"`).
+  [[nodiscard]] bool uses_legacy_point_grid() const noexcept
+  {
+    return commitment_grid
+        && (*commitment_grid == "block" || *commitment_grid == "cells");
+  }
+
+  /// True for the default boundary-only ramp allowance.
+  [[nodiscard]] bool ramp_allowance_at_boundary() const noexcept
+  {
+    return ramp_allowance.value_or("boundary") != "period";
+  }
+
+  /// Cyclic commitment: `"none"` (default, chronological from
+  /// `initial_status`) or `"stage"` — the stage is a typical day / week
+  /// repeated in a cycle: the first period's transition wraps to the
+  /// last (u_1 − u_P = v_1 − w_1, no initial state), min up/down and
+  /// hot/warm/cold windows wrap around the cycle, ramps wrap (backward
+  /// from the last block; central2 skipping the duplicated t_N ≡ t_0,
+  /// which shares the status of t_0), and start / shutdown costs per
+  /// cycle are scaled by the stage weight `duration / period_hours`.
+  /// `initial_status` / `initial_hours` / `initial_power` are ignored.
+  OptName cycle {};
+
+  /// True when `cycle = "stage"`.
+  [[nodiscard]] bool is_cyclic() const noexcept
+  {
+    return cycle.value_or("none") == "stage";
+  }
+
+  /// Explicit handling of a cyclic unit whose time constraints do not
+  /// fit the typical period (min_up_time, min_down_time or a finite
+  /// start window longer than the cycle length T = Σ real cell
+  /// durations of the stage).  The constraints that cannot be honoured
+  /// within the cycle are NOT emitted (one warning per unit):
+  ///  - `"on"`: committed (u = 1) for the whole typical period: pmin ..
+  ///    pmax, no starts / stops inside it;
+  ///  - `"off"`: unavailable (u = 0, output 0);
+  ///  - `"no_uc"`: dispatched without commitment — no u/v/w, output
+  ///    0 .. pmax as a continuous generator (pmin relaxed to 0, no
+  ///    start costs, ramps kept).
+  /// Unset: `model_options.long_transition`; when neither is set a long
+  /// unit is a validation error (no silent dropping).
+  OptName long_transition {};
+
+  /// Per-stage override of `long_transition` ("on" / "off" / "no_uc",
+  /// by stage position; an empty entry or a short list falls back to
+  /// `long_transition`) — e.g. on in winter months, off in summer.
+  std::vector<Name> long_transition_schedule {};
+
+  /// Declared long-transition mode at stage position @p stage_pos
+  /// (schedule, unit, then planning default @p dflt); empty when
+  /// undeclared.
+  [[nodiscard]] std::string_view long_transition_at(
+      std::size_t stage_pos, const OptName& dflt) const noexcept
+  {
+    if (stage_pos < long_transition_schedule.size()
+        && !long_transition_schedule[stage_pos].empty())
+    {
+      return long_transition_schedule[stage_pos];
+    }
+    if (long_transition) {
+      return *long_transition;
+    }
+    if (dflt) {
+      return *dflt;
+    }
+    return {};
+  }
+
+  /// Time constraints of this unit longer than a cycle of @p cycle_hours:
+  /// (name, hours) pairs.  Empty for non-cyclic units.
+  [[nodiscard]] std::vector<std::pair<std::string_view, double>>
+  long_constraints(double cycle_hours) const
+  {
+    std::vector<std::pair<std::string_view, double>> out;
+    if (!is_cyclic() || cycle_hours <= 0.0) {
+      return out;
+    }
+    const auto add = [&](std::string_view what, double hours)
+    {
+      if (hours > cycle_hours + 1e-9) {
+        out.emplace_back(what, hours);
+      }
+    };
+    add("min_up_time", min_up_time.value_or(0.0));
+    add("min_down_time", min_down_time.value_or(0.0));
+    if (max_starts || min_starts) {
+      add("starts_scope", starts_window_hours());
+    }
+    return out;
+  }
+
+  /// Resolved `commitment_period` [h] for a stage whose smallest time
+  /// step is @p resolution (0 = one period per block).
+  [[nodiscard]] double commitment_period_hours(double resolution) const
+  {
+    if (!commitment_period || !uses_overlay_grid()) {
+      return 0.0;
+    }
+    if (const auto* hours = std::get_if<Real>(&*commitment_period)) {
+      return std::max(*hours, 0.0);
+    }
+    if (std::get<Name>(*commitment_period) != "auto") {
+      return 0.0;
+    }
+    double mut_mdt = 0.0;
+    if (min_up_time && min_down_time) {
+      mut_mdt = std::min(*min_up_time, *min_down_time);
+    } else if (min_up_time) {
+      mut_mdt = *min_up_time;
+    } else if (min_down_time) {
+      mut_mdt = *min_down_time;
+    }
+    if (mut_mdt <= 0.0) {
+      return 0.0;
+    }
+    return std::max(resolution, 0.5 * mut_mdt);
+  }
 
   // Piecewise heat-rate curve (``pmax_segments`` /
   // ``heat_rate_segments``) and the legacy ``fuel_cost`` /
@@ -361,6 +535,32 @@ struct Commitment
   /// definition; ``starts_window_hours()`` resolves both shapes to
   /// the LP-side window length.
   OptStartsScope starts_scope {};
+
+  /// Per-unit UC formulation: `"energy_block"` or `"power_based"`
+  /// (see `ModelOptions::uc_formulation`, which it overrides).
+  OptName uc_formulation {};
+  /// Power-based UC only: start-up power trajectory
+  /// `[P^SU_1, ..., P^SU_S]` [MW] — the power at the successive
+  /// `trajectory_step` instants of the start-up process, before the
+  /// unit reaches its minimum output at the start of the up period
+  /// (Morales-España et al., OR Spectrum 2015, eq. 12).  Empty: a
+  /// quick-start unit (one block from 0 to pmin..startup_ramp).
+  std::vector<Real> startup_trajectory {};
+  /// Power-based UC only: shut-down power trajectory
+  /// `[P^SD_2, ..., P^SD_{S+1}]` [MW] — the power at the successive
+  /// `trajectory_step` instants after the unit leaves its minimum
+  /// output (the last entry is normally 0).
+  std::vector<Real> shutdown_trajectory {};
+  /// Spacing of the trajectory samples [h] (default 1).
+  OptReal trajectory_step {};
+
+  /// Resolved per-unit formulation: true for power-based, given the
+  /// planning-wide default @p global_power_based.
+  [[nodiscard]] bool is_power_based(bool global_power_based) const noexcept
+  {
+    return uc_formulation ? *uc_formulation == "power_based"
+                          : global_power_based;
+  }
 
   /// Resolve ``starts_scope`` (either a named StartsScope or an
   /// integer hour count) to the rolling window length in HOURS used by

@@ -26,6 +26,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <gtopt/basis.hpp>
@@ -45,7 +46,7 @@ namespace gtopt
  * SolverRegistry checks the plugin's reported ABI version at load time
  * and rejects incompatible plugins with a clear error instead of crashing.
  */
-inline constexpr int k_solver_abi_version = 17;
+inline constexpr int k_solver_abi_version = 18;
 
 /// TEST-ONLY hook: true when the environment variable
 /// `GTOPT_TEST_FORCE_SOS_BAIL=1` is set.  Forces the dual-recovery pass
@@ -59,6 +60,35 @@ inline constexpr int k_solver_abi_version = 17;
 /// can scope it with setenv/unsetenv around a single fix pass.  Never
 /// set this in production.  Defined in source/solver_backend.cpp.
 [[nodiscard]] bool test_force_fix_duals_bail() noexcept;
+
+/// Smallest value a backend may report as kappa that is NOT a condition
+/// number but a solver "infinity": CPLEX fills
+/// `CPXgetdblquality(CPX_KAPPA)` with its huge-value sentinel 1e75 (the
+/// value of e.g. its default TiLim) and returns status 0 when it cannot
+/// bound the basis condition; other solvers use +inf.  Huge FINITE
+/// estimates are kept: on the CEN PCP 2025-10-19 relaxed LP CPLEX
+/// reports a real CPX_KAPPA of 2.3e16 (CPX_EXACT_KAPPA 2.5e16) and, after
+/// a primal re-solve from that basis, 2.6e26 - numerically singular
+/// bases that the high-kappa warning must still flag.
+inline constexpr double k_kappa_infinite = 1e75;
+
+/// True when a backend kappa value is the solver's "infinite / cannot
+/// estimate" answer rather than a finite condition number.
+[[nodiscard]] constexpr bool is_infinite_kappa(double kappa) noexcept
+{
+  return !(kappa < k_kappa_infinite);  // also NaN
+}
+
+/// A backend kappa value as a real condition number: nullopt for a
+/// solver infinity sentinel, +/-inf, NaN or a negative value.
+[[nodiscard]] constexpr std::optional<double> finite_kappa(
+    double kappa) noexcept
+{
+  if (is_infinite_kappa(kappa) || kappa < 0.0) {
+    return std::nullopt;
+  }
+  return kappa;
+}
 
 /// Per-solve effort reported by a backend: wall `seconds` plus deterministic
 /// `ticks` (a load-independent work unit).  Conventions for backends lacking
@@ -898,6 +928,15 @@ public:
   [[nodiscard]] virtual bool is_abandoned() const = 0;
   [[nodiscard]] virtual bool is_proven_primal_infeasible() const = 0;
   [[nodiscard]] virtual bool is_proven_dual_infeasible() const = 0;
+
+  /// Solver-native termination status of the last solve, code and name
+  /// (CPLEX `CPXgetstat` / `CPXgetstatstring`, HiGHS model status), for
+  /// logs: e.g. {5, "optimal with unscaled infeasibilities"}.  Default
+  /// {-1, "n/a"} for backends that do not report one.
+  [[nodiscard]] virtual std::pair<int, std::string> raw_status() const
+  {
+    return {-1, "n/a"};
+  }
 
   /// True when the last solve was a MIP that stopped holding an
   /// integer-feasible incumbent that `col_solution()` returns — whatever

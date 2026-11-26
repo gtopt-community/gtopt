@@ -492,10 +492,24 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   const auto eq_method =
       opts.equilibration_method.value_or(LpEquilibrationMethod::row_max);
 
+  // Rows tagged `SparseRow::pin_scale` (pure commitment logic) keep row
+  // factor 1 under both methods while `pin_logic_rows` (default off)
+  // allows it; they still enter the Ruiz column norms.
+  const bool pin_rows =
+      opts.pin_logic_rows.value_or(LpMatrixOptions::default_pin_logic_rows);
+  std::vector<fp_index_t> rowpin;
+  if (pin_rows) {
+    for (const auto& [i, row] : enumerate(rows)) {
+      if (row.pin_scale) [[unlikely]] {
+        rowpin.push_back(static_cast<fp_index_t>(i));
+      }
+    }
+  }
+
   std::vector<double> row_scales_vec;
   if (eq_method == LpEquilibrationMethod::row_max) {
-    row_scales_vec =
-        apply_row_max_equilibration(matind, matval, rowlb, rowub, m_infinity_);
+    row_scales_vec = apply_row_max_equilibration(
+        matind, matval, rowlb, rowub, m_infinity_, rowpin);
   } else if (eq_method == LpEquilibrationMethod::ruiz) {
     const auto sqrt_method =
         opts.fast_sqrt_method.value_or(FastSqrtMethod::ieee_halve);
@@ -519,7 +533,8 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
                                         m_infinity_,
                                         sqrt_method,
                                         ruiz_max_iterations,
-                                        ruiz_tolerance);
+                                        ruiz_tolerance,
+                                        rowpin);
   }
 
   // Compose SparseRow scales with equilibration scales.
@@ -960,6 +975,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       .col_scales = std::move(col_scales),
       .row_scales = std::move(row_scales_vec),
       .equilibration_method = eq_method,
+      .pin_logic_rows = pin_rows,
       .scale_objective = scale_obj,
       // `m_obj_constant_` is on the physical (user-facing) cost
       // scale; convert to the LP raw scale so that

@@ -202,6 +202,9 @@ struct LossConfig
   /// ``LineLP`` resolves it (per-line override, else
   /// ``model_options.line_thermal_limit_mode``, else ``flow``).
   LineThermalLimitMode thermal_limit {LineThermalLimitMode::flow};
+  /// Ordered-fill cap on the PWL segment columns
+  /// (`model_options.loss_segment_bound`, default `true`).
+  bool segment_flow_cap {true};
 };
 
 // ─── PWL geometry (exposed for unit testing) ────────────────────────

@@ -68,11 +68,77 @@ struct Stage
   /// are enforced.  When false or absent, commitment is silently skipped.
   OptBool chronological {};
 
+  /// Storage cycle group (weighted representative-day cycle).
+  ///
+  /// Consecutive stages of the same phase that share a `cycle_group` id
+  /// form ONE storage cycle for every `daily_cycle` storage: instead of
+  /// closing each stage with `efin == eini`, the stages are chained as
+  /// `cycle_weight` repetitions each (in stage order) and the group is
+  /// closed with `Σ_d w_d · (efin_d − eini_d) = 0`.  Typical use: a
+  /// weekday and a weekend representative day of one month, with weights
+  /// 5 and 2 (days per typical week), so a battery may charge on the
+  /// weekend and discharge on weekdays.  Unset (default) = no group, the
+  /// per-stage daily closure is unchanged.  A group must not cross a
+  /// phase boundary.
+  OptInt cycle_group {};
+
+  /// Repetitions of this stage inside its `cycle_group` (e.g. days per
+  /// typical week).  Must be > 0.  Unset = `duration / 24` (the number of
+  /// days the stage represents; `duration / period_hours`, the periods
+  /// represented, when `period_hours` is set).  Ignored without
+  /// `cycle_group`.
+  OptReal cycle_weight {};
+
+  /// Real length [h] of the chronological period sampled by the blocks of
+  /// this stage (e.g. 168 for a typical week, 24 for a representative
+  /// day).  Block durations are then WEIGHTED durations (energy and cost
+  /// weights; they sum to the stage duration = period × repetitions) and
+  /// the real time step of block b is
+  /// `Δt_b = duration_b · period_hours / stage_duration`.  Real time steps
+  /// drive the `daily_cycle` storage balance (cycle closed over the
+  /// period), ramp limits, minimum up / down times and the
+  /// `max_cycles_day` cap (period_hours / 24 days per period).
+  /// Unset (default) = real time steps are the block durations, except
+  /// for the legacy `daily_cycle` 24 h rescaling.
+  OptReal period_hours {};
+
+  /// Meaning of the block values of this stage:
+  ///  - `"block"` (default): a block value holds CONSTANT over the block
+  ///    (piecewise constant, length = real time step).
+  ///  - `"point"`: block values are POINT samples at the node times
+  ///    `Block.time` (required on every block), e.g. Chebyshev–Lobatto
+  ///    nodes with `t_0` = period start and `t_N` = period end; durations
+  ///    are quadrature weights, not intervals.  Storage balances then
+  ///    integrate between nodes (`storage_integration`, default
+  ///    `trapezoid`), and ramps, minimum up / down times, commitment
+  ///    periods and daily cycle windows use the node spacing
+  ///    `t_{k+1} − t_k`.
+  OptName sampling {};
+
+  /// Circular typical period: the blocks of this stage sample ONE period
+  /// (typical day / week) that repeats `duration / period_hours` times.
+  /// Every intra-period coupling wraps around the period (block N−1 →
+  /// block 0: commitment transitions and windows, ramps, line
+  /// commitment, `<attr>_prev` user-constraint terms, the start level of
+  /// `daily_cycle` storages); only the inter-stage state variables
+  /// (storages carried to the next stage / phase) are not periodic —
+  /// they move by `n · Δ_cycle` across the stage.
+  /// Unset (default): periodic when `period_hours` is set or
+  /// `sampling = "point"`.
+  OptBool periodic {};
+
   static constexpr std::string_view class_name = "stage";
 
   [[nodiscard]] constexpr auto is_active() const noexcept
   {
     return active.value_or(true);
+  }
+
+  /// True when the stage is a circular typical period (see `periodic`).
+  [[nodiscard]] bool is_periodic() const noexcept
+  {
+    return periodic.value_or(period_hours.has_value()
+                             || sampling.value_or("block") == "point");
   }
 };
 

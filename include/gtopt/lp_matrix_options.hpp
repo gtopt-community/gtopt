@@ -107,6 +107,17 @@ struct LpMatrixOptions
   OptInt ruiz_max_iterations {};
   OptReal ruiz_tolerance {};
 
+  /// Keep rows tagged `SparseRow::pin_scale` (pure commitment-logic rows:
+  /// u / v / w transitions, exclusion, start-up tiers, start limits,
+  /// charge / discharge exclusivity, plant unit counts with unit
+  /// coefficients — all ±1 rows) out of the row equilibration (row_max, Ruiz
+  /// and the incremental `add_row` normalisation): their row factor stays 1.
+  /// Unset = `default_pin_logic_rows` (false): they are balanced like
+  /// every other row.  Opt-in: on cuc39 (MIP) pinning made the solve much
+  /// slower, and kappa never moved.
+  static constexpr bool default_pin_logic_rows = false;
+  OptBool pin_logic_rows {};
+
   /// Target magnitude of the LP-space dual of rows that carry a
   /// `SparseRow::dual_hint` (reservoir energy balances).  Unset / <= 0 = off
   /// (bit-identical LP).  Rows are multiplied AFTER equilibration by
@@ -250,6 +261,7 @@ struct LpMatrixOptions
     merge_opt(label_meta_without_names, other.label_meta_without_names);
     merge_opt(ruiz_max_iterations, other.ruiz_max_iterations);
     merge_opt(ruiz_tolerance, other.ruiz_tolerance);
+    merge_opt(pin_logic_rows, other.pin_logic_rows);
     merge_opt(water_dual_target, other.water_dual_target);
     merge_opt(water_dual_clamp, other.water_dual_clamp);
     merge_opt(kvl_row_scale, other.kvl_row_scale);
@@ -279,6 +291,7 @@ struct LpMatrixOptions
     label_meta_without_names = merged.label_meta_without_names;
     ruiz_max_iterations = merged.ruiz_max_iterations;
     ruiz_tolerance = merged.ruiz_tolerance;
+    pin_logic_rows = merged.pin_logic_rows;
     water_dual_target = merged.water_dual_target;
     water_dual_clamp = merged.water_dual_clamp;
     kvl_row_scale = merged.kvl_row_scale;

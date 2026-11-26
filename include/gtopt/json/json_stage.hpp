@@ -31,7 +31,12 @@ struct StageConstructor
                                  Size count_block,
                                  OptReal discount_factor,
                                  OptName month_str,
-                                 OptBool chronological) const
+                                 OptBool chronological,
+                                 OptInt cycle_group,
+                                 OptReal cycle_weight,
+                                 OptReal period_hours,
+                                 OptName sampling,
+                                 OptBool periodic) const
   {
     Stage s;
     s.uid = uid;
@@ -44,6 +49,11 @@ struct StageConstructor
       s.month = gtopt::require_enum<MonthType>("month", *month_str);
     }
     s.chronological = chronological;
+    s.cycle_group = cycle_group;
+    s.cycle_weight = cycle_weight;
+    s.period_hours = period_hours;
+    s.sampling = std::move(sampling);
+    s.periodic = periodic;
     return s;
   }
 };
@@ -60,7 +70,12 @@ struct json_data_contract<Stage>
                                 json_number<"count_block", Size>,
                                 json_number_null<"discount_factor", OptReal>,
                                 json_string_null<"month", OptName>,
-                                json_bool_null<"chronological", OptBool>>;
+                                json_bool_null<"chronological", OptBool>,
+                                json_number_null<"cycle_group", OptInt>,
+                                json_number_null<"cycle_weight", OptReal>,
+                                json_number_null<"period_hours", OptReal>,
+                                json_string_null<"sampling", OptName>,
+                                json_bool_null<"periodic", OptBool>>;
 
   static auto to_json_data(Stage const& stage)
   {
@@ -71,7 +86,12 @@ struct json_data_contract<Stage>
                            stage.count_block,
                            stage.discount_factor,
                            detail::enum_to_opt_name(stage.month),
-                           stage.chronological);
+                           stage.chronological,
+                           stage.cycle_group,
+                           stage.cycle_weight,
+                           stage.period_hours,
+                           stage.sampling,
+                           stage.periodic);
   }
 };
 }  // namespace daw::json

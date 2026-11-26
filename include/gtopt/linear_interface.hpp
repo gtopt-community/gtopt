@@ -2826,6 +2826,20 @@ public:
     m_scaling_.equilibration_method = method;
   }
 
+  /// `LpMatrixOptions::pin_logic_rows` recorded for this LP (set by
+  /// `load_flat`): while true, `add_row` / `add_rows` keep
+  /// `SparseRow::pin_scale` rows at row factor 1.
+  [[nodiscard]] constexpr bool pin_logic_rows() const noexcept
+  {
+    return m_scaling_.pin_logic_rows;
+  }
+
+  /// Override `pin_logic_rows` (unit tests that build an LP directly).
+  void set_pin_logic_rows(bool pin) noexcept
+  {
+    m_scaling_.pin_logic_rows = pin;
+  }
+
   /**
    * @brief Gets the global objective scaling factor.
    *

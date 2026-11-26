@@ -1651,6 +1651,329 @@ Not converted: capacity expansion (`Max Units Built`, `Build Cost`,
 `WACC`), retirements beyond the start-day `Units`, line losses and
 marginal loss factors, outages, pumping and reserves.
 
+### 15.1 AEMO ISP expansion case (monthly stages, prototype)
+
+`python -m plexos2gtopt.aemo_isp_expansion` builds a multi-year
+generation, storage and network expansion case on top of the dispatch
+converter: one stage group per month of the FYs `--first-fy ..
+--first-fy + --years − 1`, plus `--fill-years` unreported FYs (default
+1) that damp the end effects.  `--phases year` writes one SDDP phase per
+FY; installed capacity and reservoir volumes are the state variables.
+The `stats.json` records the exact `command` and `converter_revision`.
+
+```bash
+python -m plexos2gtopt.aemo_isp_expansion "2026 ISP Step Change Model.xml" \
+    -t <traces> --first-fy 2028 --years 3 --rep-days 2 \
+    --capacity-penalty 1e7 -o cases/fy28 -n fy28
+```
+
+**Time representation** (`stats.json` → `period`, `blocks_per_stage`):
+
+| Option | Stages per month | Blocks | Storage cycle |
+|---|---|---|---|
+| `--rep-days 1` | 1 (month-mean day) | 24, duration = days | daily (`daily_cycle`) |
+| `--rep-days 2` | 2: high / low net-load days | 24 each | daily |
+| `--rep-days 2 --rep-kind weekday` | 2: weekdays / weekend | 24 each | daily |
+| `... --cycle-group` | as above | 24 each | one weighted cycle per month (`Stage.cycle_group`, weights = days per typical week) |
+| `--week-sampler uniform:1` / `uniform:2` | 1 typical week | 168 / 84 | weekly (`period_hours` 168) |
+| `--week-sampler uniform:H:point` | 1 typical week | 168 / H | weekly, point-sampled (power-based: node powers at the cell centres) |
+| `--week-sampler peak_ramp:K` | 1 typical week | 7·(12 + K) | weekly |
+| `--week-sampler chebyshev:N[:gauss\|lobatto][:k=v]` | 1 typical week | N (Gauss; periodic Lobatto, default: node N ≡ node 0 dropped) | weekly, point-sampled (`Stage.sampling = "point"`) |
+
+A typical week is one real week of the month (`--week-rule peak`: the
+week holding the month's net-load peak; `energy`: the highest net
+energy), read from the **half-hourly** traces.  Every week sampler
+starts its window at `--week-start` (default `wed:12`: Wednesday
+12:00 → next Wednesday 12:00, a week centred on the weekend, so the
+low-load weekend that drives storage cycling and curtailment sits in
+the middle of the window, away from the cyclic closure; `mon:0` gives
+calendar weeks).  The same window is used by every sampler, so their
+results are directly comparable.  Its block durations are
+the real durations × days in month / 7, so energy, costs and capex are
+month totals while storages, ramps and minimum up / down times run on
+the real week (`Stage.period_hours = 168`, formulation §5.7).
+
+**Storage integration on point stages.**  Whenever a stage is
+point-sampled (Chebyshev weeks / days, `uniform:H:point`), the converter
+writes `battery_storage_integration = reservoir_storage_integration =
+"cc"` into `model_options`: batteries and reservoirs integrate with the
+Clenshaw–Curtis rule, `e_k = e_{k−1} + w_k f_k` with the node's CC
+weight (one node per row, positive weights, the weekly cycle closes
+exactly on the quadrature that also integrates energy and cost).
+`--point-storage-integration lg4_pos` (or `trapezoid`) selects a banded
+rule with levels AT the nodes and envelope rows bounding the level
+between them; on the FY28 year it solved 3.8–4.5× slower than `cc`
+([Typical-Week Sampling §7a](../methods/typical-week-sampling.md)).
+Block-sampled weeks keep the block recursion; override with
+`--set model_options.battery_storage_integration=...`.
+
+`uniform:H:point` is the hourly (H-hourly) week of `uniform:H` emitted
+as a point stage — the power-based formulation of Morales-España et
+al. (instantaneous powers at the nodes, energy = quadrature of the node
+powers in every balance).  Node values are the cell means; only the
+storage integration and the ramp rows differ from `uniform:H`.
+
+**Sunrise / sunset refinement.**  `--ramp-refine 30m|15m|on` (default
+`off`) adds resolution within ± `--ramp-refine-width` h (default 1) of
+the steepest daily net-load fall and rise, detected from the data.
+Block samplers (`uniform:H`, `peak_ramp:K`, `uniform:H:point`) split the
+base blocks of each window into 30 / 15 min blocks (cell means of an
+energy-conserving PCHIP of the cumulative energy; exact data at 30 min
+on the half-hourly traces) and tag every block with
+`Block.commitment_cell` = its base block, so commitment binaries stay
+on the base grid.  A Chebyshev (Lobatto) week of order N keeps its
+nodes and adds the nested order-2N nodes inside the windows (positive
+weights: the 2N Clenshaw–Curtis weights with each dropped node's weight
+split linearly between its neighbours); see
+[Typical-Week Sampling](../methods/typical-week-sampling.md) §4b–4c.
+
+`peak_ramp:K` splits each day into 2 h slots and uses 1 h blocks in the
+slot of the daily net-load peak and the K − 1 slots with the steepest
+net-load change (solar ramps).
+
+**Chebyshev week (provisional).**  The window is centred on the weekend
+(`--week-start`, default Wednesday 12:00 → Wednesday 12:00).  The nodes are Chebyshev–Gauss
+($t_k = \tfrac T2(1-\cos\frac{\pi(2k-1)}{2N})$, k = 1..N) or
+Chebyshev–Gauss–Lobatto ($t_k = \tfrac T2(1-\cos\frac{\pi k}{N})$,
+k = 0..N; default), and block durations are the matching Fejér /
+Clenshaw–Curtis weights (sum exactly T = 168 h; `durations=voronoi`
+uses cells between node midpoints).
+
+**Node values.**  The standard coefficient computation (`values=fct`,
+default) is the fast Chebyshev transform followed by truncation:
+
+1. Sample the exact antiderivative $F(x) = \int_{-1}^x f$ of the
+   half-hourly step function (piecewise linear and continuous) at
+   $M_f + 1$ Chebyshev–Lobatto points, with $M_f$ = `fct_points`,
+   default 4096.
+2. Get the coefficients of $F$ by DCT-I in $O(M_f\log M_f)$, then
+   differentiate in coefficient space (`chebder`) to get those of $f$.
+3. Truncate at the node set's degree.
+
+Sampling $F$ rather than $f$ keeps $F(1) - F(-1)$ (the energy) and avoids
+aliasing the jumps; `values=fct_point` samples $f$ directly, for
+comparison.  The coefficients converge to the continuous projection as
+$M_f$ grows.  At N = 64 the maximum coefficient difference is
+1.4e-4 / 3.6e-5 / 5.8e-6 / 3.1e-6 for $M_f$ = 512 / 1024 / 2048 / 4096.
+
+The equivalent continuous projection, computed without a transform, is
+`values=lsw` (also `proj`).  It is the cell least-squares generalized
+inverse $c = G^+y$ over the half-hourly interval means $y$, with
+$G^+ = \Gamma^{-1}A_\theta^\top W$.  Here $W = \mathrm{diag}(\Delta\theta_j)$
+is the Chebyshev measure of each data cell ($\theta = \arccos x$), and
+$\Gamma = \mathrm{diag}(\pi, \pi/2, \dots)$ is the exact Chebyshev Gram
+matrix: the weighted-norm generalized inverse for the step-function
+data.  It needs no linear solve and is stable for any N, and the
+operator is cached per (N, nodes, window).
+
+After truncation, $c$ is rescaled multiplicatively so that $\int p\,dt$
+equals the trace energy; the factor is 1 ± 1e-3.  When the data have
+both signs, an additive change of $c_0$ is used instead.  Nodes take
+$p(t_k)$.  With `bound_mode=clip_rescale` (default), node values
+outside the window's data range (the Gibbs overshoot at solar sunrise /
+sunset, up to about 0.19 of the peak on FY28) are clipped, and the
+energy is restored on the headroom.  `bound_mode=report` keeps them.
+
+Discrete normal equations do not work here.  $(A^\top WA)^{-1}A^\top W$
+(`values=lswd`) has cond $A^\top WA$ = 7e3 / 1e10 / 1e18 at
+N = 64 / 96 / 128, because equispaced cells are too wide in θ near the
+window ends to resolve high modes.  The plain fit (`values=lsu`, W = I)
+is worse.  Other options (`chebyshev:N:key=value`):
+
+- `solar_night=mask|off`.  A polynomial fit leaks small values into
+  the night (Gibbs), about 1 % of the weekly solar energy at N = 64 on
+  a synthetic week.  With `mask` (default), every node whose quadrature
+  cell has zero data is set to exactly 0.  The energy is then restored
+  by a multiplicative rescale over the daylight nodes only, and those
+  nodes are clipped into [0, max].  So the sun never shines at night
+  and the weekly energy stays exact.
+- `solar_basis=plain|clearsky`.  `clearsky` factors a trace with zero
+  periods as $y = S\,k$.  $S$ is the window's daily envelope, the
+  maximum over the days of each half-hour, which is exactly 0 at night.
+  Only the clearness $k$ is fitted; night values of $k$ are linearly
+  interpolated, since they are multiplied by 0.  The node value is
+  $S(t_k)\,\hat k(t_k)$, followed by the same daylight energy
+  restoration.  The sunrise and sunset kinks stay in $S$ and are not
+  fitted.
+
+  On FY28 utility solar, clearsky does **not** beat the default (plain
+  fit + night mask), whichever envelope is used:
+  - the window's 7-day maximum: RMS .108 vs .090 at N = 64, .048 vs
+    .039 at N = 168;
+  - the maximum over all 26 RefYear5000 years within ±7 days, smoothed
+    over ±1 day (close to a cloud-free envelope): RMS .101 vs .090 at
+    N = 64, .044 vs .039 at N = 168.  It is better in only 6–24 % of
+    the trace-windows, and its convergence slope (−0.73) is no better
+    than plain's (−0.77).
+
+  The variability that matters is the clouds inside $k$, not the
+  sunrise and sunset kinks.  The option is kept for experiments but is
+  not recommended.
+- Hourly reconstruction of solar output uses
+  `week_reconstruct.masked_reconstruction_matrix`:
+  $R_m = \mathrm{diag}(\text{day})\,R\,C$ is exactly 0 at night, and
+  each node column keeps its energy on the daylight cells.  Prices
+  consistent with it are the adjoint of $R_m$ restricted to the
+  daylight nodes (`rebuild_price_adjoint(..., operator=R_m,
+  active=day)`), for which the revenue identity is exact.
+- `chebyshev:auto[:tol=T][:metric=rms|ramp]` (T default 0.03) picks the
+  order from the wind and solar traces, which are the hard ones; demand
+  and inflows are smooth.  A pre-pass reads every month's window and
+  finds the smallest N in {32, 48, 64, 96, 128, 168, 224, 336} that
+  meets the tolerance:
+  - `rms` (default): the capacity-weighted RMS of (fit − data) relative
+    to installed capacity, i.e. in capacity-factor units, is ≤ T;
+  - `ramp`: the energy-weighted hourly-ramp error is ≤ T.
+
+  Candidates are screened with the coefficient-tail estimate
+  $\sqrt{\sum_{k>n}c_k^2/2}$ and checked on the samples.  The case uses
+  the maximum N over the months, because the builder needs the same
+  block count in every stage; per-month N is in
+  `stats.chebyshev_auto_orders`.  The selection is
+  `week_sampler.choose_order`.
+- `values=wcell`: the data mean over each node's quadrature cell.  The
+  cells of length $w_k$ partition the window, so the energy is exact
+  and the values stay within bounds.
+- `values=proj` is the continuous orthogonal Chebyshev projection of
+  the half-hourly step function,
+  $c_k = \tfrac{2}{\pi}\int_0^\pi f(\cos\theta)\cos k\theta\,d\theta$.
+  It is integrated exactly per data cell with no linear solve, so it is
+  stable for any N.  The truncation is then corrected by the minimal
+  change in the Chebyshev-weighted norm that restores
+  $\int p\,dx = \int f\,dx$; the correction is about 1e-6 relative.
+  The node values are $p(t_k)$.  They show mild Gibbs overshoot near
+  sharp features (solar sunrise / sunset), and `bound_mode=clip_rescale`
+  removes it while keeping the energy.
+- `values=ls` is the energy-constrained least-squares projection of the
+  half-hourly interval means onto the Chebyshev polynomials of the
+  node set's degree, with node values evaluated from it.  It keeps the
+  window energy exactly, but fitting a degree-N polynomial to equispaced
+  data is only stable for N up to about 2√(samples).  On 336
+  half-hours the condition number is 1e2 at N = 64, 1e5 at N = 96 and
+  1e15 at N = 168, and the node values near the window ends blow up.
+  `values=interp|mean` uses interpolation or Voronoi cell means instead.
+- `periodic=C0|C1` adds p(start) = p(end), and with C1 also p′.
+- `odd_terms=none|K` keeps no odd coefficient (a symmetric week) or the
+  first K.
+- `bound_mode=clip_rescale|bounded|report` handles node values outside
+  the bounds (default: the window's data range).  `clip_rescale`
+  (default) clips them and restores the energy on the headroom,
+  `bounded` refits with the bounds as constraints (`ls` only), and
+  `report` leaves the values unchanged.
+
+**Relation to the reference implementation.**  The method follows the
+user's paper code (tcheby, `ChebyLib` and `ChebyInOutLP`).  Its points
+are the Chebyshev–Lobatto extremes $x_i = \cos(\pi i/(n-1))$ mapped to
+the stage window.  Lobatto is the default here too; Gauss nodes are
+kept only for comparison.
+
+The paper's LP variables are Chebyshev **coefficients** $c$, $m$ of
+them with $m \le n$ samples.  Bounds hold at the sample points,
+$c_{\min} \le A c \le c_{\max}$ with $A_{ij} = T_j(x_i)$, and
+commitment rows are $c_{\min}u \le Ac \le c_{\max}u$.  Costs use
+trapezoid weights $t$ on the points (`add_trap_cost`, $q = t^\top A$).
+Ramps use the 3-point non-uniform difference with first-order ends
+(`diffd_op`), which is gtopt's `ramp_formula = central2`.  Reservoir
+dynamics are collocated with the spectral derivative,
+$D v - q = 0$ with $D = A\,\mathrm{diff}\,A^{-1}$.  Bus and other row
+duals are divided by each point's trapezoid weight
+(`get_row_duals_dt`).
+
+gtopt's block formulation is the same model when $m = n$.  The block
+values are the point values $u = Ac$, and $A$ (the Lobatto
+Vandermonde) is invertible.  So bounds become column bounds on $u$, and
+costs become $\sum_k w_k\,\mathrm{cost}\cdot u_k$ with a per-block weight
+$w_k$, the block duration.  gtopt divides duals by $w_k$ in the same
+way.  Differences from the paper:
+
+- The default weights are Clenshaw–Curtis (`durations=quadrature`).
+  They are exact on the node polynomial, all positive on Lobatto
+  points, and still diagonal.  The paper's trapezoid weights are
+  `durations=trapezoid`.
+- Storage uses the sparse recursion
+  $e_{k+1} = e_k + \text{flow}_k\,w_k$.  The end-of-week total is
+  then the exact quadrature of the flow, and intermediate levels are a
+  first-order approximation.
+  - The level $e_k$ refers to the block END
+    $\tau_k = \sum_{j\le k} w_k$, not to the node $t_k$.  Each node
+    lies inside its block $[\tau_{k-1}, \tau_k]$, but they can differ
+    by 2.1 / 1.4 / 0.8 h at N = 64 / 96 / 168.
+  - Taken at $\tau_k$, the level matches $\int_0^{\tau_k} f$ to about
+    0.1–0.8 % of weekly throughput.  Taken at $t_k$, the error is
+    1.4–6 %.
+  - The reconstruction (`rebuild_level`) and the bound checks place
+    levels at $\tau_k$.
+  - The dense $S = VJV^{-1}$ (`cumulative_integration_matrix`) is exact
+    at the nodes.  The paper's collocated spectral
+  derivative, or the cumulative integration $V J V^{-1}$, is dense;
+  it is a deferred option.
+- The case $m < n$ (fewer coefficients than points, i.e. bounds
+  enforced at more points than unknowns) needs coefficient columns,
+  with dense rows $A_i c$, in gtopt.  It is a design note and is not
+  implemented.
+
+Trace data: the paper samples the hourly series at the points
+(`get_t_values`).  Schedules go through `get_energy_coeffs`, an L1 fit
+$\min \sum|Ac - y| + e_t$ with $Ac \ge 0$ and the trapezoid energy
+$t^\top Ac - e_t = t^\top y$ ($e_t \ge 0$).  With $m = n$ that is
+interpolation of the point samples.  It is available as `values=l1`,
+solved with HiGHS:
+- `l1_oversample=K` uses K·(N+1) sample points (the paper's demand
+  variant uses 2);
+- `l1_y=point|cell` takes the value at each point or the mean over its
+  cell.
+
+**Hourly reconstruction** (`plexos2gtopt.week_reconstruct`).  Node
+solutions $u_k$ (generation, flows) become the interpolating polynomial
+$g = \sum_j c_j T_j$ with $u = Vc$ and $V_{kj} = T_j(x_k)$.  Its hourly
+or half-hourly cell means integrate to $\sum_k u_k w_k$ exactly,
+because the LP weights are the interpolatory quadrature of the node
+set.  The written duals are in \$/MWh (gtopt divides by
+probability × discount × block duration), so the raw block duals are
+$\lambda_k = p_k w_k$.
+
+The price polynomial $p = \sum_j a_j T_j$ lives in the same N-dimensional
+space and solves $G a = V^\top\lambda$, where
+$G_{ij} = \int T_iT_j\,dt$ (closed form).  Then
+$\int p\,g\,dt = \lambda^\top u$ exactly for every $g$ of the space:
+revenues, congestion rents and total cost (Σ marginal value × quantity)
+are preserved.  $V$ and $G$ are well conditioned: cond V ≈ 1.5 and
+cond G ≈ 80–215 for N = 64–168.
+
+Hourly prices are evaluations of $p$, and their discrete hourly revenue
+sum differs from the exact integral only by the midpoint-rule
+residual.  Alternatives are the hourly-grid adjoint $R^\top D p = \lambda$
+(exact for the hourly sum; needs cells ≥ nodes) and naive interpolation
+of the node prices (leaves a revenue gap).  Storage levels are
+interpolated, and bound violations between nodes are reported.
+
+The hourly means of energy-like quantities are identical to the paper's
+`cheby2hour.py`, $E = Z\,\tfrac{T}{2}\,B\,I\,A^{-1}$ (tested to
+1e-10).  The paper's `cheby_interpol.py` maps every output, duals
+included, to hours by piecewise-linear interpolation of the node
+values.  For energy-like quantities that does not keep the energy, and
+for prices it is not dual-consistent.  It is available as
+`method="linear"` for comparison.
+
+The node, weight, value and ramp (`ramp_formula = central2`) definitions
+follow the description of the method's reference paper and will be
+matched to its equations once available.
+
+**Storage and reservoirs.**  Batteries (existing and candidates) keep
+`daily_cycle`: the period (day or week) cycle is closed even though
+PLEXOS uses End Effects "Free".  Free would let a representative period
+borrow energy from a non-consecutive one.  Reservoir volumes are a
+state coupled across all stages with a free terminal volume at the
+horizon end (no `efin`).  Storages with End Effects = Recycle or a
+`Target Week` cycle within each period.  Hydro topology is the union
+over the months, so units commissioned later (Snowy 2.0) keep their
+water coupling.
+
+**Expansion.**  Generation candidates expand in MW.  Storage
+candidates expand power and energy together (`energy_power_ratio`).
+ODP network augmentations remain decision variables; the
+`--odp-augmentations` fixing applies to the dispatch converter only.
+
 ## 16. Related references
 
 * `scripts/plexos2gtopt/DESIGN.md` — the original v0 design (CSV

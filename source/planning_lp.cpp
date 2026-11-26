@@ -339,6 +339,59 @@ template<class Element>
 
 // ── Line reactance validation ────────────────────────────────────────────
 
+std::optional<double> PlanningLP::median_line_reactance_pu(
+    const Planning& planning)
+{
+  std::vector<double> xs;
+  xs.reserve(planning.system.line_array.size());
+  for (const auto& line : planning.system.line_array) {
+    if (!line.reactance.has_value()) {
+      continue;
+    }
+    const auto v_opt = line_repr_voltage(line);
+    if (!v_opt.has_value() || *v_opt == 0.0) {
+      continue;
+    }
+    const double v_sq = *v_opt * *v_opt;
+    const auto& sched = *line.reactance;
+    double x = 0.0;
+    if (const auto* xs_scalar = std::get_if<double>(&sched)) {
+      x = *xs_scalar;
+    } else if (const auto* xv = std::get_if<std::vector<double>>(&sched)) {
+      const auto it =
+          std::ranges::find_if(*xv, [](double val) { return val != 0.0; });
+      x = (it != xv->end()) ? *it : 0.0;
+    }
+    const double pu = std::abs(x / v_sq);
+    if (pu > 0.0 && std::isfinite(pu)) {
+      xs.push_back(pu);
+    }
+  }
+  if (xs.empty()) {
+    return std::nullopt;
+  }
+  const auto mid = xs.size() / 2;
+  std::ranges::nth_element(xs, xs.begin() + static_cast<std::ptrdiff_t>(mid));
+  return xs[mid];
+}
+
+double PlanningLP::effective_tiny_reactance_threshold(const Planning& planning)
+{
+  const auto& mo = planning.options.model_options;
+  const double abs_floor = mo.dc_line_reactance_threshold.value_or(
+      PlanningOptionsLP::default_dc_line_reactance_threshold);
+  const double rel = mo.tiny_reactance_rel_threshold.value_or(
+      PlanningOptionsLP::default_tiny_reactance_rel_threshold);
+  if (!(rel > 0.0)) {
+    return abs_floor;
+  }
+  const auto median = median_line_reactance_pu(planning);
+  if (!median.has_value()) {
+    return abs_floor;
+  }
+  return std::max(abs_floor, rel * *median);
+}
+
 void PlanningLP::validate_line_reactance(Planning& planning)
 {
   // The Kirchhoff row coefficient is x_τ = τ · X / V² (per-unit
@@ -379,9 +432,28 @@ void PlanningLP::validate_line_reactance(Planning& planning)
   // before `PlanningOptionsLP` is constructed (so before flat-to-model
   // migration), but both options are only exposed via `model_options`
   // and have no deprecated flat field, so direct lookup is safe.
-  const auto& mo = planning.options.model_options;
-  const double threshold = mo.dc_line_reactance_threshold.value_or(
+  //
+  // The floor is `max(dc_line_reactance_threshold,
+  // tiny_reactance_rel_threshold × median |X/V²|)`
+  // (`effective_tiny_reactance_threshold`).  When the relative term
+  // raises it, the effective value is written back into
+  // `model_options.dc_line_reactance_threshold` so the KVL assemblers,
+  // island detection and `auto_scale_theta` all classify against it.
+  auto& mo = planning.options.model_options;
+  const double abs_floor = mo.dc_line_reactance_threshold.value_or(
       PlanningOptionsLP::default_dc_line_reactance_threshold);
+  const double threshold = effective_tiny_reactance_threshold(planning);
+  if (threshold > abs_floor) {
+    spdlog::info(
+        "  Line reactance validation: zero-impedance floor |X/V²| < {:.3e} "
+        "(= {:g} × median {:.3e}; absolute floor {:.0e}).",
+        threshold,
+        mo.tiny_reactance_rel_threshold.value_or(
+            PlanningOptionsLP::default_tiny_reactance_rel_threshold),
+        median_line_reactance_pu(planning).value_or(0.0),
+        abs_floor);
+    mo.dc_line_reactance_threshold = threshold;
+  }
   const auto mode =
       mo.tiny_reactance_mode
           .and_then([](const auto& name)
@@ -440,6 +512,9 @@ void PlanningLP::validate_line_reactance(Planning& planning)
   constexpr std::size_t kMaxTieWarnings = 20;
   std::size_t ties = 0;
   std::size_t dc_fallbacks = 0;
+  std::size_t lossless_ties = 0;
+  const bool tie_losses =
+      mo.tie_line_losses.value_or(PlanningOptionsLP::default_tie_line_losses);
   for (auto& line : planning.system.line_array) {
     const auto pu = tie_reactance_pu(line, threshold);
     if (!pu.has_value()) {
@@ -460,10 +535,20 @@ void PlanningLP::validate_line_reactance(Planning& planning)
       ++dc_fallbacks;
       continue;
     }
+    // A tie's resistance is as degenerate as its reactance: drop the
+    // loss model (no loss column / segment / link row with `R/V²`-sized
+    // coefficients) unless `tie_line_losses = true` keeps it.
+    if (!tie_losses
+        && (line.resistance.has_value() || line.lossfactor.has_value()))
+    {
+      line.resistance.reset();
+      line.lossfactor.reset();
+      ++lossless_ties;
+    }
     if (ties < kMaxTieWarnings) {
       spdlog::warn(
           "(line_reactance) Line '{}' (uid={}): |X/V²|={:.3e} "
-          "(zero or below {:.0e}) — zero-impedance tie, angles of buses "
+          "(zero or below {:.1e}) — zero-impedance tie, angles of buses "
           "'{}' and '{}' forced equal.",
           line.name,
           line.uid,
@@ -484,10 +569,12 @@ void PlanningLP::validate_line_reactance(Planning& planning)
     spdlog::info(
         "  Line reactance validation (tiny_reactance_mode=tie): {} "
         "zero-impedance tie(s), {} DC fallback(s) on conflicting "
-        "reference_theta.  Use tiny_reactance_mode=dc for the legacy "
-        "free-flow DC treatment.",
+        "reference_theta, {} tie(s) made lossless "
+        "(tie_line_losses=false).  Use tiny_reactance_mode=dc for the "
+        "legacy free-flow DC treatment.",
         ties,
-        dc_fallbacks);
+        dc_fallbacks,
+        lossless_ties);
   }
 }
 
@@ -514,7 +601,7 @@ void PlanningLP::validate_line_resistance(Planning& planning)
   // Ruiz equilibration can partially absorb under scaling), this matters most
   // on the unscaled path where no equilibration runs.
   //
-  // Default threshold is `default_dc_line_resistance_threshold` (1e-6 p.u.).
+  // Default threshold is `default_dc_line_resistance_threshold` (1e-7 p.u.).
   // Read directly from `model_options` — this pass runs before
   // `PlanningOptionsLP` is constructed; the option has no deprecated flat
   // field, so the direct lookup is safe.
@@ -907,6 +994,16 @@ void PlanningLP::auto_scale_theta(Planning& planning)
   }
 
   if (x_taus.empty()) {
+    // No line with a KVL flow term (every reactance unset, zero or a
+    // zero-impedance tie): there is no median to scale by.  Keep the
+    // configured / default scale_theta and theta_max — never divide by a
+    // zero median.
+    if (auto_scale_theta_value) {
+      spdlog::info(
+          "  Auto scale_theta skipped: no line with a nonzero reactance "
+          "above the zero-impedance floor (all DC links / ties) — "
+          "scale_theta keeps its default");
+    }
     return;
   }
 

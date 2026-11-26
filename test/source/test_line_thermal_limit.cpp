@@ -82,6 +82,8 @@ struct Case
   /// Precomputed DLR rating [MW] of one critical span (`Line.dlr`);
   /// 0 → no DLR.
   double dlr_rating {0.0};
+  /// `model_options.loss_segment_bound`; nullopt → default (on).
+  std::optional<bool> segment_bound {};
 };
 
 struct Fixture
@@ -272,6 +274,7 @@ private:
     opts.model_options.use_kirchhoff = false;
     opts.model_options.scale_objective = 1.0;
     opts.model_options.demand_fail_cost = 1000.0;
+    opts.model_options.loss_segment_bound = c.segment_bound;
     if (!c.global_limit.empty()) {
       opts.model_options.line_thermal_limit_mode = std::string(c.global_limit);
     }
@@ -581,18 +584,29 @@ TEST_CASE("line loss cap at rated flow bounds fictitious loss")  // NOLINT
   // tmax (secant on the first segment = R·tmax²/V² = 10 MW) instead of
   // R·envelope²/V² = 90 MW, so the burnt energy is exactly 2 × 10 MW
   // (up to 2 × 50 MW before: steepest-segment slope 0.5 on fp, fn ≤ 100).
-  const Case neg {
+  // That is the legacy segment layout (`loss_segment_bound = false`);
+  // the default ordered-fill segment bounds (segments 2, 3 capped at 0)
+  // tighten it further but do not remove it: the phantom loss stays
+  // positive and never exceeds the legacy one.
+  Case neg {
       .segments = 3,
       .envelope = 3.0 * kTmax,
       .loss_cost_eps = 0.0,
       .negative_price = true,
+      .segment_bound = false,
   };
   const double cap = kLossK * kTmax * kTmax;
+  Fixture legacy_fx(neg);
+  const auto legacy = solve(legacy_fx);
+  CHECK(legacy.lossp + legacy.lossn
+        == doctest::Approx(2.0 * cap).epsilon(1e-6));
+  neg.segment_bound = true;
   Fixture fx(neg);
   const auto r = solve(fx);
   CHECK(r.lossp <= cap + 1e-6);
   CHECK(r.lossn <= cap + 1e-6);
-  CHECK(r.lossp + r.lossn == doctest::Approx(2.0 * cap).epsilon(1e-6));
+  CHECK(r.lossp + r.lossn <= legacy.lossp + legacy.lossn + 1e-6);
+  CHECK(r.lossp + r.lossn > 0.0);
   CHECK(r.fn <= kTmax + 1e-6);
   CHECK(r.fp <= kTmax + 1e-6);
 
@@ -718,10 +732,14 @@ TEST_CASE("line_thermal_limit duals: thermal row vs flow bound")  // NOLINT
   // together as (1, ℓ'), so rc(flowp) + ℓ'·rc(lossp) = −V.  The row
   // dual carries the same sign as that reduced cost (both are shadow
   // prices of a binding upper limit in a minimisation).
+  //
+  // Pinned on the legacy segment layout (`loss_segment_bound = false`):
+  // the ordered-fill bound caps the top segment at tmax − 90 = 10 MW,
+  // a third bound that moves with the pair and takes part of the rent.
   constexpr double kEnvelope = 120.0;
   constexpr double kSlope = kLossK * 30.0 * 7.0;
   constexpr double kEps = 0.1;
-  Fixture flow_fx({.envelope = kEnvelope});
+  Fixture flow_fx({.envelope = kEnvelope, .segment_bound = false});
   REQUIRE(flow_fx.lp().resolve().value_or(-1) == 0);
   const double pi1 = row_dual(flow_fx.lp(), "bus_balance_1_");
   const double pi2 = row_dual(flow_fx.lp(), "bus_balance_2_");

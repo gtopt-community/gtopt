@@ -1,0 +1,1409 @@
+{
+ "options": {
+  "annual_discount_rate": 0.0,
+  "output_format": "csv",
+  "output_compression": "uncompressed",
+  "model_options": {
+   "use_single_bus": false,
+   "use_kirchhoff": true,
+   "demand_fail_cost": 1000,
+   "scale_objective": 1
+  }
+ },
+ "simulation": {
+  "block_array": [
+   {
+    "uid": 1,
+    "duration": 1
+   },
+   {
+    "uid": 2,
+    "duration": 1
+   },
+   {
+    "uid": 3,
+    "duration": 1
+   },
+   {
+    "uid": 4,
+    "duration": 1
+   },
+   {
+    "uid": 5,
+    "duration": 1
+   },
+   {
+    "uid": 6,
+    "duration": 1
+   },
+   {
+    "uid": 7,
+    "duration": 1
+   },
+   {
+    "uid": 8,
+    "duration": 1
+   },
+   {
+    "uid": 9,
+    "duration": 1
+   },
+   {
+    "uid": 10,
+    "duration": 1
+   },
+   {
+    "uid": 11,
+    "duration": 1
+   },
+   {
+    "uid": 12,
+    "duration": 1
+   },
+   {
+    "uid": 13,
+    "duration": 1
+   },
+   {
+    "uid": 14,
+    "duration": 1
+   },
+   {
+    "uid": 15,
+    "duration": 1
+   },
+   {
+    "uid": 16,
+    "duration": 1
+   },
+   {
+    "uid": 17,
+    "duration": 1
+   },
+   {
+    "uid": 18,
+    "duration": 1
+   },
+   {
+    "uid": 19,
+    "duration": 1
+   },
+   {
+    "uid": 20,
+    "duration": 1
+   },
+   {
+    "uid": 21,
+    "duration": 1
+   },
+   {
+    "uid": 22,
+    "duration": 1
+   },
+   {
+    "uid": 23,
+    "duration": 1
+   },
+   {
+    "uid": 24,
+    "duration": 1
+   },
+   {
+    "uid": 25,
+    "duration": 1
+   },
+   {
+    "uid": 26,
+    "duration": 1
+   },
+   {
+    "uid": 27,
+    "duration": 1
+   },
+   {
+    "uid": 28,
+    "duration": 1
+   },
+   {
+    "uid": 29,
+    "duration": 1
+   },
+   {
+    "uid": 30,
+    "duration": 1
+   },
+   {
+    "uid": 31,
+    "duration": 1
+   },
+   {
+    "uid": 32,
+    "duration": 1
+   },
+   {
+    "uid": 33,
+    "duration": 1
+   },
+   {
+    "uid": 34,
+    "duration": 1
+   },
+   {
+    "uid": 35,
+    "duration": 1
+   },
+   {
+    "uid": 36,
+    "duration": 1
+   },
+   {
+    "uid": 37,
+    "duration": 1
+   },
+   {
+    "uid": 38,
+    "duration": 1
+   },
+   {
+    "uid": 39,
+    "duration": 1
+   },
+   {
+    "uid": 40,
+    "duration": 1
+   },
+   {
+    "uid": 41,
+    "duration": 1
+   },
+   {
+    "uid": 42,
+    "duration": 1
+   },
+   {
+    "uid": 43,
+    "duration": 1
+   },
+   {
+    "uid": 44,
+    "duration": 1
+   },
+   {
+    "uid": 45,
+    "duration": 1
+   },
+   {
+    "uid": 46,
+    "duration": 1
+   },
+   {
+    "uid": 47,
+    "duration": 1
+   },
+   {
+    "uid": 48,
+    "duration": 1
+   },
+   {
+    "uid": 49,
+    "duration": 1
+   },
+   {
+    "uid": 50,
+    "duration": 1
+   },
+   {
+    "uid": 51,
+    "duration": 1
+   },
+   {
+    "uid": 52,
+    "duration": 1
+   },
+   {
+    "uid": 53,
+    "duration": 1
+   },
+   {
+    "uid": 54,
+    "duration": 1
+   },
+   {
+    "uid": 55,
+    "duration": 1
+   },
+   {
+    "uid": 56,
+    "duration": 1
+   },
+   {
+    "uid": 57,
+    "duration": 1
+   },
+   {
+    "uid": 58,
+    "duration": 1
+   },
+   {
+    "uid": 59,
+    "duration": 1
+   },
+   {
+    "uid": 60,
+    "duration": 1
+   },
+   {
+    "uid": 61,
+    "duration": 1
+   },
+   {
+    "uid": 62,
+    "duration": 1
+   },
+   {
+    "uid": 63,
+    "duration": 1
+   },
+   {
+    "uid": 64,
+    "duration": 1
+   },
+   {
+    "uid": 65,
+    "duration": 1
+   },
+   {
+    "uid": 66,
+    "duration": 1
+   },
+   {
+    "uid": 67,
+    "duration": 1
+   },
+   {
+    "uid": 68,
+    "duration": 1
+   },
+   {
+    "uid": 69,
+    "duration": 1
+   },
+   {
+    "uid": 70,
+    "duration": 1
+   },
+   {
+    "uid": 71,
+    "duration": 1
+   },
+   {
+    "uid": 72,
+    "duration": 1
+   },
+   {
+    "uid": 73,
+    "duration": 1
+   },
+   {
+    "uid": 74,
+    "duration": 1
+   },
+   {
+    "uid": 75,
+    "duration": 1
+   },
+   {
+    "uid": 76,
+    "duration": 1
+   },
+   {
+    "uid": 77,
+    "duration": 1
+   },
+   {
+    "uid": 78,
+    "duration": 1
+   },
+   {
+    "uid": 79,
+    "duration": 1
+   },
+   {
+    "uid": 80,
+    "duration": 1
+   },
+   {
+    "uid": 81,
+    "duration": 1
+   },
+   {
+    "uid": 82,
+    "duration": 1
+   },
+   {
+    "uid": 83,
+    "duration": 1
+   },
+   {
+    "uid": 84,
+    "duration": 1
+   },
+   {
+    "uid": 85,
+    "duration": 1
+   },
+   {
+    "uid": 86,
+    "duration": 1
+   },
+   {
+    "uid": 87,
+    "duration": 1
+   },
+   {
+    "uid": 88,
+    "duration": 1
+   },
+   {
+    "uid": 89,
+    "duration": 1
+   },
+   {
+    "uid": 90,
+    "duration": 1
+   },
+   {
+    "uid": 91,
+    "duration": 1
+   },
+   {
+    "uid": 92,
+    "duration": 1
+   },
+   {
+    "uid": 93,
+    "duration": 1
+   },
+   {
+    "uid": 94,
+    "duration": 1
+   },
+   {
+    "uid": 95,
+    "duration": 1
+   },
+   {
+    "uid": 96,
+    "duration": 1
+   },
+   {
+    "uid": 97,
+    "duration": 1
+   },
+   {
+    "uid": 98,
+    "duration": 1
+   },
+   {
+    "uid": 99,
+    "duration": 1
+   },
+   {
+    "uid": 100,
+    "duration": 1
+   },
+   {
+    "uid": 101,
+    "duration": 1
+   },
+   {
+    "uid": 102,
+    "duration": 1
+   },
+   {
+    "uid": 103,
+    "duration": 1
+   },
+   {
+    "uid": 104,
+    "duration": 1
+   },
+   {
+    "uid": 105,
+    "duration": 1
+   },
+   {
+    "uid": 106,
+    "duration": 1
+   },
+   {
+    "uid": 107,
+    "duration": 1
+   },
+   {
+    "uid": 108,
+    "duration": 1
+   },
+   {
+    "uid": 109,
+    "duration": 1
+   },
+   {
+    "uid": 110,
+    "duration": 1
+   },
+   {
+    "uid": 111,
+    "duration": 1
+   },
+   {
+    "uid": 112,
+    "duration": 1
+   },
+   {
+    "uid": 113,
+    "duration": 1
+   },
+   {
+    "uid": 114,
+    "duration": 1
+   },
+   {
+    "uid": 115,
+    "duration": 1
+   },
+   {
+    "uid": 116,
+    "duration": 1
+   },
+   {
+    "uid": 117,
+    "duration": 1
+   },
+   {
+    "uid": 118,
+    "duration": 1
+   },
+   {
+    "uid": 119,
+    "duration": 1
+   },
+   {
+    "uid": 120,
+    "duration": 1
+   },
+   {
+    "uid": 121,
+    "duration": 1
+   },
+   {
+    "uid": 122,
+    "duration": 1
+   },
+   {
+    "uid": 123,
+    "duration": 1
+   },
+   {
+    "uid": 124,
+    "duration": 1
+   },
+   {
+    "uid": 125,
+    "duration": 1
+   },
+   {
+    "uid": 126,
+    "duration": 1
+   },
+   {
+    "uid": 127,
+    "duration": 1
+   },
+   {
+    "uid": 128,
+    "duration": 1
+   },
+   {
+    "uid": 129,
+    "duration": 1
+   },
+   {
+    "uid": 130,
+    "duration": 1
+   },
+   {
+    "uid": 131,
+    "duration": 1
+   },
+   {
+    "uid": 132,
+    "duration": 1
+   },
+   {
+    "uid": 133,
+    "duration": 1
+   },
+   {
+    "uid": 134,
+    "duration": 1
+   },
+   {
+    "uid": 135,
+    "duration": 1
+   },
+   {
+    "uid": 136,
+    "duration": 1
+   },
+   {
+    "uid": 137,
+    "duration": 1
+   },
+   {
+    "uid": 138,
+    "duration": 1
+   },
+   {
+    "uid": 139,
+    "duration": 1
+   },
+   {
+    "uid": 140,
+    "duration": 1
+   },
+   {
+    "uid": 141,
+    "duration": 1
+   },
+   {
+    "uid": 142,
+    "duration": 1
+   },
+   {
+    "uid": 143,
+    "duration": 1
+   },
+   {
+    "uid": 144,
+    "duration": 1
+   },
+   {
+    "uid": 145,
+    "duration": 1
+   },
+   {
+    "uid": 146,
+    "duration": 1
+   },
+   {
+    "uid": 147,
+    "duration": 1
+   },
+   {
+    "uid": 148,
+    "duration": 1
+   },
+   {
+    "uid": 149,
+    "duration": 1
+   },
+   {
+    "uid": 150,
+    "duration": 1
+   },
+   {
+    "uid": 151,
+    "duration": 1
+   },
+   {
+    "uid": 152,
+    "duration": 1
+   },
+   {
+    "uid": 153,
+    "duration": 1
+   },
+   {
+    "uid": 154,
+    "duration": 1
+   },
+   {
+    "uid": 155,
+    "duration": 1
+   },
+   {
+    "uid": 156,
+    "duration": 1
+   },
+   {
+    "uid": 157,
+    "duration": 1
+   },
+   {
+    "uid": 158,
+    "duration": 1
+   },
+   {
+    "uid": 159,
+    "duration": 1
+   },
+   {
+    "uid": 160,
+    "duration": 1
+   },
+   {
+    "uid": 161,
+    "duration": 1
+   },
+   {
+    "uid": 162,
+    "duration": 1
+   },
+   {
+    "uid": 163,
+    "duration": 1
+   },
+   {
+    "uid": 164,
+    "duration": 1
+   },
+   {
+    "uid": 165,
+    "duration": 1
+   },
+   {
+    "uid": 166,
+    "duration": 1
+   },
+   {
+    "uid": 167,
+    "duration": 1
+   },
+   {
+    "uid": 168,
+    "duration": 1
+   },
+   {
+    "uid": 169,
+    "duration": 1
+   },
+   {
+    "uid": 170,
+    "duration": 1
+   },
+   {
+    "uid": 171,
+    "duration": 1
+   },
+   {
+    "uid": 172,
+    "duration": 1
+   },
+   {
+    "uid": 173,
+    "duration": 1
+   },
+   {
+    "uid": 174,
+    "duration": 1
+   },
+   {
+    "uid": 175,
+    "duration": 1
+   },
+   {
+    "uid": 176,
+    "duration": 1
+   },
+   {
+    "uid": 177,
+    "duration": 1
+   },
+   {
+    "uid": 178,
+    "duration": 1
+   },
+   {
+    "uid": 179,
+    "duration": 1
+   },
+   {
+    "uid": 180,
+    "duration": 1
+   },
+   {
+    "uid": 181,
+    "duration": 1
+   },
+   {
+    "uid": 182,
+    "duration": 1
+   },
+   {
+    "uid": 183,
+    "duration": 1
+   },
+   {
+    "uid": 184,
+    "duration": 1
+   },
+   {
+    "uid": 185,
+    "duration": 1
+   },
+   {
+    "uid": 186,
+    "duration": 1
+   },
+   {
+    "uid": 187,
+    "duration": 1
+   },
+   {
+    "uid": 188,
+    "duration": 1
+   },
+   {
+    "uid": 189,
+    "duration": 1
+   },
+   {
+    "uid": 190,
+    "duration": 1
+   },
+   {
+    "uid": 191,
+    "duration": 1
+   },
+   {
+    "uid": 192,
+    "duration": 1
+   },
+   {
+    "uid": 193,
+    "duration": 1
+   },
+   {
+    "uid": 194,
+    "duration": 1
+   },
+   {
+    "uid": 195,
+    "duration": 1
+   },
+   {
+    "uid": 196,
+    "duration": 1
+   },
+   {
+    "uid": 197,
+    "duration": 1
+   },
+   {
+    "uid": 198,
+    "duration": 1
+   },
+   {
+    "uid": 199,
+    "duration": 1
+   },
+   {
+    "uid": 200,
+    "duration": 1
+   },
+   {
+    "uid": 201,
+    "duration": 1
+   },
+   {
+    "uid": 202,
+    "duration": 1
+   },
+   {
+    "uid": 203,
+    "duration": 1
+   },
+   {
+    "uid": 204,
+    "duration": 1
+   },
+   {
+    "uid": 205,
+    "duration": 1
+   },
+   {
+    "uid": 206,
+    "duration": 1
+   },
+   {
+    "uid": 207,
+    "duration": 1
+   },
+   {
+    "uid": 208,
+    "duration": 1
+   },
+   {
+    "uid": 209,
+    "duration": 1
+   },
+   {
+    "uid": 210,
+    "duration": 1
+   },
+   {
+    "uid": 211,
+    "duration": 1
+   },
+   {
+    "uid": 212,
+    "duration": 1
+   },
+   {
+    "uid": 213,
+    "duration": 1
+   },
+   {
+    "uid": 214,
+    "duration": 1
+   },
+   {
+    "uid": 215,
+    "duration": 1
+   },
+   {
+    "uid": 216,
+    "duration": 1
+   },
+   {
+    "uid": 217,
+    "duration": 1
+   },
+   {
+    "uid": 218,
+    "duration": 1
+   },
+   {
+    "uid": 219,
+    "duration": 1
+   },
+   {
+    "uid": 220,
+    "duration": 1
+   },
+   {
+    "uid": 221,
+    "duration": 1
+   },
+   {
+    "uid": 222,
+    "duration": 1
+   },
+   {
+    "uid": 223,
+    "duration": 1
+   },
+   {
+    "uid": 224,
+    "duration": 1
+   },
+   {
+    "uid": 225,
+    "duration": 1
+   },
+   {
+    "uid": 226,
+    "duration": 1
+   },
+   {
+    "uid": 227,
+    "duration": 1
+   },
+   {
+    "uid": 228,
+    "duration": 1
+   },
+   {
+    "uid": 229,
+    "duration": 1
+   },
+   {
+    "uid": 230,
+    "duration": 1
+   },
+   {
+    "uid": 231,
+    "duration": 1
+   },
+   {
+    "uid": 232,
+    "duration": 1
+   },
+   {
+    "uid": 233,
+    "duration": 1
+   },
+   {
+    "uid": 234,
+    "duration": 1
+   },
+   {
+    "uid": 235,
+    "duration": 1
+   },
+   {
+    "uid": 236,
+    "duration": 1
+   },
+   {
+    "uid": 237,
+    "duration": 1
+   },
+   {
+    "uid": 238,
+    "duration": 1
+   },
+   {
+    "uid": 239,
+    "duration": 1
+   },
+   {
+    "uid": 240,
+    "duration": 1
+   },
+   {
+    "uid": 241,
+    "duration": 1
+   },
+   {
+    "uid": 242,
+    "duration": 1
+   },
+   {
+    "uid": 243,
+    "duration": 1
+   },
+   {
+    "uid": 244,
+    "duration": 1
+   },
+   {
+    "uid": 245,
+    "duration": 1
+   },
+   {
+    "uid": 246,
+    "duration": 1
+   },
+   {
+    "uid": 247,
+    "duration": 1
+   },
+   {
+    "uid": 248,
+    "duration": 1
+   },
+   {
+    "uid": 249,
+    "duration": 1
+   },
+   {
+    "uid": 250,
+    "duration": 1
+   },
+   {
+    "uid": 251,
+    "duration": 1
+   },
+   {
+    "uid": 252,
+    "duration": 1
+   },
+   {
+    "uid": 253,
+    "duration": 1
+   },
+   {
+    "uid": 254,
+    "duration": 1
+   },
+   {
+    "uid": 255,
+    "duration": 1
+   },
+   {
+    "uid": 256,
+    "duration": 1
+   },
+   {
+    "uid": 257,
+    "duration": 1
+   },
+   {
+    "uid": 258,
+    "duration": 1
+   },
+   {
+    "uid": 259,
+    "duration": 1
+   },
+   {
+    "uid": 260,
+    "duration": 1
+   },
+   {
+    "uid": 261,
+    "duration": 1
+   },
+   {
+    "uid": 262,
+    "duration": 1
+   },
+   {
+    "uid": 263,
+    "duration": 1
+   },
+   {
+    "uid": 264,
+    "duration": 1
+   },
+   {
+    "uid": 265,
+    "duration": 1
+   },
+   {
+    "uid": 266,
+    "duration": 1
+   },
+   {
+    "uid": 267,
+    "duration": 1
+   },
+   {
+    "uid": 268,
+    "duration": 1
+   },
+   {
+    "uid": 269,
+    "duration": 1
+   },
+   {
+    "uid": 270,
+    "duration": 1
+   },
+   {
+    "uid": 271,
+    "duration": 1
+   },
+   {
+    "uid": 272,
+    "duration": 1
+   },
+   {
+    "uid": 273,
+    "duration": 1
+   },
+   {
+    "uid": 274,
+    "duration": 1
+   },
+   {
+    "uid": 275,
+    "duration": 1
+   },
+   {
+    "uid": 276,
+    "duration": 1
+   },
+   {
+    "uid": 277,
+    "duration": 1
+   },
+   {
+    "uid": 278,
+    "duration": 1
+   },
+   {
+    "uid": 279,
+    "duration": 1
+   },
+   {
+    "uid": 280,
+    "duration": 1
+   },
+   {
+    "uid": 281,
+    "duration": 1
+   },
+   {
+    "uid": 282,
+    "duration": 1
+   },
+   {
+    "uid": 283,
+    "duration": 1
+   },
+   {
+    "uid": 284,
+    "duration": 1
+   },
+   {
+    "uid": 285,
+    "duration": 1
+   },
+   {
+    "uid": 286,
+    "duration": 1
+   },
+   {
+    "uid": 287,
+    "duration": 1
+   },
+   {
+    "uid": 288,
+    "duration": 1
+   },
+   {
+    "uid": 289,
+    "duration": 1
+   },
+   {
+    "uid": 290,
+    "duration": 1
+   },
+   {
+    "uid": 291,
+    "duration": 1
+   },
+   {
+    "uid": 292,
+    "duration": 1
+   },
+   {
+    "uid": 293,
+    "duration": 1
+   },
+   {
+    "uid": 294,
+    "duration": 1
+   },
+   {
+    "uid": 295,
+    "duration": 1
+   },
+   {
+    "uid": 296,
+    "duration": 1
+   },
+   {
+    "uid": 297,
+    "duration": 1
+   },
+   {
+    "uid": 298,
+    "duration": 1
+   },
+   {
+    "uid": 299,
+    "duration": 1
+   },
+   {
+    "uid": 300,
+    "duration": 1
+   }
+  ],
+  "stage_array": [
+   {
+    "uid": 1,
+    "first_block": 0,
+    "count_block": 100,
+    "chronological": true
+   },
+   {
+    "uid": 2,
+    "first_block": 100,
+    "count_block": 100,
+    "chronological": true
+   },
+   {
+    "uid": 3,
+    "first_block": 200,
+    "count_block": 100,
+    "chronological": true
+   }
+  ],
+  "scenario_array": [
+   {
+    "uid": 1,
+    "probability_factor": 1
+   }
+  ]
+ },
+ "system": {
+  "name": "caso2emb",
+  "bus_array": [
+   {
+    "uid": 1,
+    "name": "Antuco220"
+   },
+   {
+    "uid": 2,
+    "name": "Valdivia220"
+   }
+  ],
+  "generator_array": [
+   {
+    "uid": 1,
+    "name": "CH",
+    "bus": 1,
+    "gcost": 0,
+    "capacity": 450
+   },
+   {
+    "uid": 2,
+    "name": "CH2",
+    "bus": 1,
+    "gcost": 0,
+    "capacity": 450
+   },
+   {
+    "uid": 3,
+    "name": "CT",
+    "bus": 2,
+    "gcost": 10,
+    "capacity": 60
+   },
+   {
+    "uid": 4,
+    "name": "CF",
+    "bus": 1,
+    "gcost": 100,
+    "capacity": 100
+   }
+  ],
+  "demand_array": [
+   {
+    "uid": 1,
+    "name": "Antuco220",
+    "bus": 1,
+    "lmax": [
+     [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100],
+     [50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50],
+     [80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80]
+    ]
+   }
+  ],
+  "line_array": [
+   {
+    "uid": 1,
+    "name": "Antuco220->Valdivia220",
+    "bus_a": 1,
+    "bus_b": 2,
+    "tmax_ab": 600,
+    "tmax_ba": 600,
+    "voltage": 220,
+    "reactance": 40
+   }
+  ],
+  "junction_array": [
+   {
+    "uid": 1,
+    "name": "CH"
+   },
+   {
+    "uid": 2,
+    "name": "CH2"
+   },
+   {
+    "uid": 3,
+    "name": "SEA",
+    "drain": true
+   }
+  ],
+  "waterway_array": [
+   {
+    "uid": 1,
+    "name": "CH_gen",
+    "junction_a": 1,
+    "fmin": 0,
+    "fmax": 10000,
+    "junction_b": 3
+   },
+   {
+    "uid": 2,
+    "name": "CH2_gen",
+    "junction_a": 2,
+    "fmin": 0,
+    "fmax": 10000,
+    "junction_b": 3
+   }
+  ],
+  "reservoir_array": [
+   {
+    "uid": 1,
+    "name": "CH",
+    "junction": 1,
+    "eini": 3.6,
+    "emin": 0,
+    "emax": 10,
+    "capacity": 10,
+    "spillway_capacity": 0
+   },
+   {
+    "uid": 2,
+    "name": "CH2",
+    "junction": 2,
+    "eini": 1.8,
+    "emin": 0,
+    "emax": 10,
+    "capacity": 10,
+    "spillway_capacity": 0
+   }
+  ],
+  "flow_array": [
+   {
+    "uid": 1,
+    "name": "CH_Inf",
+    "direction": 1,
+    "junction": 1,
+    "discharge": [
+     [
+      [30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30],
+      [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10],
+      [15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15]
+     ]
+    ]
+   },
+   {
+    "uid": 2,
+    "name": "CH2_Inf",
+    "direction": 1,
+    "junction": 2,
+    "discharge": [
+     [
+      [15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15],
+      [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5],
+      [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5]
+     ]
+    ]
+   }
+  ],
+  "turbine_array": [
+   {
+    "uid": 1,
+    "name": "CH_turb",
+    "waterway": 1,
+    "generator": 1,
+    "production_factor": 1
+   },
+   {
+    "uid": 2,
+    "name": "CH2_turb",
+    "waterway": 2,
+    "generator": 2,
+    "production_factor": 1
+   }
+  ]
+ }
+}

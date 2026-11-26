@@ -49,6 +49,23 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Block duration in hours (e.g. 1.0 for hourly)",
             1.0,
         ),
+        (
+            "time",
+            _J_NUM,
+            False,
+            "Node time inside the stage period (real hours) for "
+            "ramp_formula=central2. Default: block midpoint.",
+            None,
+        ),
+        (
+            "commitment_cell",
+            _J_INT,
+            False,
+            "Commitment cell label (block stages): consecutive blocks with "
+            "the same label share one commitment status (refined blocks add "
+            "continuous variables only). Default: per-block status.",
+            None,
+        ),
     ],
     "stage_array": [
         ("uid", _J_INT, True, "Unique stage identifier", 1),
@@ -84,6 +101,51 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "When true, blocks in this stage are chronologically ordered and "
             "unit-commitment startup/shutdown transitions are enforced. "
             "False / unset = commitment transitions silently skipped.",
+            None,
+        ),
+        (
+            "cycle_group",
+            _J_INT,
+            False,
+            "Storage cycle group id: consecutive stages of one phase with the "
+            "same id form one weighted storage cycle for daily_cycle storages "
+            "(sum of weight x daily SoC change = 0). Unset = per-stage closure.",
+            None,
+        ),
+        (
+            "cycle_weight",
+            _J_NUM,
+            False,
+            "Repetitions of this stage inside its cycle_group (e.g. days per "
+            "typical week). Default: stage duration / period_hours (stage "
+            "duration / 24 without period_hours).",
+            None,
+        ),
+        (
+            "period_hours",
+            _J_NUM,
+            False,
+            "Real length (h) of the chronological period sampled by the stage "
+            "(168 typical week). Block durations become weights; real step = "
+            "duration x period_hours / stage duration.",
+            None,
+        ),
+        (
+            "sampling",
+            _J_STR,
+            False,
+            "Block values: 'block' (held constant over the block, default) or "
+            "'point' (samples at Block.time, e.g. Chebyshev nodes; durations "
+            "are quadrature weights).",
+            None,
+        ),
+        (
+            "periodic",
+            _J_BOOL,
+            False,
+            "Circular typical period: intra-period couplings wrap (block N-1 "
+            "-> block 0); only state variables are not periodic. Default: "
+            "true when period_hours is set or sampling = 'point'.",
             None,
         ),
     ],
@@ -332,7 +394,8 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "overload_max_rating",
             _J_SCHED,
             False,
-            "PLEXOS Overload Max Rating: emergency rating A→B [MW]; hard cap when the overload band is priced.",
+            "PLEXOS Overload Max Rating: emergency rating A→B [MW]; hard cap "
+            "when the overload band is priced.",
             None,
         ),
         (
@@ -1026,10 +1089,11 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
         (
             "transition_status_rows",
-            _J_BOOL,
+            _J_STR,
             False,
-            "Emit v <= u and w <= 1 - u. Unset = "
-            "model_options.transition_status_rows (default true).",
+            "REMOVED 2026-11-26 (the rows v <= u, w <= 1 - u no longer "
+            "exist): still parsed so old inputs load, ignored with a "
+            "warning. Leave empty.",
             None,
         ),
         (
@@ -1042,10 +1106,60 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
         (
             "commitment_period",
-            _J_NUM,
+            _J_STR,
             False,
-            "Binary variable period [h]. When set, u/v/w live at a coarser "
-            "time resolution than the generation blocks.",
+            "Binary variable period [h] (number) or ``auto`` (max(block "
+            "resolution, 0.5*min(min_up_time, min_down_time))). When set, "
+            "u/v/w live at a coarser time resolution than the generation "
+            "blocks; periods are unions of whole cells (blocks or point "
+            "quadrature cells).",
+            None,
+        ),
+        (
+            "commitment_grid",
+            _J_STR,
+            False,
+            "``block`` (one status per block/cell) or ``overlay`` (status "
+            "per commitment_period laid over the blocks). Default: block "
+            "without commitment_period, overlay with it. Point stages: "
+            "default = uniform grid of max(commitment_period, 1 h) by node "
+            "time; ``block`` / ``cells`` keep the previous per-node / "
+            "quadrature-cell grids.",
+            None,
+        ),
+        (
+            "ramp_allowance",
+            _J_STR,
+            False,
+            "Start-up / shut-down ramp allowance: ``boundary`` (default, "
+            "only on ramp rows crossing a commitment-period boundary) or "
+            "``period`` (every block of the commitment period).",
+            None,
+        ),
+        (
+            "cycle",
+            _J_STR,
+            False,
+            "Cyclic commitment: ``none`` (default) or ``stage`` (typical "
+            "day/week: the first transition wraps to the last period, "
+            "windows and ramps wrap, no initial state, start costs scaled "
+            "by duration / period_hours).",
+            None,
+        ),
+        (
+            "long_transition",
+            _J_STR,
+            False,
+            "Cyclic unit whose min up/down time or start window exceeds the "
+            "typical period: ``on``, ``off`` or ``no_uc`` (required for such "
+            "units; the long constraints are not emitted).",
+            None,
+        ),
+        (
+            "long_transition_schedule",
+            "array of strings",
+            False,
+            "Per-stage long_transition values (by stage position).",
             None,
         ),
         (
@@ -1112,6 +1226,37 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
         ("min_starts", _J_NUM, False, "Min starts", None),
         ("starts_scope", _J_STR, False, "Window-scope for ``max_starts``.", None),
+        (
+            "uc_formulation",
+            _J_STR,
+            False,
+            "Per-unit UC formulation: ``energy_block`` or ``power_based`` "
+            "(overrides ``model_options.uc_formulation``).",
+            None,
+        ),
+        (
+            "startup_trajectory",
+            "array of numbers",
+            False,
+            "Power-based UC: start-up power trajectory [MW] at successive "
+            "``trajectory_step`` instants before pmin is reached.",
+            None,
+        ),
+        (
+            "shutdown_trajectory",
+            "array of numbers",
+            False,
+            "Power-based UC: shut-down power trajectory [MW] at successive "
+            "``trajectory_step`` instants after leaving pmin.",
+            None,
+        ),
+        (
+            "trajectory_step",
+            _J_NUM,
+            False,
+            "Power-based UC: spacing of the trajectory samples [h] (default 1).",
+            None,
+        ),
     ],
     # ------------------------------------------------------------------
     # System — simple_commitment: DEPRECATED alias, folded into a
@@ -1490,6 +1635,13 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             _J_BOOL,
             False,
             "Reset SoC to eini at the start of each day (true/false)",
+            None,
+        ),
+        (
+            "storage_integration",
+            _J_STR,
+            False,
+            "Point-stage storage integration (block, trapezoid, lg4_pos, ...)",
             None,
         ),
         ("description", _J_STR, False, "Optional free-text description", None),
@@ -3084,6 +3236,13 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             _J_BOOL,
             False,
             "Reset reservoir to eini at the start of each day",
+            None,
+        ),
+        (
+            "storage_integration",
+            _J_STR,
+            False,
+            "Point-stage storage integration (default lg4_pos)",
             None,
         ),
         (

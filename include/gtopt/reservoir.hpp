@@ -213,6 +213,11 @@ struct Reservoir
   /// for small reservoirs that operate on a daily cycle.
   OptBool daily_cycle {};
 
+  /// Point-stage storage integration rule of this element (`block` = `cc` |
+  /// `trapezoid` | `lg4` | `lg6` | `lg4_pos` | `lg6_pos`); unset: the
+  /// per-type / global model option (see ModelOptions).
+  OptName storage_integration {};
+
   // ── Inline reservoir constraints (optional) ───────────────────────────
   // These can be defined here instead of in separate system-level arrays.
   // During expand_reservoir_constraints(), embedded entries are extracted

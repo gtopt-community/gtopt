@@ -238,13 +238,16 @@ TEST_CASE(  // NOLINT
     "initial_generation")
 {
   // Commitment ramp_up = 60, online at t = 0, demand 100 at h1:
-  //   p[0] ≤ p_prev + 60.
+  //   p[0] ≤ p_prev + 60.  Integer commitment: with `relax` the LP admits
+  //   startup = shutdown = ½ on the online unit, whose start-up ramp term
+  //   then lifts the cap (the rows startup ≤ status / shutdown ≤
+  //   1 − status that closed that were removed on 2026-11-26).
   const std::vector<double> demand {100.0};
   const auto commitment = [](std::string_view extra)
   {
     return std::format(
         R"(,"commitment_array":[{{"uid":1,"name":"c1","generator":1,)"
-        R"("ramp_up":60,"initial_status":1,"relax":true{}}}])",
+        R"("ramp_up":60,"initial_status":1{}}}])",
         extra);
   };
 

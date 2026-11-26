@@ -72,6 +72,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from ._numfmt import fmt_exact
+from .isp_traces import steps_per_day
 
 if TYPE_CHECKING:
     from .aemo_isp import IspResolver, _Row
@@ -308,8 +309,8 @@ class CaseView:
 
     @property
     def nb(self) -> int:
-        """Number of hourly blocks."""
-        return 24 * self.days
+        """Number of blocks (hourly, or half-hourly in a 48-step build)."""
+        return steps_per_day() * self.days
 
 
 # ---------------------------------------------------------------------------
@@ -1202,8 +1203,11 @@ def _to_user_constraint(  # pylint: disable=too-many-return-statements,too-many-
     prof = _fill_nan_from_day_neighbours(prof)
     if ev.rhs_kind == "RHS Day":
         daily = prof * 1000.0  # GWh/day (TJ/day) → MWh (GJ) per day
-        # constants per block contribute Σ_day const_b (1 h blocks)
-        day_const = np.repeat(ev.const.reshape(view.days, 24).sum(axis=1), 24)
+        # constants per block contribute Σ_day const_b · Δt
+        spd = steps_per_day()
+        day_const = np.repeat(
+            ev.const.reshape(view.days, spd).sum(axis=1) * (24.0 / spd), spd
+        )
         rhs = daily - day_const
         if not ev.terms:
             _constant_only(ev, float(rhs.min()), groups)

@@ -18,6 +18,7 @@
    - 4.3 [Ramp Constraints (C4–C5)](#43-ramp-constraints-c4c5)
    - 4.4 [Minimum Up/Down Time (C6–C7)](#44-minimum-updown-time-c6c7)
    - 4.5 [Startup Cost Tiers (C8–C10)](#45-startup-cost-tiers-c8c10)
+   - 4.6 [Power-Based Formulation](#46-power-based-formulation-uc_formulation--power_based)
 5. [Piecewise Heat Rate Curves](#5-piecewise-heat-rate-curves)
 6. [Emission Cost and Cap](#6-emission-cost-and-cap)
 7. [Reserve Integration](#7-reserve-integration)
@@ -221,8 +222,8 @@ generator $g$ and time period $t$:
 | Variable | Type | Domain | Meaning |
 |----------|------|--------|---------|
 | $u_{g,t}$ | Binary | $\{0, 1\}$ | **Status**: 1 if generator $g$ is online at time $t$ |
-| $v_{g,t}$ | Continuous, binary at every integer point (see below) | $\{0, 1\}$ | **Startup**: 1 if generator $g$ starts up at time $t$ |
-| $w_{g,t}$ | Continuous, binary at every integer point (see below) | $\{0, 1\}$ | **Shutdown**: 1 if generator $g$ shuts down at time $t$ |
+| $v_{g,t}$ | Binary (see below) | $\{0, 1\}$ | **Startup**: 1 if generator $g$ starts up at time $t$ |
+| $w_{g,t}$ | Binary (see below) | $\{0, 1\}$ | **Shutdown**: 1 if generator $g$ shuts down at time $t$ |
 
 $u$ is always declared integer on a MIP build.  The integrality of $v$
 and $w$ is selected by `transition_integrality` (per unit, else
@@ -230,23 +231,20 @@ and $w$ is selected by `transition_integrality` (per unit, else
 
 | Value | $v$, $w$ |
 |---|---|
-| `auto` (default) | continuous while the C3 status rows are on (`transition_status_rows`, default), binary when they are off |
-| `continuous` | always continuous in $[0, 1]$ |
-| `binary` | always binary (the original three-binary model) |
+| `auto` (default) | binary (the three-binary model) |
+| `continuous` | always continuous in $[0, 1]$ (smaller MIP, not exact with start / stop ramps) |
+| `binary` | always binary |
 
-**Why continuous $v$, $w$ are exact.**  With C1
-($u_t - u_{t-1} = v_t - w_t$) and the C3 rows $v_t \le u_t$,
-$w_t \le 1 - u_t$, an integral $u$ (and an integral `initial_status`,
-which gtopt rounds at 0.5) forces $v, w \in \{0, 1\}$ in all four cases
-of $(u_{t-1}, u_t)$: $(0,0)$ and $(1,1)$ give $v = w$ with $v \le 0$ or
-$w \le 0$, so both are 0; $(0,1)$ gives $v - w = 1$, so $v = 1, w = 0$;
-$(1,0)$ gives $w = 1, v = 0$.  Every further row — ramps with
-$SU\cdot v$ / $SD\cdot w$, min up / down, start-up tiers, user
-constraints — only removes points, so only $u$ needs to branch
-(Knueven, Ostrowski & Watson [K20]; Rajan & Takriti [RT05]).  Without
-the status rows, C1 and $v + w \le 1$ admit $v = w = \tfrac12$ on a unit
-that stays on, which the start/stop ramp terms reward; `auto` then
-declares $v$, $w$ binary.
+**Why $v$, $w$ are binary.**  C1 ($u_t - u_{t-1} = v_t - w_t$) and C3
+($v_t + w_t \le 1$) alone admit $v = w = \tfrac12$ on a unit that stays
+on (or off), which the start/stop ramp terms ($SU\cdot v$, $SD\cdot w$)
+and user rows on startup / shutdown reward, so `auto` declares them
+binary (UnitCommitment.jl's Gar1962 model: binary `switch_on` /
+`switch_off`, `switch_on + switch_off ≤ 1`).  From 2026-11-25 to
+2026-11-26 gtopt also had the rows $v_t \le u_t$, $w_t \le 1 - u_t$
+(`transition_status_rows`), which make continuous $v$, $w$ exact for an
+integral $u$ (Knueven, Ostrowski & Watson [K20]; Rajan & Takriti
+[RT05]); they were removed — see C3.
 
 The hot / warm / cold start selectors (§4.6) follow
 `startup_tier_integrality` (per unit, else `model_options`):
@@ -297,17 +295,32 @@ rows. This allows the LP relaxation to produce fractional commitment states.
 
 #### C3: Exclusion
 
-$$v_{g,t} + w_{g,t} \leq 1, \qquad v_{g,t} \leq u_{g,t}, \qquad w_{g,t} \leq 1 - u_{g,t}$$
+$$v_{g,t} + w_{g,t} \leq 1$$
 
-A unit cannot simultaneously start up and shut down in the same period; a
-start leaves it on and a stop leaves it off.  With an integer $u$, C1 and
-the last two rows make $v$, $w$ the exact 0/1 transition (§4.1), so they
-stay continuous by default, and the rows also tighten the LP relaxation.
-C1 and $v + w \leq 1$ alone would let a unit that stays on (or off) take
-$v = w = 0.5$ and buy $SU/2$ / $SD/2$ of extra ramp in C4 / C5 for half a
-start-stop cost.  `transition_status_rows = false` (per unit or in
-`model_options`) drops the last two rows, i.e. the formulation before
-2026-11-25; `transition_integrality = auto` then makes $v$, $w$ binary.
+A unit cannot simultaneously start up and shut down in the same period.
+With binary $v$, $w$ (`transition_integrality = auto`), C1 and C3 make
+$v$, $w$ the exact 0/1 transition.
+
+The rows $v_{g,t} \le u_{g,t}$, $w_{g,t} \le 1 - u_{g,t}$
+(`transition_status_rows`, added 2026-11-25) were **removed on
+2026-11-26**.  They are redundant in a MIP with binary $v$, $w$; on the
+CEN PCP case (109 782 commitment periods, most with a fixed status) they
+made the relaxed LP degenerate (C3 is their exact sum, and they were
+emitted for fixed-status periods too), CPLEX's crossover ended on a
+near-singular basis (kappa 1e16 and more), and CPLEX declared feasible
+variants infeasible.  The key `transition_status_rows` is still read
+(bool or name) so old inputs load, and ignored with a warning.
+
+#### C3b (removed): start / stop tied to the status
+
+The ramp-only rows $v_{g,t} \le u_{g,t}$, $w_{g,t} \le 1 - u_{g,t}$
+(2026-11-21, row names `startup_status` / `shutdown_status`) went with
+the transition status rows above: with binary $v$, $w$ they are
+redundant in the MIP, and PCP's ramping units carried most of them.
+In a relaxed run (`relax`, `--no-mip`, continuous phases) a fractional
+$v = w$ with $u$ unchanged can again buy start / stop ramp room
+($SU\,v$, $SD\,w$) for a fraction of the start cost — a weaker but
+valid relaxation.
 
 ### 4.3 Ramp Constraints (C4–C5)
 
@@ -431,6 +444,198 @@ offline $t_p + h_0$ hours ($t_p$ = in-horizon time before $p$, $h_0$ =
 relaxed to 1 when $t_p + h_0 <$ `hot_start_time` (resp. in
 [`hot_start_time`, `cold_start_time`)), so a first-block start after a
 short initial outage is hot, not cold.
+
+### 4.6 Power-Based Formulation (`uc_formulation = "power_based"`)
+
+The formulation above is **energy-block**: $p_{g,t}$ is the average power of
+block $t$, and the ramp rows bound the change between two block averages.
+Such a schedule can ask for energy that no feasible power trajectory
+delivers.  Example: a 100–300 MW unit with a 200 MW/h ramp at 100 MW in
+hour 1 is scheduled at 300 MW in hour 2, although it reaches 300 MW only at
+the end of hour 2 ([5], Fig. 1).  It also ignores the energy produced while
+the unit starts up and shuts down.  The **power-based** formulation of
+Morales-España, Gentile and Ramos [5] schedules the instantaneous power at
+the block boundaries.  Each block energy is derived from these powers, and
+the ramps, start-up / shut-down trajectories and reserves are written on
+them.  `model_options.uc_formulation = "power_based"` (or the per-unit
+`Commitment.uc_formulation`) selects it.  The default, `"energy_block"`,
+leaves the LP unchanged.
+
+**Scope.**  The formulation applies to chronological block stages
+(`Stage.chronological = true`, `sampling = "block"`).  Non-chronological
+stages keep the block formulation.  Point-sampled stages already sample
+instantaneous power at their nodes and keep their own formulation (a
+warning is issued).  Expandable generators (a capacity column) also fall
+back to the energy-block rows, with a warning.
+
+**Time grid.**  The blocks $b = 1..B$ of a stage have real durations
+$\Delta_b$ and boundaries $\tau_0 < \tau_1 < \dots < \tau_B$ ($\tau_b$ = end
+of block $b$).  The commitment variables $u_k, v_k, w_k$ live on the
+**commitment grid** of §8: one period per block by default, or periods $k$
+that are unions of whole blocks (`commitment_period`).  Block $b$ belongs
+to period $k(b)$.  The power grid may be finer than the commitment grid
+(sub-hourly blocks, refined points around sunrise / sunset): the extra
+boundaries add continuous columns only, never binaries.  Each boundary
+inherits the state of its period.  Start-up and shut-down events happen at
+period boundaries only.  The commitment grid is uniform and at least
+1 h long: without `commitment_period`, a stage with blocks shorter than
+1 h gets a 1 h commitment grid under `power_based`, unless its blocks carry
+`Block.commitment_cell` labels (refined blocks then share the status of
+the base block they split) or an explicit `commitment_grid` (`"block"`
+keeps one status per block).  `Commitment.ramp_allowance` does not apply:
+the start-up / shut-down capabilities enter the power-based rows only as
+a power jump at the boundary where the period starts or ends ($E_b$,
+$F_b$ below), which is the `"boundary"` semantics.  Repeating the
+allowance on every block of a period (the energy-block option
+`"period"`) would let the boundary power jump by SU again inside the period.
+A boundary that ends period $k$ carries
+$\underline P\,(u_k + v_{k+1}) = \underline P\,(u_{k+1} + w_{k+1})$: the unit
+is at its minimum there if it is up on either side.  Let $E_b = 1$ when
+$\tau_b$ ends a period (the last block of period $k(b)$) and $F_b = 1$ when block $b$ starts one, and
+let $k^+(b) = k(b) + 1$ be the next period (wrapped on cyclic stages).
+
+**Variables** (per unit and boundary $b = 0..B$):
+
+- $p_b \ge 0$: power above the minimum output at $\tau_b$ [MW];
+- $\hat p_b$: total power at $\tau_b$, including the start-up and
+  shut-down trajectories [MW] (output `power`);
+- the existing generation column $g_b$ of block $b$ becomes the
+  **average power** of the block, energy $= g_b\,\Delta_b$.
+
+**PB1 — total power at a boundary** (OR Spectrum [5], eqs. 12/14 and 29/30,
+with the events moved to the commitment grid):
+
+$$
+\hat p_b = \underline P_b\,\bigl(u_{k(b)} + E_b\,v_{k^+(b)}\bigr) + p_b
+ + \sum_{s} f^{SU}\!\bigl(T_s - \tau_b\bigr)\,v_s
+ + \sum_{d} f^{SD}\!\bigl(\tau_b - T_d\bigr)\,w_d .
+$$
+
+Here $T_k$ is the start instant of period $k$.  $f^{SU}(\delta)$, for
+$\delta > 0$ hours before the start, is the piecewise-linear start-up
+trajectory through $(0, \underline P)$ and
+$(j\,h, P^{SU}_{S^U+1-j})$, $j = 1..S^U$, and $0$ beyond $S^U h$.
+$f^{SD}(\delta)$, for $\delta > 0$ hours after the shut-down, passes through
+$(0, \underline P)$ and $(j\,h, P^{SD}_{j+1})$, $j = 1..S^D$, and is $0$
+beyond $S^D h$.  The trajectories are `startup_trajectory`
+$= [P^{SU}_1, \dots, P^{SU}_{S^U}]$ and `shutdown_trajectory`
+$= [P^{SD}_2, \dots, P^{SD}_{S^D+1}]$, sampled every $h$ =
+`trajectory_step` hours (default 1).  Only the terms with
+$0 < \delta \le S h$ are written.  On an hourly grid with hourly periods
+this is exactly eq. (12) of [5]: the entry $P^{SU}_i$ multiplies
+$v_{b-i+S^U+2}$ and $P^{SD}_i$ multiplies $w_{b-i+2}$.  Without
+trajectories (a quick-start unit) PB1 is eq. (14) of [5].  Events outside
+the stage (index $< 1$ or $> $ the last period) are zero, as in [5];
+cyclic stages wrap.
+
+**PB2 — block energy is the trapezoid of the boundary powers** ([5],
+eq. 31):
+
+$$
+g_b = \tfrac12\,\bigl(\hat p_{b-1} + \hat p_b\bigr), \qquad b = 1..B .
+$$
+
+$g_b$ is the column that every other element reads: the bus balance,
+generation costs, fuel offtake, emissions, the water drawn by a hydro
+turbine and the charge of a storage behind a converter.  All of them
+therefore see the trapezoid energy, and with it the start-up and
+shut-down energy.  No other element changes, so storage balances stay
+exactly conservative.  The bus balance stays an energy balance per block
+(demand and renewable data are block energies).  The model does NOT
+balance power at the boundaries (eq. 19 of [5]).
+
+**PB3 / PB4 — power-capacity limits with reserves** ([5], eqs. 4–6
+and 26; TSTE 2016 [6], eqs. 13–14):
+
+$$
+p_b + \sum_i r^{+}_{i,b} \le (\overline P_b - \underline P_b)\,u_{k(b)}
+ - E_b\,(\overline P_b - SD)\,w_{k^+(b)}
+ + E_b\,(SU - \underline P_b)\,v_{k^+(b)},
+\qquad
+p_b - r^{-}_{i,b} \ge 0 .
+$$
+
+The last boundary of a non-cyclic stage has no next period ($E_B$ terms
+vanish, eq. 5 of [5]).  $r^{\pm}_{i,b}$ are the up / down provisions of
+the unit's `ReserveProvision`s in block $b$, read at $\tau_b$.  $SU$ / $SD$
+are `startup_ramp` / `shutdown_ramp` (default $\overline P$).  A unit
+with a start-up (shut-down) trajectory uses $SU = \underline P$
+($SD = \underline P$), the slow-start case of [5].
+
+**PB5 / PB6 — instantaneous ramps and ramp capability** ([6], eqs.
+15–16, with the ramp rate times the boundary spacing):
+
+$$
+p_b - p_{b-1} + \sum_i r^{+}_{i,b} \le RU\,\Delta_b\,u_{k(b)}
+ + E_b\,(SU - \underline P_b)\,v_{k^+(b)},
+$$
+$$
+p_{b-1} - p_b + \sum_i r^{-}_{i,b} \le RD\,\Delta_b\,u_{k(b)}
+ + F_b\,(SD - \underline P_b)\,w_{k(b)} .
+$$
+
+The power is linear between the boundaries.  Inside the up state
+$\hat p_b - \hat p_{b-1} = p_b - p_{b-1}$, so the rows bound the
+instantaneous ramp exactly.  The reserve terms make every scheduled
+reserve deliverable: from $\hat p_{b-1}$ the unit can still reach
+$\hat p_b \pm r^{\pm}_b$ at $\tau_b$ (one reserve product per direction is
+both a capacity and a ramp-capability reserve; [6] keeps them separate).
+
+**PB7 — one-block outages** (a gtopt addition).  When a commitment
+period $k$ is a single block, a shut-down at $T_k$ followed by a start-up
+at $T_{k+1}$ ($w_k = v_{k^+} = 1$, $u_k = 0$) would let the trapezoid of
+the "off" block run straight from $SD$ to $SU$.  With the default
+$SU = SD = \overline P$ a unit could then cycle off for one block, keep
+its output, skip its no-load cost and bypass its ramp limit.  Two rows
+force both boundaries of such an outage to $\hat p = \underline P$:
+
+$$
+p_b + (SU - \underline P)\,w_k - (\overline P - \underline P)\,u_k
+ \le SU - \underline P,
+$$
+$$
+p_{b-1} - (\overline P - \underline P)\,u_{k-1}
+ + (\overline P - \underline P)\,w_k + (SD - \underline P)\,v_{k^+}
+ \le SD - \underline P .
+$$
+
+Both rows are redundant in every other state of $(u_{k-1}, u_k, v, w)$
+and are only written when $SU > \underline P$ ($SD > \underline P$).
+[5] allows the $SD \to SU$ trapezoid; PB7 is a deliberate tightening
+of the published model and is always on under `power_based`.
+
+**Initial boundary.**  $\hat p_0$ uses $u_0$ = `initial_status` and the
+events of the first period.  A known initial power (`initial_power`, or
+`Generator.initial_generation` at the horizon start) fixes $\hat p_0$ —
+an instantaneous power, not the previous hour's average.  A unit that is
+off with zero output then cannot be up in the first period: it first
+needs its start-up block or trajectory.  Otherwise $\hat p_0$ is free within PB1 / PB3
+at $\tau_0$: an on unit anywhere in $[\underline P, \overline P]$, an off
+unit at $\underline P\,v_0$ (the start-up boundary).  On a cyclic stage
+(`cycle = "stage"`) boundary 0 is boundary $B$.
+
+**Costs.**  The energy cost is charged on $g_b\,\Delta_b$, i.e. on the
+trapezoid energy, and the trajectory energy is paid at the unit's
+variable cost.  The no-load cost stays $C^{NL}\,u_k$ per hour of the
+period.  To charge the no-load cost during the start-up / shut-down
+process ([5], eqs. 16a–16b), add $C^{NL} S^U h$ ($C^{NL} S^D h$) to
+`startup_cost` (`shutdown_cost`).
+
+**Rows dropped.**  The energy-block rows C2 (`gen_upper` / `gen_lower`) and
+C4–C5 are replaced by PB1–PB7.  The u-gated reserve headroom rows of §7
+are rewritten on $p_b$ (PB3 / PB4).  The heat-rate kink rows keep their
+constant breakpoints.  C1, C3, C6–C10, the start caps and the no-load
+column are unchanged.  `min_down_time` should cover
+$S^U h + S^D h$ so that a shut-down and the next start-up trajectory
+cannot overlap; validation warns otherwise.
+
+**Prices.**  The bus balance stays an energy balance per block, so its
+dual is the block energy price.  The instantaneous power balance at the
+block boundaries ([5], eq. 19) is out of scope.
+
+**Clustered units.**  gtopt has no integer unit counts, so the clustered
+formulation of [7] is not implemented; the power-based rows apply to
+individual units.
 
 ---
 
@@ -696,6 +901,22 @@ variables at the original fine resolution.
 
 ### How it Works
 
+Every stage is a partition into cells $[\tau_{k-1}, \tau_k]$,
+$\tau_k = \sum_{j \le k} w_j$ with $w_j$ the real block durations: on
+block stages the cells are the blocks; on point-sampled stages
+(`Stage.sampling = "point"`) they are the quadrature cells around the
+node times `Block.time` (validation requires $t_k \in [\tau_{k-1},
+\tau_k]$).  A commitment period is a union of whole cells: cell k joins
+period $\lfloor m_k / P \rfloor$ with $m_k$ the cell midpoint, i.e. a
+nominal boundary $mP$ inside a cell snaps to the nearer cell end (error
+at most half that cell; a long cell spanning several boundaries leaves
+no empty period).  Period lengths, hours-on and min up/down windows are
+sums of cell durations on both semantics, consistent with the cost
+quadrature.  Uniform blocks whose length divides P group exactly as
+before.  `"auto"` sets P = max(smallest cell, ½·min(min_up_time,
+min_down_time)), the UC-interval rule of the original Chebyshev
+scheduling code.
+
 When `commitment_period = 2.0` (hours) with 15-minute blocks:
 - Each 2-hour window groups 8 blocks into one commitment period
 - One $u$, $v$, $w$ variable per 2-hour period (12 periods × 3 = 36 binaries
@@ -722,6 +943,91 @@ $$c^{\text{noload}} = c_{\text{noload}} \times \frac{\text{period\_duration}}{\t
   "initial_status": 1
 }
 ```
+
+### Commitment grid
+
+`commitment_grid` makes the choice explicit: `"block"` gives one status
+per block / cell (min up/down, starts and hours-on in the real cell
+durations, also for variable durations); `"overlay"` lays a grid of
+`commitment_period` periods over the blocks.  The default is `"block"`
+without `commitment_period` and `"overlay"` with it, so existing cases
+are unchanged.  `"block"` together with `commitment_period`, or
+`"overlay"` without it, is a validation error.  Block stages with
+uniform durations keep the legacy accumulated grouping (a period closes
+once its duration reaches P); point stages and variable-duration block
+stages use the midpoint rule above.
+
+### Cyclic commitment (typical days / weeks)
+
+`"cycle": "stage"` treats the stage as a typical period repeated in a
+cycle.  No initial state is used (`initial_status`, `initial_hours` and
+`initial_power` are ignored, with a validation warning):
+
+- the first transition wraps to the last period,
+  $u_1 - u_P = v_1 - w_1$;
+- min up / down windows and the hot/warm/cold off-time windows wrap
+  around the cycle (periods $(p, p+1, \dots) \bmod P$, counted in cell
+  durations).  A window longer than the cycle is capped at it, with a
+  warning: the unit then cannot cycle within the period;
+- ramps wrap: the backward ramp of the first block uses the last block,
+  and `central2` always uses the wrapped stencil;
+- on a point stage whose last node is the period end ($t_N - t_0$ =
+  period, Lobatto), $t_N \equiv t_0$: node $N$ shares the status /
+  startup / shutdown of node 0 and its cell joins period 0, so there is
+  no phantom start at the boundary;
+- start-up, shut-down and tier costs are counted per cycle and scaled
+  by the stage weight `duration / period_hours` (a typical week
+  standing for a month pays its starts that many times; energy and
+  no-load costs already scale through the block durations).
+
+Representative days (cycle groups, weekday + weekend) are each cyclic
+on themselves.  UC states are never carried between stages (that holds
+for non-cyclic units too: every chronological stage starts from
+`initial_status`).
+
+### Units whose times do not fit the typical period
+
+A cyclic unit whose `min_up_time`, `min_down_time` or finite start
+window (`max_starts` / `min_starts` with `starts_scope`) is longer than
+the typical period T (Σ real cell durations, or `period_hours`) cannot
+honour them within the cycle.  gtopt never drops them silently: every
+such unit must be declared, or validation fails with ONE error that
+lists all units, stages, constraints and times vs T, and shows the
+snippet to add:
+
+| `long_transition` | Meaning |
+|-------------------|---------|
+| `"on"` | committed ($u = 1$) for the whole typical period: pmin .. pmax, no starts / stops inside it |
+| `"off"` | unavailable ($u = 0$, output 0) |
+| `"no_uc"` | no commitment for the stage: continuous 0 .. pmax (pmin relaxed to 0), no start or no-load costs, ramps kept |
+
+`long_transition_schedule` (by stage position) varies the choice per
+stage, e.g. `["on", "on", "off", ...]`.  A planning-wide default may be
+set explicitly with `model_options.long_transition`.  Each declared
+unit gets a warning listing the dropped constraints, and the validation
+log ends with a "Long-transition summary" table (unit, mode, source,
+dropped constraints).  A change between consecutive stages declared
+`off` → `on` (or `on` → `off`) pays the start-up (shut-down) cost once.
+The check only covers stages where the commitment is `active`.
+
+### Block formulation on typical periods
+
+A typical period that is not declared `chronological` gets the block
+formulation (one $u$ per block, $P^{\min} u \le p \le P^{\max} u$, no
+transitions or times), so it needs no initial state and nothing wraps;
+it is the recommended UC there when unit times do not matter.  The
+cyclic model above applies only to chronological stages.
+
+### Integer-free stages and phases
+
+`active` (scalar or per-stage schedule) switches a `Commitment` off in
+individual stages: no $u/v/w$ columns or rows
+there, and the generator dispatches as a continuous unit with its own
+`Generator.pmin` (not `Commitment.pmin`).  The first
+active stage after inactive ones starts from `initial_status` (like
+every stage).  `model_options.continuous_phases` (and `--no-mip`)
+LP-relaxes every integer of the matching phases, e.g. fill months of an
+SDDP study.
 
 ---
 
@@ -826,11 +1132,19 @@ to exactly one generator via a foreign key.
 | `initial_hours` | real | no | — | hours | Hours in current state at $t = 0$ |
 | `relax` | boolean | no | `false` | — | LP relaxation: $u, v, w \in [0, 1]$ |
 | `must_run` | boolean | no | `false` | — | Force $u = 1$ at all times |
-| `transition_integrality` | string | no | `model_options` (`auto`) | — | Startup / shutdown integrality: `auto` (continuous with the C3 status rows, binary without), `continuous`, `binary` ([§4.1](#41-decision-variables)) |
+| `transition_integrality` | string | no | `model_options` (`auto`) | — | Startup / shutdown integrality: `auto` (binary), `continuous`, `binary` ([§4.1](#41-decision-variables)) |
 | `startup_tier_integrality` | string | no | `model_options` (`continuous`) | — | Hot / warm / cold selector integrality: `continuous` (TU tier rows) or `integer` ([§4.1](#41-decision-variables)) |
-| `transition_status_rows` | boolean | no | `model_options` (`true`) | — | Emit `v ≤ u` / `w ≤ 1 − u` (C3) |
 | `fast_start` | boolean | no | auto | — | Fast-start unit for `pricing_mode = "fast_start"`; unset = auto rule (min up and min down ≤ `fast_start_max_hours`) |
-| `commitment_period` | real | no | — | hours | Coarser binary variable resolution |
+| `commitment_period` | real \| `"auto"` | no | — | hours | Coarser binary variable resolution (`"auto"`: max(smallest cell, ½·min(MUT, MDT))) |
+| `commitment_grid` | string | no | block / overlay / cells | — | `"block"` (one status per block) or `"overlay"` (per `commitment_period`); default overlay iff `commitment_period` is set; on point stages see [typical-week sampling §4c](methods/typical-week-sampling.md) |
+| `ramp_allowance` | string | no | boundary / period | boundary | SU/SD ramp allowance only at commitment-period boundaries (default), or on every block of the commitment period (`period`, older, looser form) |
+| `uc_formulation` | string | no | global | — | `"energy_block"` or `"power_based"` (§4.6); overrides `model_options.uc_formulation` |
+| `startup_trajectory` | real[] | no | — | MW | Power-based: start-up powers $[P^{SU}_1..P^{SU}_S]$ every `trajectory_step` h before reaching pmin |
+| `shutdown_trajectory` | real[] | no | — | MW | Power-based: shut-down powers $[P^{SD}_2..P^{SD}_{S+1}]$ every `trajectory_step` h after leaving pmin |
+| `trajectory_step` | real | no | 1 | hours | Trajectory sample spacing |
+| `cycle` | string | no | `"none"` | — | `"stage"`: cyclic commitment over the stage (typical day / week) |
+| `long_transition` | string | cond. | — | — | `"on"` / `"off"` / `"no_uc"` for cyclic units whose MUT/MDT/start window exceeds the typical period (required for them) |
+| `long_transition_schedule` | string[] | no | — | — | per-stage `long_transition` |
 | `hot_start_cost` | real | no | — | $/start | Startup cost for hot start |
 | `warm_start_cost` | real | no | — | $/start | Startup cost for warm start |
 | `cold_start_cost` | real | no | — | $/start | Startup cost for cold start |
@@ -933,7 +1247,6 @@ The sources only report emissions until a zone they point to has a
 | `fast_start_max_hours` | real | 1 | hours | Auto fast-start rule threshold |
 | `transition_integrality` | string | `"auto"` | — | Default startup / shutdown integrality ([§4.1](#41-decision-variables)) |
 | `startup_tier_integrality` | string | `"continuous"` | — | Default start-up tier selector integrality ([§4.1](#41-decision-variables)) |
-| `transition_status_rows` | bool | `true` | — | Default for the C3 rows `v ≤ u`, `w ≤ 1 − u` |
 
 Emission prices and caps are not model options; they live on
 `EmissionZone` ([§6](#6-emission-cost-and-cap)).
@@ -1046,12 +1359,10 @@ still reports unit 2's 2000 lost opportunity, which CHPq does not pay.
 
 (d) With ramp limits the LP relaxation of a unit is not the convex
 hull of its multi-period set (H&B add valid inequalities to reach it).
-gtopt's relaxed hour-3 price is 314/5 = 62.8 $/MWh: the relaxation
+gtopt's relaxed hour-3 price is 820/13 ≈ 63.08 $/MWh: the relaxation
 runs both units at fractional commitment and the fractional `u` also
-scales the start-up ramp.  Without the transition status rows
-(`transition_status_rows = false`, the formulation before 2026-11-25)
-it is 820/13 ≈ 63.08; the same LP written out by hand (scipy / HiGHS)
-gives those duals.  So LMP 60 < gtopt 62.8 (63.08) < aCHP1 64 <
+scales the start-up ramp; the same LP written out by hand (scipy /
+HiGHS) gives those duals.  So LMP 60 < gtopt 63.08 < aCHP1 64 <
 CHP 65.6.  The uplift tool also ignores ramps, so at the aCHP1 / CHP
 prices it reports \$360 for unit 2 instead of the published 160 / 0.
 
@@ -1430,6 +1741,38 @@ pp. 929–950, Oct. 2015.
 [DOI: 10.1007/s00291-015-0400-4](https://doi.org/10.1007/s00291-015-0400-4)
 
 > Extension of the 3-bin model with power-based tightening.
+
+<a id="ref6"></a>
+**[6]** G. Morales-España, R. Baldick, J. García-González, and A. Ramos,
+"Power-Capacity and Ramp-Capability Reserves for Wind Integration in
+Power-Based UC," *IEEE Transactions on Sustainable Energy*, vol. 7, no. 2,
+pp. 614–624, Apr. 2016.
+[DOI: 10.1109/TSTE.2015.2498399](https://doi.org/10.1109/TSTE.2015.2498399)
+
+> Power-capacity (eqs. 13–14) and ramp-capability (eqs. 15–16) reserve rows
+> of the power-based UC, used by PB3–PB6.
+
+<a id="ref7"></a>
+**[7]** G. Morales-España and D. A. Tejada-Arango, "Modeling the Hidden
+Flexibility of Clustered Unit Commitment," *IEEE Transactions on Power
+Systems*, vol. 34, no. 4, pp. 3294–3296, Jul. 2019.
+[DOI: 10.1109/TPWRS.2019.2908051](https://doi.org/10.1109/TPWRS.2019.2908051)
+(preprint [arXiv:1811.02622](https://arxiv.org/abs/1811.02622); data and
+GAMS model at <https://github.com/datejada/CUC-data>)
+
+> Clustered UC benchmarks (IEEE 39 / 118 bus).  Their individual-UC
+> reference is an hourly **energy-block** model (the GAMS `eMaxOut`,
+> `eRampUp` / `eRampDw` rows), not the power-based one.
+
+<a id="ref8"></a>
+**[8]** G. Morales-España, L. Ramírez-Elizondo, and B. F. Hobbs, "Hidden
+Power System Inflexibilities Imposed by Traditional Unit Commitment
+Formulations," *Applied Energy*, vol. 191, pp. 223–238, 2017.
+[DOI: 10.1016/j.apenergy.2017.01.089](https://doi.org/10.1016/j.apenergy.2017.01.089)
+
+> Evaluates the hourly energy-block approximation, the omission of
+> start-up / shut-down trajectories and expected-value wind schedules;
+> each one usually raises expected costs by several percent.
 
 ---
 

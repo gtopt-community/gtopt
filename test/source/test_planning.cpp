@@ -1145,7 +1145,8 @@ TEST_CASE("PlanningLP - auto_scale_theta uses median X/V² on mixed voltages")
       .line_array = line_array,
   };
 
-  // Disable the DC-line reactance auto-promotion so that l3's
+  // Disable the DC-line reactance auto-promotion (absolute AND relative
+  // zero-impedance floors) so that l3's
   // intentionally-tiny x_pu = 4e-7 (used to make median(x_pu) and
   // median(raw X) diverge by orders of magnitude) is not clamped to
   // zero before auto_scale_theta runs.  This test exists to pin
@@ -1154,6 +1155,7 @@ TEST_CASE("PlanningLP - auto_scale_theta uses median X/V² on mixed voltages")
   PlanningOptions options;
   options.model_options.demand_fail_cost = 1000.0;
   options.model_options.dc_line_reactance_threshold = 0.0;
+  options.model_options.tiny_reactance_rel_threshold = 0.0;
 
   Planning planning {
       .options = options,

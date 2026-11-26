@@ -44,6 +44,24 @@ struct Block
 
   Real duration {0.0};  ///< Duration of this time block [h]
 
+  /// Node time of the block inside its stage's chronological period [h]
+  /// (real hours from the period start, see `Stage::period_hours`).  Used
+  /// by derivative-based constraints (`ramp_formula = central2`) on
+  /// non-uniform grids, e.g. Chebyshev nodes whose block durations are
+  /// quadrature weights.  Unset = midpoint of the block in real time.
+  OptReal time {};
+
+  /// Commitment cell of the block (any integer label).  When the blocks
+  /// of a stage carry it, consecutive blocks with the same label share
+  /// one commitment status u (and v / w only at cell boundaries): the
+  /// binary grid is the base grid of a refined sampler (e.g. the hourly
+  /// cells or the N Chebyshev nodes) while the refined blocks / nodes
+  /// only add continuous variables.  Block stages only, for units
+  /// without their own `commitment_period` (which wins); point stages
+  /// always use the uniform per-unit grid (never the nodes).  Unset on
+  /// every block = the usual per-block / period grid.
+  OptInt commitment_cell {};
+
   static constexpr std::string_view class_name = "block";
 };
 

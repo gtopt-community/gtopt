@@ -70,6 +70,7 @@ from .isp_traces import (
     TraceLocator,
     parse_month_pattern,
     read_interval_trace,
+    steps_per_day,
     read_yearly_column,
 )
 from .plexos_xml import PlexosDataRow, PlexosDb, load_xml
@@ -299,12 +300,13 @@ class IspResolver:
         rows = self.rows.get((oid, prop), [])
         if not rows and default is None:
             return None
-        out = np.empty(24 * days)
+        spd = steps_per_day()
+        out = np.empty(spd * days)
         found = False
         for k in range(days):
             day = start + timedelta(days=k)
             row = self._select(rows, day)
-            sl = slice(24 * k, 24 * (k + 1))
+            sl = slice(spd * k, spd * (k + 1))
             if row is None:
                 if default is None:
                     out[sl] = np.nan
@@ -331,7 +333,7 @@ class IspResolver:
                     "trace for Data File %r not found (%s)", data_file, fname
                 )
                 self.missing_traces.add(data_file)
-            return np.zeros(24)
+            return np.zeros(steps_per_day())
         self.used_files.add(str(fname))
         with open(path, encoding="utf-8-sig") as fh:
             header = fh.readline().strip().split(",")
@@ -342,7 +344,7 @@ class IspResolver:
             and header[1].strip() != "Month"
         ):
             val = read_yearly_column(path, day.year, column)
-            return np.full(24, 0.0 if val is None else val)
+            return np.full(steps_per_day(), 0.0 if val is None else val)
         return read_interval_trace(path, day, 1)
 
 
@@ -405,7 +407,9 @@ def build_dispatch_case(opts: IspCaseOptions, db: PlexosDb | None = None) -> Isp
     roots = list(opts.trace_roots) or [Path(opts.xml).parent]
     res = IspResolver(db, TraceLocator(roots))
     day0, days = opts.start, opts.days
-    nb = 24 * days
+    nb = steps_per_day() * days
+    #: real hours per block (1, or 0.5 for a half-hourly build)
+    step_h = 24.0 / steps_per_day()
     sched: dict[tuple[str, str], dict[int, np.ndarray]] = defaultdict(dict)
     stats: dict[str, Any] = defaultdict(int)
 
@@ -431,7 +435,7 @@ def build_dispatch_case(opts: IspCaseOptions, db: PlexosDb | None = None) -> Isp
         )
         sched[("Demand", "lmax")][uid] = np.nan_to_num(load)
     stats["demand_energy_mwh"] = float(
-        sum(v.sum() for v in sched[("Demand", "lmax")].values())
+        sum(v.sum() for v in sched[("Demand", "lmax")].values()) * step_h
     )
     stats["demand_peak_mw"] = float(
         np.sum(list(sched[("Demand", "lmax")].values()), axis=0).max()
@@ -720,7 +724,7 @@ def build_dispatch_case(opts: IspCaseOptions, db: PlexosDb | None = None) -> Isp
             },
         },
         "simulation": {
-            "block_array": [{"uid": i + 1, "duration": 1.0} for i in range(nb)],
+            "block_array": [{"uid": i + 1, "duration": step_h} for i in range(nb)],
             "stage_array": [
                 {"uid": 1, "first_block": 0, "count_block": nb, "chronological": True}
             ],
@@ -818,8 +822,9 @@ def _min_cf_year_uc(  # pylint: disable=too-many-arguments,too-many-positional-a
     maxcap = res.scalar(o.object_id, "Max Capacity", day0)
     if maxcap is None or maxcap <= 0:
         maxcap = float(np.max(pmax)) / max(units * (1.0 - aux), _TINY)
-    floor = cf / 100.0 * units * maxcap * (1.0 - aux) * nb
-    floor = min(floor, float(np.sum(pmax)))
+    hours = nb * 24.0 / steps_per_day()
+    floor = cf / 100.0 * units * maxcap * (1.0 - aux) * hours
+    floor = min(floor, float(np.sum(pmax)) * 24.0 / steps_per_day())
     gx["Min Capacity Factor Year → window energy floor"] += 1
     return {
         "name": f"min_cf_year_{_slug(o.name)}",

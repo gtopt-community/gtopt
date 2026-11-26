@@ -23,9 +23,12 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <utility>
 #include <vector>
 
+#include <gtopt/cell_partition.hpp>
 #include <gtopt/commitment_lp.hpp>
+#include <gtopt/commitment_power_based.hpp>
 #include <gtopt/fuel_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
@@ -70,6 +73,265 @@ bool CommitmentLP::has_chronological_data() const noexcept
       || c.min_starts.has_value() || c.commitment_period.has_value();
 }
 
+namespace
+{
+/// Position of the stage with uid @p suid in the simulation stage list.
+template<typename Stages, typename SUid>
+[[nodiscard]] std::size_t stage_position(const Stages& stages, SUid suid)
+{
+  std::size_t pos = 0;
+  for (const auto& st : stages) {
+    if (st.uid() == suid) {
+      break;
+    }
+    ++pos;
+  }
+  return pos;
+}
+}  // namespace
+
+std::string_view CommitmentLP::setup_long_transition(
+    SystemContext& sc,
+    const ScenarioLP& scenario,
+    const StageLP& stage,
+    LinearProblem& lp,
+    double cycle_len,
+    std::span<const std::pair<std::string_view, double>> long_list)
+{
+  if (long_list.empty()) {
+    return {};
+  }
+  const auto& stages = sc.simulation().stages();
+  const auto long_mode = commitment().long_transition_at(
+      stage_position(stages, stage.uid()), sc.options().long_transition());
+  if (long_mode.empty()) {
+    return {};
+  }
+  if (!m_long_warned_) {
+    m_long_warned_ = true;
+    std::string dropped;
+    for (const auto& [what, hours] : long_list) {
+      dropped +=
+          std::format("{}{} = {} h", dropped.empty() ? "" : ", ", what, hours);
+    }
+    spdlog::warn(
+        "Commitment {}: long_transition '{}' — dropped {} (> typical "
+        "period {} h)",
+        commitment().name,
+        long_mode,
+        dropped,
+        cycle_len);
+  }
+  // Status change between consecutive stages declared on / off: one
+  // start (off → on) or shutdown (on → off) per transition, × 1 (not ×
+  // the stage weight), as a fixed column carrying the constant cost.
+  const auto& blocks = stage.blocks();
+  const auto [prev_stage, prev_phase] = sc.simulation().prev_stage(stage);
+  if ((long_mode != "on" && long_mode != "off") || blocks.empty()
+      || prev_stage == nullptr)
+  {
+    return long_mode;
+  }
+  const auto prev_mode =
+      commitment().long_transition_at(stage_position(stages, prev_stage->uid()),
+                                      sc.options().long_transition());
+  const bool start = prev_mode == "off" && long_mode == "on";
+  const bool stop = prev_mode == "on" && long_mode == "off";
+  if (!start && !stop) {
+    return long_mode;
+  }
+  const auto rep_buid = blocks.front().uid();
+  const auto cost = (start ? startup_cost_ : shutdown_cost_)
+                        .optval(stage.uid(), rep_buid)
+                        .value_or(0.0)
+      * CostHelper::cost_factor(scenario.probability_factor(),
+                                stage.discount_factor());
+  if (cost != 0.0) {
+    std::ignore = lp.add_col({
+        .lowb = 1.0,
+        .uppb = 1.0,
+        .cost = cost,
+        .class_name = Element::class_name.full_name(),
+        .variable_name = start ? StartupTransitionName : ShutdownTransitionName,
+        .variable_uid = uid(),
+        .context = make_block_context(scenario.uid(), stage.uid(), rep_buid),
+    });
+  }
+  return long_mode;
+}
+
+namespace
+{
+
+/// Commitment periods of one stage: the first block of every period,
+/// the period of every block, the block uids of every period and the
+/// real hours each period covers.  See CommitmentLP::add_to_lp.
+struct PeriodLayout
+{
+  std::vector<size_t> starts;
+  std::vector<size_t> block_period;
+  std::vector<std::vector<BlockUid>> block_uids;
+  std::vector<double> real;
+  bool explicit_cells {false};
+};
+
+template<typename Blocks>
+[[nodiscard]] PeriodLayout commitment_period_layout(
+    const Blocks& blocks,
+    size_t ncyc,
+    bool point,
+    bool node_time,
+    double period_hours,
+    std::span<const double> node_t,
+    std::span<const double> step,
+    std::span<const double> cyc_step,
+    double cycle_len)
+{
+  // Period grouping: each entry is the index of the first block in a period.
+  // period_starts[k] = index into blocks[] where period k begins.
+  // A final sentinel equal to blocks.size() marks the end.
+  PeriodLayout out;
+  auto& period_starts = out.starts;
+  period_starts.push_back(0);
+  // Explicit binary grid on block stages: blocks labelled with
+  // `commitment_cell` share the status of their cell (refined samplers
+  // add continuous blocks only).  A unit's own `commitment_period`
+  // (its uniform overlay grid) takes precedence.
+  out.explicit_cells = !point && period_hours <= 0.0
+      && std::ranges::any_of(std::span(blocks).first(ncyc),
+                             [](const auto& b)
+                             { return b.commitment_cell().has_value(); });
+  // Point stages: node k → uniform cell ⌊t_k / P⌋.  A node exactly on a
+  // cell boundary belongs to the LATER cell (its status is the one that
+  // starts there); a node at the period end t = T joins the last cell.
+  // Cells holding no node carry no status of their own: the previous
+  // cell's status continues over them (starts / stops only happen at a
+  // boundary of a cell that holds a node).
+  const auto ncells = (node_time && period_hours > 0.0)
+      ? std::max<long>(
+            1, static_cast<long>(std::ceil((cycle_len / period_hours) - 1e-9)))
+      : 0L;
+  const auto node_cell = [&](size_t i)
+  {
+    const auto c =
+        static_cast<long>(std::floor((node_t[i] / period_hours) + 1e-9));
+    return std::clamp(c, 0L, ncells - 1);
+  };
+  if (node_time && period_hours > 0.0) {
+    for (size_t i = 1; i < ncyc; ++i) {
+      if (node_cell(i) != node_cell(i - 1)) {
+        period_starts.push_back(i);
+      }
+    }
+  } else if (out.explicit_cells) {
+    for (size_t i = 1; i < ncyc; ++i) {
+      if (blocks[i].commitment_cell() != blocks[i - 1].commitment_cell()) {
+        period_starts.push_back(i);
+      }
+    }
+  } else if (period_hours > 0.0) {
+    // Periods are unions of whole cells (block stages: the blocks; point
+    // stages: the quadrature cells): cell k joins period ⌊mid_k / P⌋ —
+    // a nominal boundary inside a cell snaps to its nearer end, so the
+    // period duration is exactly the sum of its cell lengths.  See
+    // cell_partition.hpp.
+    for (const auto j : snap_period_boundaries(cyc_step, period_hours, point)) {
+      period_starts.push_back(j + 1);
+    }
+  } else {
+    // One period per block
+    for (size_t i = 1; i < ncyc; ++i) {
+      period_starts.push_back(i);
+    }
+  }
+  const auto nperiods = period_starts.size();
+
+  // Map every block index → its period index, AND materialise per-period
+  // block-uid vectors used by the IntegerVariable registry fan-out
+  // (consumed by both the u/v/w loop below and the startup-tier loop).
+  auto& block_period = out.block_period;
+  auto& period_block_uids = out.block_uids;
+  block_period.assign(blocks.size(), 0);
+  period_block_uids.resize(nperiods);
+  for (size_t p = 0; p < nperiods; ++p) {
+    const auto start = period_starts[p];
+    const auto end = (p + 1 < nperiods) ? period_starts[p + 1] : ncyc;
+    period_block_uids[p].reserve(end - start);
+    for (size_t i = start; i < end; ++i) {
+      block_period[i] = p;
+      period_block_uids[p].push_back(blocks[i].uid());
+    }
+  }
+  // Cell lengths of every period (real hours) — the durations counted
+  // by min up/down, start tiers and start windows.
+  auto& period_real = out.real;
+  period_real.assign(nperiods, 0.0);
+  if (node_time && period_hours > 0.0) {
+    // the uniform cells of the period (up to the next cell with a node)
+    for (size_t p = 0; p < nperiods; ++p) {
+      const double t0 = (p == 0)
+          ? 0.0
+          : static_cast<double>(node_cell(period_starts[p])) * period_hours;
+      const double t1 = (p + 1 < nperiods)
+          ? static_cast<double>(node_cell(period_starts[p + 1])) * period_hours
+          : cycle_len;
+      period_real[p] = t1 - t0;
+    }
+  } else {
+    for (size_t i = 0; i < blocks.size(); ++i) {
+      period_real[block_period[i]] += step[i];
+    }
+  }
+  return out;
+}
+
+/// Length of the unit's commitment periods on one stage [h]; 0 = one
+/// period per block.  Point stages never put a status on the nodes: the
+/// commitment lives on a UNIFORM grid of P = max(commitment_period, 1 h)
+/// cells (default 1 h) laid over the stage period, independent of the
+/// node set; every node inherits the status of the cell containing its
+/// time t_k.
+template<typename Blocks>
+[[nodiscard]] double resolve_period_hours(const Commitment& uc,
+                                          const Blocks& blocks,
+                                          std::span<const double> cyc_step,
+                                          bool chronological,
+                                          bool point,
+                                          bool power_based)
+{
+  if (!chronological) {
+    return 0.0;
+  }
+  // Smallest cell of the stage: the resolution floor of
+  // `commitment_period = "auto"`.
+  double resolution = 0.0;
+  for (const double dt : cyc_step) {
+    if (dt > 0.0 && (resolution == 0.0 || dt < resolution)) {
+      resolution = dt;
+    }
+  }
+  const double h = uc.commitment_period_hours(resolution);
+  if (point && uc.uses_legacy_point_grid()) {
+    // previous behaviour: per node ("block") or quadrature cells
+    return h > 0.0 ? std::max(h, 1.0) : h;
+  }
+  // Power-based units keep their binaries on a commitment grid of at
+  // least 1 h: sub-hourly blocks refine the power points only.  An
+  // explicit `commitment_grid` ("block": one status per block) and
+  // blocks labelled with `commitment_cell` keep their own grid.
+  if (power_based && !uc.commitment_grid.has_value() && h <= 0.0
+      && resolution > 0.0 && resolution < 1.0 - 1e-9
+      && std::ranges::none_of(
+          blocks,
+          [](const auto& b) { return b.commitment_cell().has_value(); }))
+  {
+    return 1.0;
+  }
+  return point ? std::max(h, 1.0) : h;
+}
+
+}  // namespace
+
 bool CommitmentLP::add_to_lp(SystemContext& sc,
                              const ScenarioLP& scenario,
                              const StageLP& stage,
@@ -108,6 +370,89 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   const auto& generation_cols =
       generator_lp.lookup_generation_cols(scenario, stage);
   const auto& blocks = stage.blocks();
+
+  // Time structure.  Every stage is a partition into cells of length
+  // `step[k]` = the block's real duration (on `Stage.sampling = "point"`
+  // stages: the Clenshaw–Curtis weight w_k, cell [τ_{k−1}, τ_k] with
+  // τ_k = Σ_{j≤k} w_j; each node t_k lies inside its cell).  All
+  // duration logic — commitment periods, min up/down and start windows —
+  // counts these cell lengths, so it agrees with the energy / cost
+  // quadrature.  Node times only enter the ramps (a derivative of the
+  // continuous function): `back_step[k]` = t_k − t_{k−1} (t_1 − t_0 at the
+  // first node) on point stages, the block length otherwise.
+  const bool point = stage.point_sampling();
+  std::vector<double> step(blocks.size(), 0.0);
+  std::vector<double> back_step(blocks.size(), 0.0);
+  std::vector<double> node_t(blocks.size());
+  double cycle_len = 0.0;  ///< real length of the stage period [h]
+  {
+    double clock = 0.0;
+    for (size_t i = 0; i < blocks.size(); ++i) {
+      const double real_dt = stage.real_duration(blocks[i]);
+      node_t[i] = blocks[i].time().value_or(clock + (0.5 * real_dt));
+      clock += real_dt;
+      step[i] = real_dt;
+      back_step[i] = real_dt;
+    }
+    if (point && blocks.size() >= 2) {
+      for (size_t i = 0; i < blocks.size(); ++i) {
+        back_step[i] =
+            i > 0 ? node_t[i] - node_t[i - 1] : node_t[1] - node_t[0];
+      }
+    }
+    cycle_len = stage.period_hours().value_or(clock);
+  }
+
+  // ── Cyclic commitment (`cycle = "stage"`): the stage is a typical
+  // period repeated in a cycle.  The first transition wraps to the last
+  // period, windows and ramps wrap, no initial state is used.  Periodic
+  // point grids carry N distinct nodes (a Lobatto end node t_N ≡ t_0 is
+  // dropped by the converter and its weight added to node 0).  The block
+  // formulation (non-chronological stage) has no inter-block coupling,
+  // so nothing wraps there.
+  const bool cyclic = chronological && commitment().is_cyclic();
+  const size_t ncyc = blocks.size();
+  if (cyclic && point && blocks.size() >= 2) {
+    // backward step of the first node across the period end
+    back_step[0] = node_t[0] + cycle_len - node_t[ncyc - 1];
+  }
+  // Start / shutdown events are counted per cycle; a typical period
+  // standing for `duration / period_hours` repetitions pays them that
+  // many times (energy costs already scale through the durations).
+  const double cycle_weight =
+      (cyclic && stage.period_hours() && *stage.period_hours() > 0.0)
+      ? stage.duration() / *stage.period_hours()
+      : 1.0;
+
+  // ── Long-transition units: a cyclic unit whose min up / down time or
+  // start window exceeds the typical period T cannot honour them within
+  // the cycle.  The declared handling (`long_transition`: on / off /
+  // no_uc, validated upstream — undeclared units are an error there)
+  // drops those constraints.
+  // Only the chronological model has windows that can exceed the period.
+  const auto long_list = chronological
+      ? commitment().long_constraints(cycle_len)
+      : decltype(commitment().long_constraints(cycle_len)) {};
+  const auto long_mode =
+      setup_long_transition(sc, scenario, stage, lp, cycle_len, long_list);
+  const bool drop_long = !long_mode.empty();
+  if (long_mode == "no_uc") {
+    // plain continuous generator: no commitment, pmin relaxed to 0
+    for (const auto& block : blocks) {
+      if (const auto it = generation_cols.find(block.uid());
+          it != generation_cols.end())
+      {
+        lp.set_col_lowb(it->second, 0.0);
+      }
+    }
+    return true;
+  }
+  const auto drops = [&](std::string_view what)
+  {
+    return drop_long
+        && std::ranges::any_of(long_list,
+                               [&](const auto& c) { return c.first == what; });
+  };
 
   if (blocks.empty()) {
     return true;
@@ -197,20 +542,16 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   const auto has_ramp_down = chronological && ramp_down_.has_value();
   const auto has_startup_ramp = chronological && startup_ramp_.has_value();
   const auto has_shutdown_ramp = chronological && shutdown_ramp_.has_value();
-  // C3a / C3b (`v <= u`, `w <= 1 - u`): per unit, else model_options;
-  // default on.
-  const auto status_rows = commitment().transition_status_rows.value_or(
-      sc.options().transition_status_rows());
   // Integrality of startup v / shutdown w (`transition_integrality`,
-  // per unit, else model_options; default "auto" = continuous with the
-  // status rows, binary without).  See the u/v/w block for the argument.
+  // per unit, else model_options; default "auto" = binary).  See the
+  // u/v/w block for the argument.
   const auto ti_mode =
       commitment()
           .transition_integrality
           .and_then([](const Name& n)
                     { return enum_from_name<TransitionIntegrality>(n); })
           .value_or(sc.options().transition_integrality());
-  const auto binary_transitions = transition_cols_binary(ti_mode, status_rows);
+  const auto binary_transitions = transition_cols_binary(ti_mode);
   // Integrality of the hot / warm / cold tier selectors
   // (`startup_tier_integrality`, default continuous: the tier rows are
   // an interval matrix — TU — once v / w are integral).
@@ -221,6 +562,17 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
                     { return enum_from_name<StartupTierIntegrality>(n); })
           .value_or(sc.options().startup_tier_integrality())
       == StartupTierIntegrality::integer;
+
+  // ── Power-based UC (`uc_formulation = "power_based"`, §4.6 of
+  // docs/unit-commitment.md): chronological BLOCK stages only.  Point
+  // stages already sample instantaneous power; an expandable generator
+  // has no fixed P̄ for the boundary rows — both keep the energy-block
+  // rows (warned once).
+  const bool power_based =
+      chronological
+      && commitment().is_power_based(sc.options().uc_power_based())
+      && power_based_applies(
+          stage, point, generator_lp.capacity_col_at(stage).has_value());
 
   // Resolve piecewise heat rate curve.
   //
@@ -291,48 +643,33 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   // a coarser resolution.  Each period groups consecutive blocks whose
   // cumulative duration fits within commitment_period hours.
   // Default: one period per block (commitment_period not set).
-  const auto opt_period = commitment().commitment_period;
-  // 0 = per-block (always on the block formulation)
-  const auto period_hours = chronological ? opt_period.value_or(0.0) : 0.0;
+  const auto cyc_step = std::span<const double>(step).first(ncyc);
+  const double period_hours = resolve_period_hours(
+      commitment(), blocks, cyc_step, chronological, point, power_based);
+  // the uniform node-time grid of point stages (default)
+  const bool node_time = point && !commitment().uses_legacy_point_grid();
 
-  // Period grouping: each entry is the index of the first block in a period.
-  // period_starts[k] = index into blocks[] where period k begins.
-  // A final sentinel equal to blocks.size() marks the end.
-  std::vector<size_t> period_starts;
-  period_starts.push_back(0);
-  if (period_hours > 0.0) {
-    double accum = 0.0;
-    for (size_t i = 0; i < blocks.size(); ++i) {
-      accum += blocks[i].duration();
-      if (accum >= period_hours - 1e-9 && i + 1 < blocks.size()) {
-        period_starts.push_back(i + 1);
-        accum = 0.0;
-      }
-    }
-  } else {
-    // One period per block
-    for (size_t i = 1; i < blocks.size(); ++i) {
-      period_starts.push_back(i);
-    }
-  }
+  // Period grouping (see commitment_period_layout): period_starts[k] =
+  // index into blocks[] where period k begins.
+  auto layout = commitment_period_layout(blocks,
+                                         ncyc,
+                                         point,
+                                         node_time,
+                                         period_hours,
+                                         node_t,
+                                         step,
+                                         cyc_step,
+                                         cycle_len);
+  const auto& period_starts = layout.starts;
   const auto nperiods = period_starts.size();
-
-  // Map every block index → its period index, AND materialise per-period
-  // block-uid vectors used by the IntegerVariable registry fan-out
-  // (consumed by both the u/v/w loop below and the startup-tier loop).
-  std::vector<size_t> block_period(blocks.size());
-  std::vector<std::vector<BlockUid>> period_block_uids(nperiods);
-  for (size_t p = 0; p < nperiods; ++p) {
-    const auto start = period_starts[p];
-    const auto end = (p + 1 < nperiods) ? period_starts[p + 1] : blocks.size();
-    period_block_uids[p].reserve(end - start);
-    for (size_t i = start; i < end; ++i) {
-      block_period[i] = p;
-      period_block_uids[p].push_back(blocks[i].uid());
-    }
-  }
-  const auto period_scope =
-      (period_hours > 0.0) ? IntegerScope::Group : IntegerScope::Block;
+  const auto& block_period = layout.block_period;
+  const auto& period_block_uids = layout.block_uids;
+  const auto& period_real = layout.real;
+  const bool explicit_cells = layout.explicit_cells;
+  const bool boundary_allowance = commitment().ramp_allowance_at_boundary();
+  const auto period_scope = (period_hours > 0.0 || explicit_cells)
+      ? IntegerScope::Group
+      : IntegerScope::Block;
   const auto period_domain =
       is_relax ? IntegerDomain::Relaxed : IntegerDomain::Binary;
 
@@ -367,10 +704,18 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
 
   ColIndex prev_ucol {};
   bool first_period = true;
+  struct FirstPeriod
+  {
+    ColIndex ucol;
+    ColIndex vcol;
+    ColIndex wcol;
+    BlockUid buid;
+  };
+  FirstPeriod cyc_first {};
 
   for (size_t p = 0; p < nperiods; ++p) {
     const auto pstart = period_starts[p];
-    const auto pend = (p + 1 < nperiods) ? period_starts[p + 1] : blocks.size();
+    const auto pend = (p + 1 < nperiods) ? period_starts[p + 1] : ncyc;
 
     // Period representative block (first block in the period)
     const auto& rep_block = blocks[pstart];
@@ -411,6 +756,14 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
         u_uppb = pinned;
       }
     }
+    // declared long-transition status wins over the schedule / must_run
+    if (long_mode == "on") {
+      u_lowb = 1.0;
+      u_uppb = 1.0;
+    } else if (long_mode == "off") {
+      u_lowb = 0.0;
+      u_uppb = 0.0;
+    }
 
     auto ucol =
         sc.add_integer_col(lp,
@@ -442,9 +795,13 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     ucols[rep_buid] = ucol;
 
     // Block formulation (non-chronological stage): u alone, one per
-    // block — no startup / shutdown columns, no logic or exclusion row.
+    // period — no startup / shutdown columns, no logic or exclusion row.
+    // Every block of the period shares it (a `commitment_cell` period
+    // holds several blocks; otherwise the period is the block itself).
     if (!chronological) {
-      block_ucol[rep_buid] = ucol;
+      for (const auto buid : period_block_uids[p]) {
+        block_ucol[buid] = ucol;
+      }
       continue;
     }
 
@@ -453,28 +810,21 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     // Integrality of v / w (`transition_integrality`, see
     // transition_integrality.hpp; `binary_transitions` above).
     //
-    // With C1 (`u[p] - u[p-1] = v[p] - w[p]`) and C3a / C3b
-    // (`v[p] <= u[p]`, `w[p] <= 1 - u[p]`, below), an integral u and an
-    // integral initial status (rounded at 0.5) force v, w in {0, 1} in all
-    // four (u[p-1], u[p]) cases:
-    //   (0,0): v = w, v <= 0           -> v = w = 0
-    //   (1,1): v = w, w <= 0           -> v = w = 0
-    //   (0,1): v - w = 1, v <= 1       -> v = 1, w = 0
-    //   (1,0): w - v = 1, w <= 1       -> w = 1, v = 0
-    // Any other rows (ramps with SU·v / SD·w, min up/down, tiers, user
-    // constraints) only remove points, so v / w need not be integer:
-    // "auto" (default) keeps them CONTINUOUS while the status rows are on
-    // — only u branches.  Knueven, Ostrowski & Watson (2020), "On MIP
-    // Formulations for the Unit Commitment Problem", INFORMS J. Comput.
-    // 32(4); Rajan & Takriti (2005), "Minimum up/down polytopes of the
-    // unit commitment problem with start-up costs", IBM RC23628.
-    //
-    // Without the status rows (`transition_status_rows = false`) C1 +
-    // C3 admit v = w = 1/2 on a unit that stays on, which the SU·v /
-    // SD·w ramp terms reward — "auto" then declares v / w BINARY.
-    // "continuous" / "binary" force either.  Binary v / w go through
+    // C1 (`u[p] - u[p-1] = v[p] - w[p]`) and C3 (`v[p] + w[p] <= 1`)
+    // admit v = w = x <= 1/2 on a unit that stays on (or off), which the
+    // SU·v / SD·w ramp terms (and any user row on startup / shutdown)
+    // reward, so "auto" (default) declares v / w BINARY — the exact
+    // three-binary model (UnitCommitment.jl's Gar1962).  "continuous"
+    // keeps them in [0, 1] (smaller MIP, not exact with start / stop
+    // ramps); "binary" = "auto".  Binary v / w go through
     // `add_integer_col` with u's domain, so `relax`, relaxed phases and
     // `--no-mip` relax all three together.
+    //
+    // The rows v <= u / w <= 1 - u (`transition_status_rows`, 2026-11-25)
+    // made continuous v / w exact; they were removed on 2026-11-26:
+    // redundant with binary v / w, and on the CEN PCP case they left the
+    // relaxed LP degenerate with a near-singular basis (CPLEX kappa 1e16+,
+    // feasible LPs reported infeasible).
     //
     // Startup is a once-per-EVENT cost ($/start), NOT a
     // per-hour power cost, so it must NOT be multiplied by the block duration
@@ -490,7 +840,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     const auto block_shutdown_cost =
         shutdown_cost_.optval(stage.uid(), rep_buid).value_or(0.0);
     const auto v_cost = has_startup_tiers ? 0.0
-                                          : block_startup_cost
+                                          : block_startup_cost * cycle_weight
             * CostHelper::cost_factor(scenario.probability_factor(),
                                       stage.discount_factor());
     // Binary with ramp rows, continuous otherwise (see above).  Pin
@@ -535,7 +885,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     // Shutdown, like startup, is a once-per-EVENT cost ($/stop), NOT a
     // per-hour power cost — use the no-duration ``cost_factor`` so it is
     // not inflated by the block length.
-    const auto w_cost = block_shutdown_cost
+    const auto w_cost = block_shutdown_cost * cycle_weight
         * CostHelper::cost_factor(scenario.probability_factor(),
                                   stage.discount_factor());
     // Shutdown ``w`` — same shape and integrality as startup.
@@ -545,8 +895,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
 
     // Fan the u / v / w columns out across every block in this period
     // so per-block constraint rows and AMPL accessors can resolve them.
-    for (size_t i = pstart; i < pend; ++i) {
-      const auto buid = blocks[i].uid();
+    for (const auto buid : period_block_uids[p]) {
       block_ucol[buid] = ucol;
       block_vcol[buid] = vcol;
       block_wcol[buid] = wcol;
@@ -555,9 +904,13 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     // ── C1: Logic transition (per period) ──
     // u[p] - u[p-1] - v[p] + w[p] = 0
     // For first period: u[0] - v[0] + w[0] = initial_status (rounded)
-    {
+    // (cyclic: u[0] - u[P-1] - v[0] + w[0] = 0, added after the loop)
+    if (cyclic && first_period) {
+      cyc_first = {.ucol = ucol, .vcol = vcol, .wcol = wcol, .buid = rep_buid};
+    } else {
       auto row =
           SparseRow {
+              .pin_scale = true,  // pure commitment logic
               .class_name = cname,
               .constraint_name = LogicName,
               .variable_uid = cuid,
@@ -577,6 +930,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     {
       auto row =
           SparseRow {
+              .pin_scale = true,  // pure commitment logic
               .class_name = cname,
               .constraint_name = ExclusionName,
               .variable_uid = cuid,
@@ -588,47 +942,27 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       erows[rep_buid] = lp.add_row(std::move(row));
     }
 
-    // ── C3a / C3b: v[p] <= u[p] and w[p] <= 1 - u[p] ──
-    // A start leaves the unit on, a stop leaves it off.  With an integer
-    // u these two rows and C1 pin v and w to the exact transition in all
-    // four (u[p-1], u[p]) cases; C1 + C3 alone do not: a unit that stays
-    // on (or off) may take v = w = x <= 0.5, and the SU·v / SD·w terms of
-    // the ramp rows (and any user row on startup / shutdown) then buy
-    // SU·x / SD·x of extra ramp for half a start-stop cost (free when the
-    // costs are 0).  With them, an integral u makes v / w integral (see the
-    // u/v/w block), so v / w stay continuous by default; they also tighten
-    // the LP relaxation.  Optional: `transition_status_rows = false` drops
-    // them (the pre-2026-11-25 formulation; "auto" then makes v / w
-    // binary).
-    if (status_rows) {
-      auto row =
-          SparseRow {
-              .class_name = cname,
-              .constraint_name = StartupStatusName,
-              .variable_uid = cuid,
-              .context = ctx,
-          }
-              .less_equal(0.0);
-      row[vcol] = 1.0;
-      row[ucol] = -1.0;
-      std::ignore = lp.add_row(std::move(row));
-    }
-    if (status_rows) {
-      auto row =
-          SparseRow {
-              .class_name = cname,
-              .constraint_name = ShutdownStatusName,
-              .variable_uid = cuid,
-              .context = ctx,
-          }
-              .less_equal(1.0);
-      row[wcol] = 1.0;
-      row[ucol] = 1.0;
-      std::ignore = lp.add_row(std::move(row));
-    }
-
     prev_ucol = ucol;
     first_period = false;
+  }
+  if (cyclic) {
+    // wrapped transition of the first period: u[0] − u[P−1] = v[0] − w[0]
+    auto row =
+        SparseRow {
+            .class_name = cname,
+            .constraint_name = LogicName,
+            .variable_uid = cuid,
+            .context =
+                make_block_context(scenario.uid(), stage.uid(), cyc_first.buid),
+        }
+            .equal(0.0);
+    if (prev_ucol != cyc_first.ucol) {
+      row[cyc_first.ucol] = 1.0;
+      row[prev_ucol] = -1.0;
+    }
+    row[cyc_first.vcol] = -1.0;
+    row[cyc_first.wcol] = 1.0;
+    lrows[cyc_first.buid] = lp.add_row(std::move(row));
   }
 
   // ── Phase B: Per-block constraints (C2, ramp, emission, segments) ──
@@ -645,6 +979,36 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   ColIndex prev_gcol {};
   ColIndex prev_block_ucol {};
   bool first_block = true;
+
+  // `ramp_formula = central2`: the ramp rows are built after the block
+  // loop from the whole node grid (they need P_{k+1}).
+  // Point-sampled stages default to central2 (a derivative at the node).
+  const bool ramp_central2 = chronological && sc.options().ramp_central2();
+  struct RampNode
+  {
+    BlockUid buid;
+    ColIndex gcol;
+    ColIndex ucol;
+    ColIndex vcol;
+    ColIndex wcol;
+    double time;  ///< node time [h] (real)
+    double gen_pmax;
+  };
+  std::vector<RampNode> ramp_nodes;
+  double node_clock = 0.0;  ///< real-time start of the current block
+
+  // Cyclic backward ramps: the first block reaches back to the last
+  // block of the cycle.
+  if (cyclic && !ramp_central2 && ncyc >= 2) {
+    const auto last_buid = blocks[ncyc - 1].uid();
+    if (const auto it = generation_cols.find(last_buid);
+        it != generation_cols.end())
+    {
+      prev_gcol = it->second;
+      prev_block_ucol = block_ucol.at(last_buid);
+      first_block = false;
+    }
+  }
 
   for (size_t bidx = 0; bidx < blocks.size(); ++bidx) {
     const auto& block = blocks[bidx];
@@ -663,11 +1027,11 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     const auto pidx = block_period[bidx];
     const auto vcol = period_vcol[pidx];
     const auto wcol = period_wcol[pidx];
-    // A start / stop of period p happens at its FIRST block: only there do
-    // the ramp rows carry SU·v[p] / SD·w[p].  Interior blocks of an
-    // aggregated period (`commitment_period`) have u[t-1] = u[t] = u[p]
-    // and ramp with RU·u / RD·u alone.
-    const auto period_first = (bidx == period_starts[pidx]);
+    // SU / SD allowance: at a period boundary only (default,
+    // ramp_allowance = "boundary") or on every block of the period
+    // ("period")
+    const bool period_first =
+        !boundary_allowance || bidx == period_starts[pidx];
 
     const auto gen_pmax = lp.get_col_uppb(gcol);
     // ── Resolve commitment-conditional pmin ──
@@ -701,7 +1065,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     // C2 row below.  Users wanting a purely-conditional pmin set
     // ``Generator.pmin = 0`` and ``Commitment.pmin = desired floor``.
 
-    {
+    if (!power_based) {
       auto row =
           SparseRow {
               .class_name = cname,
@@ -716,7 +1080,8 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     }
 
     // ── C2: Generation lower bound: p - Pmin*u >= 0 ──
-    {
+    // (power_based: PB1–PB4 bound the boundary powers instead)
+    if (!power_based) {
       auto row =
           SparseRow {
               .class_name = cname,
@@ -730,15 +1095,29 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       glrows[buid] = lp.add_row(std::move(row));
     }
 
+    if (ramp_central2) {
+      const double real_dt = stage.real_duration(block);
+      ramp_nodes.push_back({
+          .buid = buid,
+          .gcol = gcol,
+          .ucol = ucol,
+          .vcol = vcol,
+          .wcol = wcol,
+          .time = block.time().value_or(node_clock + (0.5 * real_dt)),
+          .gen_pmax = gen_pmax,
+      });
+      node_clock += real_dt;
+    }
+
     // ── C4: Ramp up: p[t] - p[t-1] ≤ RU·u[t-1] + SU·v[t] ──
-    if (has_ramp_up || has_startup_ramp) {
+    if (!power_based && !ramp_central2 && (has_ramp_up || has_startup_ramp)) {
       // Per-block resolution mirrors ``pmin_`` above: ``optval`` returns
       // the scheduled rate at this (stage, block), or nullopt for unset
       // blocks → ``value_or(gen_pmax)`` keeps the legacy "no limit ⇒
       // pmax" semantics.  A scalar JSON input resolves to the same value
       // on every block.
       const auto ru = ramp_up_.optval(stage.uid(), buid).value_or(gen_pmax)
-          * block.duration();
+          * back_step[bidx];
       const auto su =
           startup_ramp_.optval(stage.uid(), buid).value_or(gen_pmax);
 
@@ -771,10 +1150,11 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     }
 
     // ── C5: Ramp down: p[t-1] - p[t] ≤ RD·u[t] + SD·w[t] ──
-    if (has_ramp_down || has_shutdown_ramp) {
+    if (!power_based && !ramp_central2 && (has_ramp_down || has_shutdown_ramp))
+    {
       // Per-block resolution, mirroring the ramp-up branch / ``pmin_``.
       const auto rd = ramp_down_.optval(stage.uid(), buid).value_or(gen_pmax)
-          * block.duration();
+          * back_step[bidx];
       const auto sd =
           shutdown_ramp_.optval(stage.uid(), buid).value_or(gen_pmax);
 
@@ -820,6 +1200,126 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     first_block = false;
   }
 
+  // ── C4/C5 (central2): −RD·u_k − SD/h_k·w_k ≤ P'(t_k) ≤ RU·u_k + SU/h_k·v_k
+  //
+  // P'(t_k) on the non-uniform node grid (PROVISIONAL, see
+  // ModelOptions::ramp_formula):
+  //   interior  [h₋²P_{k+1} − h₊²P_{k−1} + (h₊² − h₋²)P_k] / (h₊h₋(h₊+h₋))
+  //   first     (P_1 − P_0) / (t_1 − t_0)          (forward, 1st order)
+  //   last      (P_N − P_{N−1}) / (t_N − t_{N−1})  (backward, 1st order)
+  // With `ramp_wrap` the end nodes use the central formula with the
+  // neighbour across the period end (t ± period).  The startup /
+  // shutdown allowances SU / SD [MW] are spread over the node's step h_k
+  // (h₋, or h₊ at the first node).
+  if (!power_based && ramp_central2 && ramp_nodes.size() >= 2
+      && (has_ramp_up || has_startup_ramp || has_ramp_down
+          || has_shutdown_ramp))
+  {
+    const auto n = ramp_nodes.size();
+    const double period = stage.period_hours().value_or(node_clock);
+    const bool wrap = (sc.options().ramp_wrap() || cyclic) && n >= 3;
+    for (size_t k = 0; k < n; ++k) {
+      const auto& nd = ramp_nodes[k];
+      // (column, coefficient) of the derivative stencil
+      std::vector<std::pair<ColIndex, double>> stencil;
+      double h_k = 0.0;
+      // the later neighbour of the stencil and its P coefficient: a
+      // start / stop in (t_k, t_next] moves P_next by up to SU / SD,
+      // so its v / w gets the same allowance here (needed once v ≤ u,
+      // w ≤ 1 − u close the fractional v = w loophole)
+      const RampNode* next_nd = nullptr;
+      // the earlier stencil node: the own v / w allowance applies only
+      // when the stencil crosses into this node's commitment cell
+      const RampNode* prev_nd = nullptr;
+      double c_next = 0.0;
+      const bool first = (k == 0);
+      const bool last = (k + 1 == n);
+      if ((first || last) && !wrap) {
+        const auto& a = ramp_nodes[first ? 0 : k - 1];
+        const auto& b = ramp_nodes[first ? 1 : k];
+        h_k = b.time - a.time;
+        stencil = {{b.gcol, 1.0 / h_k}, {a.gcol, -1.0 / h_k}};
+        if (first) {
+          next_nd = &b;
+          c_next = 1.0 / h_k;
+        } else {
+          prev_nd = &a;
+        }
+      } else {
+        const auto& prv = ramp_nodes[first ? n - 1 : k - 1];
+        const auto& nxt = ramp_nodes[last ? 0 : k + 1];
+        const double hm = nd.time - prv.time + (first ? period : 0.0);
+        const double hp = nxt.time - nd.time + (last ? period : 0.0);
+        const double den = hp * hm * (hp + hm);
+        h_k = hm;
+        stencil = {
+            {nxt.gcol, (hm * hm) / den},
+            {prv.gcol, -(hp * hp) / den},
+            {nd.gcol, ((hp * hp) - (hm * hm)) / den},
+        };
+        next_nd = &nxt;
+        prev_nd = &prv;
+        c_next = (hm * hm) / den;
+      }
+      const auto ctx = make_block_context(scenario.uid(), stage.uid(), nd.buid);
+      if (has_ramp_up || has_startup_ramp) {
+        const auto ru =
+            ramp_up_.optval(stage.uid(), nd.buid).value_or(nd.gen_pmax);
+        const auto su =
+            startup_ramp_.optval(stage.uid(), nd.buid).value_or(nd.gen_pmax);
+        auto row =
+            SparseRow {
+                .class_name = cname,
+                .constraint_name = RampUpName,
+                .variable_uid = cuid,
+                .context = ctx,
+            }
+                .less_equal(0.0);
+        // scaled by h_k: no 1/h coefficients
+        for (const auto& [col, c] : stencil) {
+          row[col] += c * h_k;
+        }
+        row[nd.ucol] += -ru * h_k;
+        if (!boundary_allowance || prev_nd == nullptr
+            || prev_nd->vcol != nd.vcol)
+        {
+          row[nd.vcol] += -su;
+        }
+        if (next_nd != nullptr && next_nd->vcol != nd.vcol) {
+          row[next_nd->vcol] += -su * c_next * h_k;
+        }
+        rurows[nd.buid] = lp.add_row(std::move(row));
+      }
+      if (has_ramp_down || has_shutdown_ramp) {
+        const auto rd =
+            ramp_down_.optval(stage.uid(), nd.buid).value_or(nd.gen_pmax);
+        const auto sd =
+            shutdown_ramp_.optval(stage.uid(), nd.buid).value_or(nd.gen_pmax);
+        auto row =
+            SparseRow {
+                .class_name = cname,
+                .constraint_name = RampDownName,
+                .variable_uid = cuid,
+                .context = ctx,
+            }
+                .less_equal(0.0);
+        for (const auto& [col, c] : stencil) {
+          row[col] += -c * h_k;
+        }
+        row[nd.ucol] += -rd * h_k;
+        if (!boundary_allowance || prev_nd == nullptr
+            || prev_nd->wcol != nd.wcol)
+        {
+          row[nd.wcol] += -sd;
+        }
+        if (next_nd != nullptr && next_nd->wcol != nd.wcol) {
+          row[next_nd->wcol] += -sd * c_next * h_k;
+        }
+        rdrows[nd.buid] = lp.add_row(std::move(row));
+      }
+    }
+  }
+
   // ── u-gate piecewise heat-rate kink rows ──
   //
   // ``GeneratorLP::add_to_lp`` emits the per-segment piecewise kink
@@ -854,7 +1354,10 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   // (renewable-only case unaffected because no Commitment runs
   // this block).  At ``u<1`` the segment becomes proportionally
   // tighter, restoring the pre-refactor LP-relax behaviour.
-  if (!block_ucol.empty()) {
+  // power_based: the generation column is the trapezoid energy, which is
+  // positive in start-up / shut-down blocks with u = 0 — keep the constant
+  // breakpoints there.
+  if (!block_ucol.empty() && !power_based) {
     const auto& kink_rows = generator_lp.heat_rate_kink_rows();
     const auto& breakpoints = generator_lp.heat_rate_kink_breakpoints();
     if (!kink_rows.empty() && kink_rows.size() == breakpoints.size()) {
@@ -902,6 +1405,23 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
         });
   }
 
+  if (power_based) {
+    add_power_based(sc,
+                    scenario,
+                    stage,
+                    lp,
+                    generation_cols,
+                    block_period,
+                    period_starts,
+                    period_real,
+                    ucols,
+                    period_vcol,
+                    period_wcol,
+                    cyclic,
+                    initial_u,
+                    horizon_start);
+  }
+
   // Inertia/Reserve u_commit linkage: NOT done here.  Architectural
   // principle (consumer pulls from owner): each provision LP class
   // (ReserveProvisionLP, InertiaProvisionLP) should look up its
@@ -922,23 +1442,13 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   // ── C6: Min up time (at period level) ──
   // Σ_{q=p}^{min(p+UT_periods-1,P)} u[q] ≥ UT_periods · v[p]
   // Accumulates period durations to find how many periods cover min_up_hours.
-  const auto min_up_hours = commitment().min_up_time.value_or(0.0);
+  const auto min_up_hours =
+      drops("min_up_time") ? 0.0 : commitment().min_up_time.value_or(0.0);
   if (min_up_hours > 0.0 && !ucols.empty() && !vcols.empty()) {
     BIndexHolder<RowIndex> mut_rows;
     map_reserve(mut_rows, nperiods);
 
-    // Compute period durations
-    std::vector<double> period_dur(nperiods);
-    for (size_t p = 0; p < nperiods; ++p) {
-      const auto pstart = period_starts[p];
-      const auto pend =
-          (p + 1 < nperiods) ? period_starts[p + 1] : blocks.size();
-      double dur = 0.0;
-      for (size_t i = pstart; i < pend; ++i) {
-        dur += blocks[i].duration();
-      }
-      period_dur[p] = dur;
-    }
+    const auto& period_dur = period_real;
 
     for (size_t p = 0; p < nperiods; ++p) {
       const auto rep_buid = blocks[period_starts[p]].uid();
@@ -948,11 +1458,21 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       }
 
       // Count how many periods from p onward cover min_up_hours
+      // (cyclic: wrapping around the cycle, at most all its periods)
       double accum_hours = 0.0;
       size_t ut_periods = 0;
-      for (size_t q = p; q < nperiods && accum_hours < min_up_hours; ++q) {
-        accum_hours += period_dur[q];
+      const size_t ut_limit = cyclic ? nperiods : nperiods - p;
+      for (size_t s = 0; s < ut_limit && accum_hours < min_up_hours; ++s) {
+        accum_hours += period_dur[(p + s) % nperiods];
         ++ut_periods;
+      }
+      if (cyclic && p == 0 && accum_hours < min_up_hours - 1e-9) {
+        spdlog::warn(
+            "Commitment {}: min_up_time {} h ≥ cycle length {} h — capped "
+            "at the cycle (a cyclic unit then cannot cycle within it)",
+            commitment().name,
+            min_up_hours,
+            accum_hours);
       }
       if (ut_periods <= 1) {
         continue;  // trivially satisfied
@@ -968,7 +1488,8 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
           }
               .greater_equal(0.0);
       // Σ u[q] - UT_periods · v[p] ≥ 0
-      for (size_t q = p; q < p + ut_periods && q < nperiods; ++q) {
+      for (size_t s = 0; s < ut_periods; ++s) {
+        const auto q = (p + s) % nperiods;
         const auto q_buid = blocks[period_starts[q]].uid();
         const auto ucol_it = ucols.find(q_buid);
         if (ucol_it != ucols.end()) {
@@ -986,22 +1507,13 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   // ── C7: Min down time (at period level) ──
   // Σ_{q=p}^{min(p+DT_periods-1,P)} (1 - u[q]) ≥ DT_periods · w[p]
   // Rearranged: Σ u[q] + DT_periods · w[p] ≤ span
-  const auto min_down_hours = commitment().min_down_time.value_or(0.0);
+  const auto min_down_hours =
+      drops("min_down_time") ? 0.0 : commitment().min_down_time.value_or(0.0);
   if (min_down_hours > 0.0 && !ucols.empty() && !wcols.empty()) {
     BIndexHolder<RowIndex> mdt_rows;
     map_reserve(mdt_rows, nperiods);
 
-    // Reuse or recompute period_dur if not already computed
-    std::vector<double> pd(nperiods);
-    for (size_t p = 0; p < nperiods; ++p) {
-      const auto ps = period_starts[p];
-      const auto pe = (p + 1 < nperiods) ? period_starts[p + 1] : blocks.size();
-      double dur = 0.0;
-      for (size_t i = ps; i < pe; ++i) {
-        dur += blocks[i].duration();
-      }
-      pd[p] = dur;
-    }
+    const auto& pd = period_real;
 
     for (size_t p = 0; p < nperiods; ++p) {
       const auto rep_buid = blocks[period_starts[p]].uid();
@@ -1012,15 +1524,24 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
 
       double accum_hours = 0.0;
       size_t dt_periods = 0;
-      for (size_t q = p; q < nperiods && accum_hours < min_down_hours; ++q) {
-        accum_hours += pd[q];
+      const size_t dt_limit = cyclic ? nperiods : nperiods - p;
+      for (size_t s = 0; s < dt_limit && accum_hours < min_down_hours; ++s) {
+        accum_hours += pd[(p + s) % nperiods];
         ++dt_periods;
+      }
+      if (cyclic && p == 0 && accum_hours < min_down_hours - 1e-9) {
+        spdlog::warn(
+            "Commitment {}: min_down_time {} h ≥ cycle length {} h — "
+            "capped at the cycle",
+            commitment().name,
+            min_down_hours,
+            accum_hours);
       }
       if (dt_periods <= 1) {
         continue;
       }
 
-      const auto span = std::min(p + dt_periods, nperiods) - p;
+      const auto span = dt_periods;
       auto row =
           SparseRow {
               .class_name = cname,
@@ -1031,7 +1552,8 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
           }
               .less_equal(static_cast<double>(span));
       // Σ u[q] + DT_periods · w[p] ≤ span
-      for (size_t q = p; q < p + dt_periods && q < nperiods; ++q) {
+      for (size_t s = 0; s < dt_periods; ++s) {
+        const auto q = (p + s) % nperiods;
         const auto q_buid = blocks[period_starts[q]].uid();
         const auto ucol_it = ucols.find(q_buid);
         if (ucol_it != ucols.end()) {
@@ -1073,17 +1595,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     const auto initial_hours_offline =
         (initial_u < 0.5) ? commitment().initial_hours.value_or(1e6) : 0.0;
 
-    // Compute period durations for window counting
-    std::vector<double> pdur(nperiods);
-    for (size_t p = 0; p < nperiods; ++p) {
-      const auto ps = period_starts[p];
-      const auto pe = (p + 1 < nperiods) ? period_starts[p + 1] : blocks.size();
-      double dur = 0.0;
-      for (size_t i = ps; i < pe; ++i) {
-        dur += blocks[i].duration();
-      }
-      pdur[p] = dur;
-    }
+    const auto& pdur = period_real;
 
     BIndexHolder<ColIndex> hcols;
     BIndexHolder<ColIndex> wmcols;
@@ -1118,8 +1630,9 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       // ``v``/``w`` fix removed — guarded by the
       // "Startup TIERS are per-EVENT costs" regression test in
       // ``test/source/test_commitment.cpp``.
-      const auto tier_factor = CostHelper::cost_factor(
-          scenario.probability_factor(), stage.discount_factor());
+      const auto tier_factor = cycle_weight
+          * CostHelper::cost_factor(scenario.probability_factor(),
+                                    stage.discount_factor());
 
       // Tier-column scope / domain / blocks reuse the values computed
       // once for the u/v/w loop above (`period_scope`, `period_domain`,
@@ -1139,6 +1652,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
             .lowb = 0.0,
             .uppb = 1.0,
             .cost = cost,
+            .pin_scale = true,  // semantically binary tier selector
             .class_name = cname,
             .variable_name = name,
             .variable_uid = cuid,
@@ -1181,6 +1695,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       {
         auto row =
             SparseRow {
+                .pin_scale = true,  // pure commitment logic
                 .class_name = cname,
                 .constraint_name = StartupTypeName,
                 .variable_uid = cuid,
@@ -1217,16 +1732,18 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       // holds the shutdown periods with D < hot_time, the cold-time
       // window those with D < cold_time, and the warm window their
       // difference.  A shutdown whose D reaches a threshold exactly
-      // belongs to the next tier: the windows used to include it, which
-      // priced a start after exactly hot_time (cold_time) hours hot
-      // (warm) while the same outage carried in from before the horizon
-      // was priced warm (cold).
-      const auto periods_below = [&pdur, p](double limit)
+      // belongs to the next tier.  Cyclic stages wrap (at most the other
+      // P − 1 periods).
+      const auto back = [&](size_t s) { return (p + nperiods - s) % nperiods; };
+      const size_t max_back = cyclic ? nperiods - 1 : p;
+      const auto periods_below = [&](double limit)
       {
         double offline = 0.0;
         size_t count = 0;
-        for (size_t q = p; q > 0 && offline + pdur[q - 1] < limit; --q) {
-          offline += pdur[q - 1];
+        for (size_t s = 1; s <= max_back && offline + pdur[back(s)] < limit;
+             ++s)
+        {
+          offline += pdur[back(s)];
           ++count;
         }
         return count;
@@ -1238,6 +1755,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       {
         auto row =
             SparseRow {
+                .pin_scale = true,  // pure commitment logic
                 .class_name = cname,
                 .constraint_name = HotStartName,
                 .variable_uid = cuid,
@@ -1245,14 +1763,14 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
             }
                 .less_equal(0.0);
         row[hcol] = 1.0;
-        for (size_t q = (p > hot_periods ? p - hot_periods : 0); q < p; ++q) {
-          const auto q_buid = blocks[period_starts[q]].uid();
+        for (size_t s = 1; s <= hot_periods; ++s) {
+          const auto q_buid = blocks[period_starts[back(s)]].uid();
           const auto wcol_it = wcols.find(q_buid);
           if (wcol_it != wcols.end()) {
             row[wcol_it->second] = -1.0;
           }
         }
-        if (initially_off && offline_since_initial < hot_time) {
+        if (!cyclic && initially_off && offline_since_initial < hot_time) {
           row.uppb = 1.0;
         }
         hr_rows[rep_buid] = lp.add_row(std::move(row));
@@ -1262,6 +1780,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       {
         auto row =
             SparseRow {
+                .pin_scale = true,  // pure commitment logic
                 .class_name = cname,
                 .constraint_name = WarmStartName,
                 .variable_uid = cuid,
@@ -1269,18 +1788,14 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
             }
                 .less_equal(0.0);
         row[wmcol] = 1.0;
-        const auto warm_start =
-            p > cold_periods ? p - cold_periods : static_cast<size_t>(0);
-        const auto warm_end =
-            p > hot_periods ? p - hot_periods : static_cast<size_t>(0);
-        for (size_t q = warm_start; q < warm_end; ++q) {
-          const auto q_buid = blocks[period_starts[q]].uid();
+        for (size_t s = hot_periods + 1; s <= cold_periods; ++s) {
+          const auto q_buid = blocks[period_starts[back(s)]].uid();
           const auto wcol_it = wcols.find(q_buid);
           if (wcol_it != wcols.end()) {
             row[wcol_it->second] = -1.0;
           }
         }
-        if (initially_off && offline_since_initial >= hot_time
+        if (!cyclic && initially_off && offline_since_initial >= hot_time
             && offline_since_initial < cold_time)
         {
           row.uppb = 1.0;
@@ -1336,7 +1851,9 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   // mapping rules.
   const bool has_max_starts = commitment().max_starts.has_value();
   const bool has_min_starts = commitment().min_starts.has_value();
-  if ((has_max_starts || has_min_starts) && !vcols.empty()) {
+  if ((has_max_starts || has_min_starts) && !vcols.empty()
+      && !drops("starts_scope"))
+  {
     const double window_hours = commitment().starts_window_hours();
     const auto max_starts_v =
         has_max_starts ? static_cast<double>(*commitment().max_starts) : 0.0;
@@ -1347,6 +1864,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     auto fresh_row = [&]() -> SparseRow
     {
       SparseRow r;
+      r.pin_scale = true;  // pure commitment logic (Σ v vs a count)
       r.class_name = cname;
       r.constraint_name = MaxStartsName;
       r.variable_uid = cuid;
@@ -1396,12 +1914,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
 
     for (size_t p = 0; p < nperiods; ++p) {
       const auto pstart = period_starts[p];
-      const auto pend =
-          (p + 1 < nperiods) ? period_starts[p + 1] : blocks.size();
-      double period_hours = 0.0;
-      for (size_t i = pstart; i < pend; ++i) {
-        period_hours += blocks[i].duration();
-      }
+      const double period_hours = period_real[p];
       const auto& rep_blk = blocks[pstart];
       if (!row_open) {
         window_row.context =
@@ -1517,6 +2030,183 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   return true;
 }
 
+bool CommitmentLP::power_based_applies(const StageLP& stage,
+                                       bool point,
+                                       bool expandable)
+{
+  const char* why = nullptr;
+  if (point) {
+    why = "point-sampled stage";
+  } else if (expandable) {
+    why = "expandable generator";
+  }
+  if (why == nullptr) {
+    return true;
+  }
+  if (!power_based_warned_) {
+    power_based_warned_ = true;
+    spdlog::warn(
+        "Commitment '{}': uc_formulation power_based is not applied on a "
+        "{} (stage {}); the energy-block rows are used",
+        commitment().name,
+        why,
+        stage.uid());
+  }
+  return false;
+}
+
+void CommitmentLP::add_power_based(
+    SystemContext& sc,
+    const ScenarioLP& scenario,
+    const StageLP& stage,
+    LinearProblem& lp,
+    const BIndexHolder<ColIndex>& generation_cols,
+    std::span<const std::size_t> block_period,
+    std::span<const std::size_t> period_starts,
+    std::span<const double> period_real,
+    const BIndexHolder<ColIndex>& ucols,
+    std::span<const ColIndex> period_vcol,
+    std::span<const ColIndex> period_wcol,
+    bool cyclic,
+    double initial_u,
+    bool horizon_start)
+{
+  const auto& blocks = stage.blocks();
+  const auto nblocks = blocks.size();
+  // Every block needs its generation column: the trapezoid chains the
+  // boundaries, so a P1-elided block (zero pmax) breaks the chain — fall
+  // back to its absence as a zero-power block is not representable here.
+  if (std::ranges::any_of(blocks,
+                          [&](const auto& b)
+                          { return !generation_cols.contains(b.uid()); }))
+  {
+    spdlog::warn(
+        "Commitment '{}': power_based needs a generation column in every "
+        "block of stage {}; some blocks were elided (zero pmax) — the "
+        "boundary rows are skipped there",
+        commitment().name,
+        stage.uid());
+    return;
+  }
+
+  PowerBasedUnit unit;
+  unit.class_name = Element::class_name.full_name();
+  unit.uid = uid();
+  unit.scenario_uid = scenario.uid();
+  unit.stage_uid = stage.uid();
+  unit.cyclic = cyclic;
+  unit.initial_u = initial_u;
+  unit.has_ramp_up = ramp_up_.has_value();
+  unit.has_ramp_down = ramp_down_.has_value();
+  const auto& gen = sc.element(generator_index_).generator();
+  if (!cyclic) {
+    if (commitment().initial_power) {
+      unit.initial_power = commitment().initial_power;
+    } else if (horizon_start && gen.initial_generation) {
+      unit.initial_power = gen.initial_generation;
+    }
+  }
+  unit.startup_trajectory = commitment().startup_trajectory;
+  unit.shutdown_trajectory = commitment().shutdown_trajectory;
+  unit.trajectory_step = commitment().trajectory_step.value_or(1.0);
+
+  // Reserve provisions of this generator: their headroom rows were gated
+  // by u (`g ± r` vs `Pmax·u` / `floor·u`).  The power-based rows carry
+  // the reserves at the boundary (PB3–PB6); the headroom rows lose their
+  // generation term and keep only the status gate `r ≤ cap·u`.
+  std::vector<const ReserveProvisionLP*> provisions;
+  for (const auto& rprov : sc.elements<ReserveProvisionLP>()) {
+    if (sc.element_index(rprov.generator_sid()) == generator_index_) {
+      provisions.push_back(&rprov);
+    }
+  }
+
+  const auto nperiods = period_starts.size();
+  for (std::size_t p = 0; p < nperiods; ++p) {
+    const auto rep = blocks[period_starts[p]].uid();
+    unit.ucol.push_back(ucols.at(rep));
+    unit.vcol.push_back(period_vcol[p]);
+    unit.wcol.push_back(period_wcol[p]);
+  }
+  unit.period_start.assign(nperiods, 0.0);
+  for (std::size_t p = 1; p < nperiods; ++p) {
+    unit.period_start[p] = unit.period_start[p - 1] + period_real[p - 1];
+  }
+
+  for (std::size_t i = 0; i < nblocks; ++i) {
+    const auto buid = blocks[i].uid();
+    const auto gcol = generation_cols.at(buid);
+    const auto pmax = lp.get_col_uppb(gcol);
+    const auto pmin =
+        pmin_.optval(stage.uid(), buid).value_or(lp.get_col_lowb(gcol));
+    unit.buid.push_back(buid);
+    unit.gcol.push_back(gcol);
+    unit.dt.push_back(stage.real_duration(blocks[i]));
+    unit.pmax.push_back(pmax);
+    unit.pmin.push_back(pmin);
+    unit.ramp_up.push_back(ramp_up_.optval(stage.uid(), buid).value_or(pmax));
+    unit.ramp_down.push_back(
+        ramp_down_.optval(stage.uid(), buid).value_or(pmax));
+    unit.startup_cap.push_back(
+        startup_ramp_.optval(stage.uid(), buid).value_or(pmax));
+    unit.shutdown_cap.push_back(
+        shutdown_ramp_.optval(stage.uid(), buid).value_or(pmax));
+    unit.period.push_back(block_period[i]);
+
+    std::vector<ColIndex> rup;
+    std::vector<ColIndex> rdn;
+    const auto ucol = unit.ucol[block_period[i]];
+    for (const auto* rprov : provisions) {
+      if (rprov->offline()) {
+        continue;  // cold reserve: offered while OFF, no headroom
+      }
+      if (const auto col =
+              rprov->lookup_up_provision_col(scenario, stage, buid))
+      {
+        rup.push_back(*col);
+        if (const auto row =
+                rprov->lookup_up_provision_row(scenario, stage, buid))
+        {
+          // g + r − Pmax·u ≤ 0  →  r − Pmax·u ≤ 0
+          lp.set_coeff(*row, gcol, 0.0);
+        }
+      }
+      if (const auto col =
+              rprov->lookup_dn_provision_col(scenario, stage, buid))
+      {
+        rdn.push_back(*col);
+        if (const auto row =
+                rprov->lookup_dn_provision_row(scenario, stage, buid))
+        {
+          // g − r − floor·u ≥ 0  →  (P̄ − P)·u − r ≥ 0
+          lp.set_coeff(*row, gcol, 0.0);
+          lp.set_coeff(*row, ucol, std::max(pmax - pmin, 0.0));
+          lp.row_at(*row).lowb = 0.0;
+        }
+      }
+    }
+    unit.reserve_up.push_back(std::move(rup));
+    unit.reserve_dn.push_back(std::move(rdn));
+  }
+
+  auto res = add_power_based_rows(unit, lp);
+  BIndexHolder<ColIndex> pcols;
+  map_reserve(pcols, nblocks);
+  for (std::size_t i = 0; i < res.power.size(); ++i) {
+    pcols[blocks[i].uid()] = res.power[i];
+  }
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
+  if (!pcols.empty()) {
+    sc.add_ampl_variable(Element::class_name.snake_case(),
+                         uid(),
+                         PowerName,
+                         scenario,
+                         stage,
+                         pcols);
+    power_cols_[st_key] = std::move(pcols);
+  }
+}
+
 bool CommitmentLP::add_to_output(OutputContext& out) const
 {
   static constexpr std::string_view cname = Element::class_name.full_name();
@@ -1541,6 +2231,8 @@ bool CommitmentLP::add_to_output(OutputContext& out) const
   // would pay if the cap were relaxed by 1 event, useful for
   // sensitivity work on cycling-limited units.
   out.add_row_dual(cname, MaxStartsName, pid, max_starts_rows_);
+  // power_based: instantaneous power at the end of every block [MW]
+  out.add_col_sol(cname, PowerName, pid, power_cols_);
 
   out.add_row_dual(cname, LogicName, pid, logic_rows_);
   out.add_row_dual(cname, GenUpperName, pid, gen_upper_rows_);

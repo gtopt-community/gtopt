@@ -1108,6 +1108,29 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
       write_cascade_levels_csv(base_output_dir, m_level_stats_);
     }
 
+    // solution.csv summary for this level's LP (its per-level write_out
+    // and, for the last level, the caller's final write_out through the
+    // output delegate).  SDDPPlanningMethod sets this for plain SDDP;
+    // without it a cascade wrote max_kappa = -1 next to a valid per-cell
+    // kappa, and gap / gap_change were the struct defaults.  max_kappa
+    // is the run-wide max: earlier levels (carry_kappa) and this one.
+    current_lp->set_sddp_summary({
+        .gap = last.gap,
+        .gap_change = last.gap_change,
+        .lower_bound = last.lower_bound,
+        .upper_bound = last.upper_bound,
+        .max_kappa = std::max(carry_kappa, current_solver->global_max_kappa()),
+        .iterations = iterations_reported,
+        .converged = last.converged,
+        .stationary_converged = last.stationary_converged,
+        .statistical_converged = last.statistical_converged,
+        .aperture_solves = level_apertures.solves,
+        .aperture_infeasible = level_apertures.infeasible,
+        .aperture_failed = level_apertures.failed,
+        .aperture_dropped_last_iteration =
+            level_apertures.dropped_in_last_iteration,
+    });
+
     // Mark this level as `done` in the checkpoint.  The actual flush to
     // disk happens further below — AFTER cuts are persisted — so a
     // SIGKILL between the two writes leaves the checkpoint behind

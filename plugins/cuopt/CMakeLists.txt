@@ -25,14 +25,19 @@ gtopt_add_solver_plugin(
 # The cuOpt headers carry no version macros: hand the plugin the version
 # FindCuOpt read from the wheel's VERSION file, so gtopt_solver_build_info
 # can compare it with cuOptGetVersion() of the library loaded at runtime.
+# cuOpt versions are zero-padded (26.08.00): math(EXPR) normalises each
+# field to plain decimal, since a C++ literal like 08 is an invalid octal.
 if(CUOPT_VERSION MATCHES "^([0-9]+)\\.([0-9]+)(\\.([0-9]+))?")
-  set(_cuopt_patch "${CMAKE_MATCH_4}")
-  if(_cuopt_patch STREQUAL "")
+  math(EXPR _cuopt_major "${CMAKE_MATCH_1}")
+  math(EXPR _cuopt_minor "${CMAKE_MATCH_2}")
+  if(CMAKE_MATCH_4 STREQUAL "")
     set(_cuopt_patch -1)
+  else()
+    math(EXPR _cuopt_patch "${CMAKE_MATCH_4}")
   endif()
   target_compile_definitions(gtopt_solver_cuopt PRIVATE
-    GTOPT_CUOPT_COMPILED_VERSION_MAJOR=${CMAKE_MATCH_1}
-    GTOPT_CUOPT_COMPILED_VERSION_MINOR=${CMAKE_MATCH_2}
+    GTOPT_CUOPT_COMPILED_VERSION_MAJOR=${_cuopt_major}
+    GTOPT_CUOPT_COMPILED_VERSION_MINOR=${_cuopt_minor}
     GTOPT_CUOPT_COMPILED_VERSION_PATCH=${_cuopt_patch}
   )
 endif()

@@ -338,6 +338,7 @@ Solver and I/O settings:
 | `lp_matrix_options.fast_sqrt_method` | string | Approximate sqrt for Ruiz scaling (see `FastSqrtMethod`) |
 | `lp_matrix_options.ruiz_max_iterations` | int | Ruiz iteration cap (default 5) |
 | `lp_matrix_options.ruiz_tolerance` | float | Ruiz convergence tolerance (default 1e-3) |
+| `lp_matrix_options.pin_logic_rows` | bool | Keep pure commitment-logic rows at row factor 1 in row equilibration (default false) |
 | `lp_matrix_options.water_dual_target` | float | Target LP dual magnitude for reservoir energy-balance rows (post-equilibration row factor; off when unset) |
 | `lp_matrix_options.compute_stats` | bool | Compute coefficient min/max/ratio during flatten |
 | `lp_matrix_options.lp_coeff_ratio_threshold` | float | Ratio threshold above which a per-scene/phase breakdown is printed (default 1e7) |
@@ -421,6 +422,8 @@ The JSON-visible fields of `lp_matrix_options` are:
 - `fast_sqrt_method` (Ruiz only — see `FastSqrtMethod`)
 - `ruiz_max_iterations` (int; default 5), `ruiz_tolerance` (float;
   default 1e-3)
+- `pin_logic_rows` (bool; default false): commitment-logic rows keep row
+  factor 1
 - `compute_stats` (bool)
 - `lp_coeff_ratio_threshold` (float; default 1e7)
 

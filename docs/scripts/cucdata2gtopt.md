@@ -45,7 +45,7 @@ Table I reports the same quantity in millions.
 | `--system {39,118}` | `39` | test system |
 | `--reserve PCT` | workbook (39: 10, 118: 2.5) | up **and** down reserve requirement, % of the hourly demand |
 | `--scale N` | `10` | identical units per cluster; demand, reserve, wind and line limits scale by `N/10`.  `10` is the published (paper) system, which is already scaled ×10 |
-| `--formulation {paper,native}` | `paper` | see [Mapping](#mapping) |
+| `--formulation {paper,native,power_based}` | `paper` | see [Mapping](#mapping) |
 | `--mode {chronological,block}` | `chronological` | `block`: the same 24 hours as non-chronological blocks, see [Block mode](#block-mode) |
 | `--name NAME` | `cuc<sys>_r<pct>_s<N>` | case name (`.` → `p`, e.g. `r2p5`) |
 | `-o DIR` | `.` | output directory (`DIR/<name>.json`, self-contained) |
@@ -103,6 +103,17 @@ the individual units) and its pre-processing (`SET VALUE VARIABLES`):
 gtopt's native ramp rows act on the total output and do not contain the
 reserves, so `native` is a relaxation of the paper model (reserve may be
 offered in start-up / shut-down hours and beyond the ramp capability).
+
+`--formulation power_based` writes the same native fields under
+`model_options.uc_formulation = "power_based"` ([Unit Commitment
+§4.6](../unit-commitment.md#46-power-based-formulation-uc_formulation--power_based)):
+power at the hour boundaries, trapezoid hourly energies, and the reserves
+inside the capacity and ramp rows on the instantaneous power.  The
+workbook's initial output is an hour average, so the power-based case
+leaves `initial_power` unknown (the power at t = 0 is free in
+[pmin, pmax] for a unit that is on).  This is a different model from the
+paper's IUC, which is an hourly energy-block formulation; it is not
+expected to reproduce Table I.
 
 ## Validation
 

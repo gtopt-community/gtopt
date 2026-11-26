@@ -112,7 +112,8 @@ struct SolverOptionsConstructor
                            OptReal mip_heuristic_effort,
                            const OptName& kappa_mode_str,
                            OptBool cold_solve_without_basis,
-                           OptBool deterministic_parallel) const
+                           OptBool deterministic_parallel,
+                           OptBool accept_optimal_infeas) const
   {
     LPAlgo algorithm = LPAlgo::barrier;
     if (algorithm_str.has_value()) {
@@ -169,6 +170,7 @@ struct SolverOptionsConstructor
         .kappa_mode = kappa_mode,
         .cold_solve_without_basis = cold_solve_without_basis,
         .deterministic_parallel = deterministic_parallel,
+        .accept_optimal_infeas = accept_optimal_infeas,
     };
   }
 };
@@ -202,7 +204,8 @@ struct json_data_contract<SolverOptions>
       json_number_null<"mip_heuristic_effort", OptReal>,
       json_string_null<"kappa_mode", OptName>,
       json_bool_null<"cold_solve_without_basis", OptBool>,
-      json_bool_null<"deterministic_parallel", OptBool>>;
+      json_bool_null<"deterministic_parallel", OptBool>,
+      json_bool_null<"accept_optimal_infeas", OptBool>>;
 
   static auto to_json_data(SolverOptions const& opt)
   {
@@ -236,7 +239,8 @@ struct json_data_contract<SolverOptions>
             ? OptName {std::string {gtopt::enum_name(*opt.kappa_mode)}}
             : OptName {},
         opt.cold_solve_without_basis,
-        opt.deterministic_parallel);
+        opt.deterministic_parallel,
+        opt.accept_optimal_infeas);
   }
 };
 

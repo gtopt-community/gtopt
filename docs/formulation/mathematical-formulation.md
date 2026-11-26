@@ -1109,6 +1109,31 @@ is fictitious loss, meaning out-of-order segment fill or an inflated
 loss variable under non-positive prices [[33]](#ref33).  Neumann et al.
 use the same cap [[35]](#ref35).
 
+**Ordered-fill segment bound.**  The PWL segment columns are flow
+segments: segment $k$ on $[b_{k-1}, b_k]$ books the loss
+$c_l (b_{k-1} + b_k)\, s_k$, so its loss is bounded through its flow
+bound.  With `model_options.loss_segment_bound = true` (default) every
+segment column — `flowp_seg` / `flown_seg` of the secant modes and the
+$|f|$ segments $v_l$ of `tangent_signed_flow` — gets
+
+$$ 0 \;\le\; s_k \;\le\; \min\bigl(w_k,\;
+   \max(0,\; \overline{F}_l^{dir} - b_{k-1})\bigr), $$
+
+the most it carries in the ordered fill at $|f| \le \overline{F}$, so
+segment $k$ books at most $c_l (b_{k-1} + b_k)\,\min(w_k,
+\overline{F} - b_{k-1})^{+}$ and the segments together at most the
+ordered secant at $\overline{F}$ — the same value as the loss-column cap
+above, $c_l \overline{F}^2$ when $\overline{F}$ is a breakpoint (for
+`piecewise`, whose segments
+carry $f^+ + f^-$, $\overline{F} = \max(\overline{F}^{ab},
+\overline{F}^{ba})$).  It is a valid tightening bound: it removes no
+physical point and only bites when the segments reach past the flow cap
+(a `loss_envelope` above $\overline{F}$, where the last segment used to
+be unbounded, or a two-direction circulation).  Like the loss cap it
+limits non-physical loss inflation under negative prices; it does not
+prevent it.  `loss_segment_bound = false` restores the width-only
+bounds.
+
 The cap is tighter than before when a decoupled `loss_envelope` lies
 **above** the flow cap.  It was $c_l E_l^2$ and is now the secant value
 at $\overline{F}$.  For `tangent_signed_flow` and the shared tangent
@@ -1374,10 +1399,23 @@ A line's `reactance` field selects one of three KVL treatments:
 | $X_l = 0$ or $\lvert X_l / V^2 \rvert < \epsilon_X$ | zero-impedance tie | DC link (no KVL row) |
 | $\lvert X_l / V^2 \rvert \ge \epsilon_X$ | regular KVL row (above) | regular KVL row (above) |
 
-where $\epsilon_X$ is `model_options.dc_line_reactance_threshold`
-(default $10^{-6}$ p.u.; $0$ disables the sub-threshold test, but an
-explicit $X_l = 0$ is still a tie).  HVDC links and PLP DC lines are
-emitted **without** `reactance`.
+where $\epsilon_X$ is the effective zero-impedance floor
+
+$$ \epsilon_X = \max\bigl(\epsilon_X^{\text{abs}},\;
+   \rho_X \cdot \operatorname{median}_{l : X_l \neq 0} \lvert X_l / V_l^2 \rvert\bigr), $$
+
+with $\epsilon_X^{\text{abs}}$ = `model_options.dc_line_reactance_threshold`
+(default $10^{-6}$ p.u.) and $\rho_X$ =
+`model_options.tiny_reactance_rel_threshold` (default $0.01$; $0$
+restores the absolute-only floor).  The relative term is independent of
+the unit system (per-unit, Ω/kV, or the PLEXOS $V = \sqrt{S_\text{base}}$
+convention) and catches placeholder reactances that sit at the absolute
+floor (PLEXOS generator-connection links with $X = 10^{-4}$ p.u.,
+$\chi = 10^{-6}$).  Tying a line whose $\chi_l$ is $\rho_X$ of the
+median shifts the flow split of a parallel path of median impedance by
+at most $\approx \rho_X$.  Setting both floors to $0$ leaves only explicit
+$X_l = 0$ as ties.  HVDC links and PLP DC lines are emitted **without**
+`reactance`.
 
 A **zero-impedance tie** is the $X_l \to 0$ limit of the transformer
 constraint: the flow term vanishes (the tap ratio $\tau_l$ multiplies
@@ -1390,12 +1428,26 @@ $$
 
 so the two bus angles are forced equal (up to $\varphi_l$).  The flow
 $f_{l,s,t,b}^{\pm}$ remains a free variable bounded by the line's
-`tmax_ab` / `tmax_ba` and still enters both bus balances.  In
+`tmax_ab` / `tmax_ba`, still enters both bus balances and is reported
+in the output: it is set by the bus balances.  No coefficient derived
+from $X_l$ reaches the matrix, and a tie is excluded from the
+`scale_theta` median, the `theta_max` sum and the $\chi$ spread check
+(a system whose lines are all ties keeps the default
+$\sigma_\theta = 1$).  A tie's resistance is as degenerate as its
+reactance: by default (`model_options.tie_line_losses = false`) the tie
+is lossless — no loss column, segment or link row is built for it;
+`tie_line_losses = true` keeps its loss model (legacy).  In
 `cycle_basis` mode the tie is a cycle edge with coefficient $0$: it
 closes loops and contributes only $\varepsilon_l \varphi_l$ to the
 cycle right-hand side.  A cycle made only of ties degenerates to
 $0 = \sum \varepsilon_l \varphi_l$ and is dropped (with a warning when
-the net phase shift is nonzero).  Ties join their buses for island
+the net phase shift is nonzero).  Consequently the circulating split
+around a loop made only of ties is free, exactly as on a merged bus that
+keeps its branch flows and limits: any tiny-$X$ model fixes it by the
+ratio of the tiny reactances (placeholders in practice), and the tie LP
+is a relaxation of it (cost never higher).  A single tie in a loop with
+normal lines, ties in series and a tie in parallel with a normal line
+reproduce the $X \to 0$ flows exactly.  Ties join their buses for island
 detection and reference-angle pinning, like any AC line.  A tie between
 two buses whose `reference_theta` values cannot satisfy the row is
 infeasible; the line then falls back to a DC link with a warning.
@@ -1817,6 +1869,245 @@ missing `eini` at commissioning is a validation error.  The global first
 stage keeps the rule above (free in the stage bounds when `eini` is
 unset).  Storage without a state variable closes every stage with
 $e^{\text{fin}} = e^{\text{ini}}$ and keeps its free start.
+
+#### Daily Cycle on Representative Days (`daily_cycle`)
+
+A representative-day stage $t$ has 24 hour-of-day blocks whose durations
+$\Delta_b$ add up to $D_t = 24\,n_t$ hours ($n_t$ = days represented).
+With `daily_cycle` (the battery default) the balance above is written for
+ONE day: every $\Delta_b$ in the SoC balance is multiplied by
+$\kappa_t = 24 / D_t$, while the objective still weighs the flows with the
+full $\Delta_b$.  Each stage is closed,
+
+$$
+e_{e,s,t,b_{\text{last}}} = e_{e,s,t}^{\text{ini}}
+\qquad (\Delta e_{e,s,t} = 0),
+$$
+
+so no energy moves between days, and the energy bounds apply to the
+single simulated day.  Stage-to-stage coupling and SDDP state variables
+are off for such storages.
+
+#### Weighted Cycle Groups (`Stage.cycle_group`)
+
+Consecutive stages of one phase sharing a `cycle_group` id $G$ form one
+storage cycle for every `daily_cycle` storage.  Stage $d \in G$ (in
+stage order) stands for $w_d$ identical repetitions of its day
+(`Stage.cycle_weight`, default $D_d/24$; e.g. a weekday and a weekend day
+of a typical week, $w = 5$ and $w = 2$).  With
+$\Delta e_d = e_{d,b_{\text{last}}} - e_d^{\text{ini}}$ the SoC change of
+one repetition, the per-stage closure is replaced by
+
+$$
+\begin{aligned}
+e_{d+1}^{\text{ini}} &= e_d^{\text{ini}} + w_d\,\Delta e_d
+  && \text{(chain, } d, d{+}1 \in G\text{)} \\
+e_{d_{\text{first}}}^{\text{ini}} &= e_{d_{\text{last}}}^{\text{ini}}
+  + w_{d_{\text{last}}}\,\Delta e_{d_{\text{last}}}
+  \;\Longleftrightarrow\; \sum_{d \in G} w_d\,\Delta e_d = 0
+  && \text{(closure)} \\
+\underline{E} \le\; &e_{d,b} + (w_d - 1)\,\Delta e_d \;\le \overline{E}
+  && \forall b,\; w_d > 1 \text{ (last repetition)}
+\end{aligned}
+$$
+
+The SoC in repetition $j$ is $e_{d,b} + j\,\Delta e_d$, linear in $j$, so
+bounding the first repetition (the column bounds) and the last one bounds
+every repetition exactly: the group is a feasible chronological cycle of
+$w_d$ copies of each day in stage order (for integer weights), with no
+energy created or lost beyond the modelled efficiencies.  Self-discharge
+is applied per simulated day only (the carried level is not decayed
+across repetitions).  When the objective weights of the stages are
+proportional to $w_d$ (e.g. $w_d$ = days per typical week, $n_d$ = days
+in the month), the closure is equivalent to
+$\sum_d n_d\,\Delta e_d = 0$ over the month.  For an expandable storage
+the last-repetition upper bound is also written against the installed
+capacity column.  The next stage after a group starts from the group's
+start level.  A group never crosses a phase boundary (validation error),
+so no SDDP state is needed.  This is the intra-/inter-period decomposition
+of Kotzur et al. (2018) with the period order fixed inside the group, and
+it reduces to the daily closure when every $\Delta e_d = 0$.
+
+#### Typical Periods with Weighted Blocks (`Stage.period_hours`)
+
+A stage may sample a chronological period of `period_hours` $= H_t$ real
+hours (a typical week, $H_t = 168$, or a day) and stand for several of
+them.  Its block durations $d_b$ are then WEIGHTS: they enter the
+objective, energy budgets, flows into coupled reservoirs and every
+`dur[b]` of a user constraint, and add up to the represented time
+$D_t = H_t\,n_t$.  The real time step is
+
+$$
+\Delta_b = d_b\,\kappa_t, \qquad \kappa_t = H_t / D_t .
+$$
+
+A `daily_cycle` storage uses $\kappa_t$ instead of $24/D_t$: its balance
+runs on the real steps and the per-stage closure closes the period (a
+weekly cycle for $H_t = 168$; cycle groups chain periods the same way).
+Its `max_cycles_day` cap is written per real 24 h window.  Ramp limits,
+minimum up / down times and start windows use $\Delta_b$; costs and
+reported prices keep the weighted $d_b$, so duals stay in $/MWh.
+Non-uniform real steps (1 h / 2 h mixes, Chebyshev quadrature weights)
+are supported throughout; a stage without `period_hours` is unchanged.
+
+#### Point-Sampled Stages (`Stage.sampling = "point"`)
+
+The typical-week samplers that produce these stages (uniform, peak /
+ramp, Chebyshev–Gauss / –Lobatto with Fejér / Clenshaw–Curtis weights,
+Wednesday-noon window) and an FY28 comparison are described in
+[Typical-Week Sampling](../methods/typical-week-sampling.md).
+
+In a block stage (default) a block value holds constant over the block,
+whose length is the real step $\Delta_b$.  In a POINT stage the values are
+samples AT the node times $t_k$ (`Block.time`).  For Chebyshev–Lobatto
+nodes $t_0$ is the period start and $t_N$ the period end, and the
+durations $w_k$ are quadrature weights (Clenshaw–Curtis), not intervals.
+A periodic or chained period emits only $N$ blocks: node $N$ is the
+same instant as node 0 of the next cycle, so it is dropped and node 0
+carries $w_0 + w_N$ (the converters do this; `validate_planning` warns
+when $t_{last} - t_0$ equals `period_hours`).
+Integrals (costs, energy budgets, `dur[b]` of user constraints) keep
+$\sum_k w_k\,x_k$, the exact quadrature of the node polynomial.  What
+changes:
+
+- Storage balances integrate between the nodes with the element's
+  resolved `storage_integration` (below; defaults `lg4_pos` for
+  reservoirs, `block` for batteries and the other storages).  With a
+  banded rule the level $e_k$ is the state at $t_k$; closure and stage
+  chaining use the level at the period end.
+- Ramps default to `backward`, the interval slope (C4/C5 below with
+  $h_k = t_k - t_{k-1}$); on a cyclic stage the first node wraps,
+  $h_0 = t_0 + H - t_{N-1}$.  `central2` is opt-in and not recommended.
+- Duration logic uses the cell partition $[\tau_{k-1}, \tau_k]$,
+  $\tau_k = \sum_{j\le k} w_j$, of every stage (blocks on block stages,
+  quadrature cells holding $t_k$ on point stages, validated).
+  `max_cycles_day` days, `dur[b]` sums and block-stage commitment
+  periods count cell durations: cell $k$ joins group
+  $\lfloor (\tau_{k-1} + w_k/2)/P \rfloor$, so a nominal boundary snaps
+  to the nearer cell end.
+- **Commitment on point stages never lives on the nodes.**  Every unit
+  has its own uniform grid of $P_g$ = max(`commitment_period`, 1 h)
+  cells (default 1 h) aligned to the stage start (for the converters'
+  typical week: Wednesday 12:00).  Node $k$ inherits the status of cell
+  $c_g(k) = \min(\lfloor t_k / P_g \rfloor, C_g - 1)$, $C_g = \lceil
+  H / P_g \rceil$: a node exactly on a cell boundary belongs to the
+  LATER cell, the end node $t_N = H$ to the last one.  $p_k \ge
+  \underline P u_{c(k)}$, $p_k \le \overline P u_{c(k)}$; start-up /
+  shut-down $v, w$ exist only at cell boundaries, and a ramp row gets the
+  SU·$v$ / SD·$w$ allowance only when its stencil crosses into a new cell
+  (inside a cell the plain ramp limit $R\,h\,u$ holds) under the default
+  `ramp_allowance = "boundary"`, which the converters also write on
+  point stages.  `"period"` gives every row of the period the allowance
+  of its $v$ / $w$.  Min up / down
+  and start windows count the cells' real hours.  Cells that hold no
+  node carry no status of their own: the previous cell's status
+  continues over them (so the binary count is the number of cells with a
+  node, $H / P_g$ when the node spacing is below $P_g$).
+- On block stages, blocks may carry `Block.commitment_cell` labels
+  (refined sun-window blocks point at the base block they split): units
+  without a `commitment_period` then keep one status per labelled cell,
+  so refinement adds continuous columns only.
+- Only ramps, storage interpolation / envelope, reconstruction and time
+  stamps use the node times (and the point-stage commitment cells above).
+- Cyclic commitment (`Commitment.cycle = "stage"`, typical periods):
+  $u_1 - u_P = v_1 - w_1$ replaces the initial-status row; min up /
+  down and start-tier windows are taken modulo the $P$ periods; start-up
+  / shut-down costs carry the stage weight $\sum_b d_b /$`period_hours`.
+  Commitment periods on point stages are at least 1 h (`auto` too,
+  unset = 1 h).
+- Duals: $\pi_k = \lambda_k / w_k$ is the node LMP.  With node $N$
+  dropped (periodic grids) node 0 already carries $w_0 + w_N$, so no
+  end merge is needed.  Hourly prices are rebuilt CELL-CONSTANT by
+  default: $\pi_k$ holds on $[\tau_{k-1}, \tau_k]$ and an hour's price
+  is the overlap-weighted mean, so $\int \pi\,g\,dt = \sum_k
+  \lambda_k u_k$ for every cell-constant quantity and a nonnegative node
+  price never gives a negative hourly price.  The coefficient-space
+  adjoint is an option (`price_reconstruction = adjoint`).
+  Quantities are rebuilt with the interpolant of the storage rule
+  (cell-constant for `block`, piecewise linear for `trapezoid`); the
+  node polynomial only for smooth inputs.  `block_time.csv` gives
+  $t_k$.
+
+#### Storage Integration on Node Grids (`storage_integration`, provisional)
+
+On a point-sampled stage (Chebyshev–Lobatto points $t_k$ from
+`Block.time`, block weights $w_k$ = Clenshaw–Curtis weights) each
+storage uses its resolved rule: the element's `storage_integration`,
+else `reservoir_storage_integration` / `battery_storage_integration`,
+else the global `storage_integration`, else `lg4_pos` for reservoirs and
+`block` for every other storage.  Block stages always use the block
+recursion, also selectable as `block`:
+
+$$
+e_k = e_{k-1}(1 - \ell\,w_k) + w_k\,\phi_k ,
+$$
+
+with $\phi_k$ the net storage flow
+($\rho\,\eta_{in}\,p^{in}_k - \rho\,p^{out}_k/\eta_{out} - \rho\,s_k$).  Its
+period total is the block-weight (CC) quadrature, exact for polynomial
+flows of the node degree.  The level $e_k$ is the state at the block end
+$\tau_k = \sum_{j \le k} w_j$, to first order — inconsistent with point
+samples.
+
+`trapezoid`, `lg4` and `lg6` define $e_k$ as the state AT the node $t_k$
+(the last one at the period end) instead:
+
+$$
+e_k = e_{k-1}(1 - \ell\,(t_k - t_{k-1})) + \sum_{j \in S_k} D_{kj}\,\phi_j .
+$$
+
+Here $D_{kj} = \int_{t_{k-1}}^{t_k} L_j(t)\,dt$ for the Lagrange basis
+$L_j$ on a stencil $S_k$ of 2, 4 or 6 nodes nearest to the interval.
+`trapezoid` uses the interval's two end nodes; at the window ends the
+stencil is shifted to keep its size.  The matrix is then balanced on
+its sparsity pattern so that BOTH
+
+$$
+\sum_k D_{kj} = w_j \quad\text{(columns)},\qquad
+\sum_j D_{kj} = t_k - t_{k-1} \quad\text{(rows)}
+$$
+
+hold: a constant flow integrates exactly over every interval and the
+period total stays exactly the CC quadrature, so the closure, the
+`efin` state and the SDDP coupling are unchanged.  Signed rules use the
+minimum-norm additive correction ($\min \lVert\delta\rVert_2$, i.e.
+$\delta_{kj} = \alpha_k + \beta_j$); the `_pos` rules clip negative
+weights and use an alternating row / column scaling, which keeps every
+$D_{kj} \ge 0$.
+
+Before the correction, the rule is exact at every node for linear
+(`trapezoid`) or cubic (`lg4`) flows.  `lg4` has about 8 % negative
+weight mass on Lobatto grids, which lets the LP shift energy inside an
+interval (a phantom shift) and invalidates the envelope bound.  Plain
+`lg4` / `lg6` are therefore not recommended for LP; `lg4_pos` is the
+high-order option.  Only the storage's own charge,
+discharge and drain columns are banded.  External injections into the
+balance row, such as allowance pools, keep the block weight.  The dense
+alternative, the exact cumulative integral $S = V J V^{-1}$ of the
+global node interpolant, is not implemented in the LP.
+
+**Envelope rows.**  The levels are bounded only at the nodes.  A charge
+at $t_{k-1}$ and a discharge at $t_k$ would therefore cancel inside the
+row of $[t_{k-1}, t_k]$, letting the storage shift up to
+$\tfrac12 \Delta_k\, p^{max}$ beyond $e^{max}$ per charge→discharge
+switch.  Every banded rule adds two sparse rows per interval, bounding
+the level of the interpolated flows by their charge-only and
+discharge-only integrals, taken with the nonnegative part
+$D^+_{kj} = \max(D_{kj}, 0)$ of the balance weights (a negative weight
+must not loosen the bound):
+
+$$
+e_{k-1} + \sum_{j \in S_k} D^+_{kj}\,\rho\,\eta_{in}\,p^{in}_j
+  \le e^{max}_k \;(\text{or the installed capacity}),
+$$
+
+$$
+e_{k-1} - \sum_{j \in S_k} D^+_{kj}\,\rho\,
+  \bigl(p^{out}_j/\eta_{out} + s_j\bigr)
+  \ge e^{min}_k .
+$$
+
+Storages whose input and output share one signed column get no envelope.
 
 ### 5.8 Converter Constraints
 
@@ -3661,26 +3952,21 @@ $$
 
 $$
 \begin{aligned}
-v_{g,s,t,p} \;+\; w_{g,s,t,p} \;\leq\; 1,
-\qquad v_{g,s,t,p} \;\leq\; u_{g,s,t,p},
-\qquad w_{g,s,t,p} \;\leq\; 1 - u_{g,s,t,p}
+v_{g,s,t,p} \;+\; w_{g,s,t,p} \;\leq\; 1
 \qquad \forall \; g,\; s,t,p
 \end{aligned}
 $$
 <!-- source: source/commitment_lp.cpp:291-304 -->
 
-Integrality: $u$ is binary; `initial_status` is rounded at 0.5.  With
-an integral $u$, C1 and the last two rows (`startup_status`,
-`shutdown_status`) force $v, w \in \{0,1\}$ in all four
-$(u_{t-1}, u_t)$ cases, and every further row (ramps, min up/down,
-tiers, user rows) only removes points (Knueven, Ostrowski & Watson
-2020; Rajan & Takriti 2005).  So $v$, $w$ follow
-`transition_integrality` (per unit, else `model_options`): `auto`
-(default) keeps them continuous while the two rows are emitted
-(`transition_status_rows`, default true) and makes them binary when
-they are not — C1 and the exclusion alone admit $v = w = \tfrac12$ for a
-unit that stays on or off, which the start/stop ramp terms of C4 / C5
-reward; `continuous` and `binary` force either.  The start-up tier
+Integrality: $u$ is binary; `initial_status` is rounded at 0.5.  C1
+and the exclusion alone admit $v = w = \tfrac12$ for a unit that stays
+on or off, which the start/stop ramp terms of C4 / C5 reward, so $v$,
+$w$ follow `transition_integrality` (per unit, else `model_options`):
+`auto` (default) and `binary` declare them binary, `continuous` keeps
+them in $[0, 1]$.  (The rows $v \le u$, $w \le 1 - u$ that made
+continuous $v$, $w$ exact for an integral $u$ — Knueven, Ostrowski &
+Watson 2020; Rajan & Takriti 2005 — were removed on 2026-11-26: see
+`docs/unit-commitment.md` §4.2 C3.)  The start-up tier
 selectors follow `startup_tier_integrality` (default `continuous`: the
 tier rows are an interval matrix, totally unimodular once $v$, $w$ are
 integral).  `relax`, `continuous_phases` and `--no-mip` relax all of
@@ -3731,6 +4017,63 @@ is unset, $P_g^0$ falls back to the generator's `initial_generation` at the
 horizon start (first stage of the first phase) and to 0 elsewhere.  The same
 $P_g^0$ = `initial_generation` is the value of `generation_prev` at the first
 horizon block in user constraints.
+
+Here $\Delta_b$ is the REAL time step of block $b$: on a stage with
+`period_hours` (typical period with weighted blocks, see §5.7)
+$\Delta_b = d_b\,\kappa_t$, otherwise the block duration.  Minimum
+up / down times, commitment periods and start windows also count real
+hours.
+
+On point-sampled stages (default `ramp_formula = "backward"`) the rows
+are the interval slopes, written scaled by
+$h_k = t_k - t_{k-1}$ (no $1/h$ coefficients):
+
+$$
+-R^{dn}_g h_k\,u_{g,k} - \text{SD}_g\,w_{g,k}
+\;\le\; P_k - P_{k-1} \;\le\;
+R^{up}_g h_k\,u_{g,k-1} + \text{SU}_g\,v_{g,k},
+$$
+
+with the cyclic wrap $h_0 = t_0 + H - t_{N-1}$ ($H$ = `period_hours`).
+The start / stop allowance uses the $v$ / $w$ of the same interval.
+
+#### C4/C5 — Ramp Limits with `ramp_formula = "central2"` (provisional, not recommended)
+
+`central2` is a convex combination of the two adjacent interval slopes:
+a zig-zag dispatch (the checkerboard null vector, with the wrap) passes
+it although every interval slope violates the limit.  It is opt-in and
+`validate_planning` warns.
+
+For non-uniform node grids (Chebyshev typical weeks) the ramp limits
+bound the derivative at the node times $t_k$ (`Block.time`, default the
+block midpoints in real time), $h_- = t_k - t_{k-1}$,
+$h_+ = t_{k+1} - t_k$:
+
+$$
+P'(t_k) \approx
+\begin{cases}
+\dfrac{h_-^2 P_{k+1} - h_+^2 P_{k-1} + (h_+^2 - h_-^2) P_k}
+      {h_+ h_- (h_+ + h_-)} & 0 < k < N \\[2ex]
+(P_1 - P_0)/(t_1 - t_0) & k = 0 \text{ (forward, first order)} \\[1ex]
+(P_N - P_{N-1})/(t_N - t_{N-1}) & k = N \text{ (backward, first order)}
+\end{cases}
+$$
+
+$$
+-R_g^{\text{dn}} h_k\,u_{g,k} - \text{SD}_g^{\text{ramp}} w_{g,k}
+\;\le\; h_k\,P'(t_k) \;\le\;
+R_g^{\text{up}} h_k\,u_{g,k} + \text{SU}_g^{\text{ramp}} v_{g,k}
+\;(+\,\text{SU}_g^{\text{ramp}} c_{k+1} h_k\, v_{g,k+1})
+$$
+
+written scaled by $h_k = h_-$ ($h_+$ at the first node); the last term
+is the start allowance of the next interval, whose slope enters the
+stencil with weight $c_{k+1}$.  With `ramp_wrap = true` (or a cyclic
+stage) the end nodes use the central formula with the neighbour across
+the period end ($t \pm$ `period_hours`).  The central formula is exact for
+quadratic $P(t)$; the first-order end differences do not use the
+stage's `initial_power`.  This discretisation is PROVISIONAL, pending
+the reference paper of the Chebyshev sampling method.
 
 #### C6 — Minimum Up/Down Time (Optional)
 
@@ -3829,6 +4172,81 @@ commitment costs; ramps ignored).  Total uplift
 $\sum_g \text{MWP}_g + \text{LOC}_g$ is the criterion for comparing
 pricing modes: the lower it is, the better the prices support the
 dispatch (`scripts/gtopt_pricing_uplift`).
+
+### 5.15 bis Power-Based Unit Commitment (`uc_formulation = "power_based"`)
+
+With `model_options.uc_formulation = "power_based"` (or per unit,
+`Commitment.uc_formulation`) a committed unit on a chronological
+**block** stage is scheduled by its instantaneous power at the block
+boundaries [Morales-España, Gentile & Ramos, OR Spectrum 37 (2015)
+929–950; Morales-España, Baldick, García-González & Ramos, IEEE Trans.
+Sustain. Energy 7(2) (2016) 614–624].  The default `"energy_block"`
+keeps C2–C5 above unchanged.
+
+Blocks $b = 1..B$ have real durations $\Delta_b$ and boundaries $\tau_b$
+(end of block $b$).  The commitment variables stay on the unit's
+commitment grid (§8 of `docs/unit-commitment.md`: per block, or
+`commitment_period` cells or `Block.commitment_cell` labels; a stage with
+blocks shorter than 1 h otherwise defaults to a 1 h grid), so a finer power grid adds no binaries.  Block $b$ lies
+in period $k(b)$; $E_b = 1$ if $\tau_b$ ends a period (next period
+$k^+$), $F_b = 1$ if block $b$ starts one; $T_k$ is the start of period
+$k$.  New columns per boundary: $p_b \ge 0$ (power above minimum) and
+$\hat p_b$ (total power, output `Commitment/power`).
+
+$$
+\begin{aligned}
+&\hat p_b = \underline P_b\,(u_{k(b)} + E_b v_{k^+}) + p_b
+  + \textstyle\sum_s f^{SU}(T_s - \tau_b)\,v_s
+  + \sum_d f^{SD}(\tau_b - T_d)\,w_d
+  && \text{(PB1)}\\
+&g_b = \tfrac12\,(\hat p_{b-1} + \hat p_b)
+  && \text{(PB2)}\\
+&p_b + \textstyle\sum_i r^{+}_{i,b} \le (\overline P_b - \underline P_b) u_{k(b)}
+  - E_b (\overline P_b - SD) w_{k^+} + E_b (SU - \underline P_b) v_{k^+}
+  && \text{(PB3)}\\
+&p_b - \textstyle\sum_i r^{-}_{i,b} \ge 0
+  && \text{(PB4)}\\
+&p_b - p_{b-1} + \textstyle\sum_i r^{+}_{i,b} \le RU\,\Delta_b\,u_{k(b)}
+  + E_b (SU - \underline P_b) v_{k^+}
+  && \text{(PB5)}\\
+&p_{b-1} - p_b + \textstyle\sum_i r^{-}_{i,b} \le RD\,\Delta_b\,u_{k(b)}
+  + F_b (SD - \underline P_b) w_{k(b)}
+  && \text{(PB6)}
+\end{aligned}
+$$
+
+When period $k$ is the single block $b$, a one-block outage passes
+through $\underline P$ (a deliberate tightening of the published model,
+always on; redundant in every other state):
+
+$$
+\begin{aligned}
+&p_b + (SU - \underline P_b)\,w_k - (\overline P_b - \underline P_b)\,u_k
+  \le SU - \underline P_b && \text{(PB7a)}\\
+&p_{b-1} - (\overline P - \underline P)(u_{k-1} - w_k)
+  + (SD - \underline P)\,v_{k^+} \le SD - \underline P && \text{(PB7b)}
+\end{aligned}
+$$
+
+$f^{SU}(\delta)$ / $f^{SD}(\delta)$ are the piecewise-linear start-up /
+shut-down trajectories (`startup_trajectory`, `shutdown_trajectory`,
+sampled every `trajectory_step` hours, $f(0) = \underline P$, zero
+beyond the trajectory, only $\delta > 0$ written); a unit with a
+trajectory uses $SU = \underline P$ ($SD = \underline P$).  $g_b$ is the
+generator's existing generation column, so the bus balance, energy and
+fuel costs, emissions, hydro turbine flows and storage charging all use
+the trapezoid energy, including the trajectory energy; the bus balance
+stays an energy balance per block (the instantaneous power balance at
+the boundaries is out of scope).  $\hat p_0$ uses $u_0$ =
+`initial_status` and is fixed to the initial power when it is known
+(else free within PB1 / PB3); cyclic stages identify boundary 0
+with boundary $B$.
+PB3–PB7 replace C2–C5 and the u-gated reserve headroom rows of §5.9
+(which keep only $r \le \overline P u$ and $r^- \le (\overline P -
+\underline P) u$); C1, C3, C6 and the start-cost tiers are unchanged.
+Point-sampled stages and expandable generators keep the energy-block
+rows (warning).
+<!-- source: source/commitment_power_based.cpp, source/commitment_lp.cpp (add_power_based) -->
 
 ### 5.16 Commitment on Non-Chronological Stages (Block Formulation)
 
@@ -4559,6 +4977,9 @@ Global options (`scale_theta`) take precedence over entries in
 | Kirchhoff threshold | `kirchhoff_threshold` | `0` | Minimum bus count for Kirchhoff activation |
 | Tiny-reactance floor | `dc_line_reactance_threshold` | `1e-6` | $\lvert X/V^2 \rvert$ below which the KVL flow term is dropped (§5.6) |
 | Tiny-reactance mode | `tiny_reactance_mode` | `"tie"` | `tie`: zero / sub-threshold $X$ is a zero-impedance tie ($\theta_a - \theta_b = \varphi$); `dc`: legacy DC link (§5.6) |
+| Relative tie floor | `tiny_reactance_rel_threshold` | `0.01` | Tie floor $\max(\epsilon_X^{\text{abs}}, \rho_X \cdot \text{median}\,\lvert X/V^2 \rvert)$; `0` = absolute floor only (§5.6) |
+| Tie losses | `tie_line_losses` | `false` | `false`: ties are lossless; `true`: legacy, ties keep their loss model (§5.6) |
+| Segment bound | `loss_segment_bound` | `true` | Ordered-fill upper bound on PWL loss segments, $\min(w_k, \max(0, \overline{F} - b_{k-1}))$ (§5.5) |
 | Objective scale | `scale_objective` | `1000` | Divides all cost coefficients |
 | Theta scale | `scale_theta` | auto | θ_LP = scale_theta · θ (rad); auto = 1/(3·median(X/V²)); 1 = radians; 1000 = milliradians |
 | Annual discount rate | `annual_discount_rate` | `0.0` | Multi-year cost discounting (now in `simulation`) |
@@ -5353,6 +5774,10 @@ mathematical symbols used in this formulation.
 | `commitment_array[].relax` | — | LP relaxation: binary → continuous in [0,1] |
 | `commitment_array[].must_run` | — | Force committed: $u = 1$ always |
 | `commitment_array[].commitment_period` | — | Binary variable resolution (hours) |
+| `commitment_array[].uc_formulation` | — | `energy_block` / `power_based` (overrides `model_options.uc_formulation`, §5.15 bis) |
+| `commitment_array[].startup_trajectory` | $P^{SU}_i$ | Power-based start-up trajectory (MW, every `trajectory_step` h) |
+| `commitment_array[].shutdown_trajectory` | $P^{SD}_i$ | Power-based shut-down trajectory (MW) |
+| `commitment_array[].trajectory_step` | $h$ | Trajectory sample spacing (h, default 1) |
 | `commitment_array[].hot_start_cost` | — | Startup cost when recently offline (\$/start) |
 | `commitment_array[].warm_start_cost` | — | Startup cost at medium offline (\$/start) |
 | `commitment_array[].cold_start_cost` | — | Startup cost when long offline (\$/start) |

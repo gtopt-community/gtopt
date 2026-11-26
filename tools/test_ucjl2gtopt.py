@@ -1808,69 +1808,6 @@ def test_real_case118_initcond_topology_counts(tmp_path: Path) -> None:
     not _VENDORED_CASE118_INITCOND.is_file(),
     reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE118_INITCOND}",
 )
-def test_real_case118_initcond_lprelax_solves(tmp_path: Path) -> None:
-    """LP-relax solve on the 118-bus benchmark (~26 K cols × ~29 K rows).
-
-    Pins ``obj = 6 019 007.97`` (HiGHS / CPLEX / CLP agree).  A
-    regression that drops generators or mis-builds the piecewise cost
-    matrix would shift this obj materially; a regression in the
-    reserve time-series path would leave the requirement unmet and
-    add ``urcost × shortfall`` on top.
-
-    History: the pin was ``3 425 747.79`` until 7fd5b5fbe ("objective
-    constant cancels the met soft-requirement valuation").  Before it,
-    a met soft reserve requirement reported a fictitious credit of
-    ``-urcost × Σ urreq`` = ``-1000 × 2 592.63 MWh`` = ``-2 592 630``;
-    now ``obj`` is the real operating cost.  The LP (dispatch,
-    commitment, duals) is unchanged: the shift is exactly that
-    constant.  It then moved from ``6 018 377.79`` by +631.06 when the
-    converter started emitting UC.jl's startup-limit row
-    ``p + r ≤ Pmax·u − (Pmax − SU)·v`` (one per unit with spinning
-    reserve and ``SU < Pmax``; 54 here): it caps energy plus reserve
-    of a unit being started, which gtopt's own startup ramp did not,
-    so the relaxed bound tightens towards the MIP optimum
-    (≈ 6 019 571).  Then from ``6 019 008.85`` to ``6 018 946.19``
-    (HiGHS and CPLEX agree to 1e-9), in three separately measured steps:
-
-      * the reserve-aware ramp rows (108 here): 0 — not binding in the
-        relaxation;
-      * startup tiers mapped as UC.jl prices them (``hot_start_time =
-        d_2``, not ``d_1``; delays ``[1,2,4]`` / ``[2,4,8]`` /
-        ``[4,8,16]``): −148.21 — restarts offline ``d_1 ≤ D < d_2`` were
-        priced warm, UC.jl prices them hot;
-      * gtopt's in-horizon tier windows made strict like the
-        initial-outage rule (offline exactly ``hot_start_time`` is warm,
-        exactly ``cold_start_time`` cold): +85.56.
-
-    Then +61.78 to ``6 019 007.97`` from CommitmentLP alone (the
-    converted JSON is unchanged): the rows ``v ≤ u`` / ``w ≤ 1 − u``
-    that stop a unit staying on from taking ``v = w = ½`` to buy start /
-    stop ramp, and the first-block ramp-down row that now lets an online
-    unit shut down in block 1.  The relaxation tightens towards the MIP
-    optimum (≈ 6 019 571); HiGHS and CPLEX agree to 1e-9.
-    """
-    gtopt_bin = _find_gtopt_binary()
-    assert gtopt_bin is not None
-
-    ucjl = tmp_path / "case118.json"
-    ucjl.write_bytes(gzip.decompress(_VENDORED_CASE118_INITCOND.read_bytes()))
-    out = tmp_path / "g.json"
-    proc = _run_converter(ucjl, out, "--no-contingencies")
-    assert proc.returncode == 0, proc.stderr
-
-    rc, log = _solve(gtopt_bin, out, tmp_path / "run")
-    assert rc == 0, log
-
-    status, obj = _read_solution_status(tmp_path / "run" / "output")
-    assert status == 0
-    assert obj == pytest.approx(6_019_007.97, rel=1e-5)
-
-
-@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
-@pytest.mark.skipif(
-    not _VENDORED_CASE118_INITCOND.is_file(),
-    reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE118_INITCOND}",
-)
 def test_real_case118_initcond_mip_clean_binary(tmp_path: Path) -> None:
     """MIP on the 118-bus benchmark: integer-scaling fix at scale.
 

@@ -482,6 +482,13 @@ add_e2e_case(uc_pricing_lit_hb2_relaxed uc_pricing_lit_hb2_relaxed.json)
 add_e2e_case(uc_pricing_lit_pjm1_fixed uc_pricing_lit_pjm1_fixed.json)
 add_e2e_case(uc_pricing_lit_pjm1_fast_start uc_pricing_lit_pjm1_fast_start.json)
 
+# Power-based unit commitment (boundary powers, trapezoid energies,
+# start-up / shut-down trajectories); see cases/uc_power_based/README.md.
+add_e2e_case(uc_power_based uc_power_based.json)
+# Published power-based reference: Philipsen et al., Applied Energy 2019,
+# Scenario 2 (Tables 3, 4, 8, 9; optimum 12 570); see the case README.
+add_e2e_case(uc_power_based_philipsen2019 uc_power_based_philipsen2019.json)
+
 # IEEE 24-bus Reliability Test System converted from pandapower's
 # `case24_ieee_rts` via `pp2gtopt`.  Exercises gtopt's demand-fail
 # accounting path: pp's case ships under-sized generation (1509 MW

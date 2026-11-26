@@ -256,6 +256,10 @@ struct ScalingState
   /// accumulate.  `none` means the caller opted out of equilibration
   /// at build time and we leave new rows alone.
   LpEquilibrationMethod equilibration_method {LpEquilibrationMethod::none};
+  /// `LpMatrixOptions::pin_logic_rows` at load_flat() time: `add_row` /
+  /// `add_rows` skip the per-row normalisation of `SparseRow::pin_scale`
+  /// rows while it is on.
+  bool pin_logic_rows {false};  // LpMatrixOptions::default_pin_logic_rows
   /// Moved from flatten.  `shared_ptr` so shallow clones can share
   /// it with the source instead of value-copying — see `CloneKind`.
   /// Mutated only via `load_flat` (source-side, before any clones)

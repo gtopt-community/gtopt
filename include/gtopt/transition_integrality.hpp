@@ -7,21 +7,27 @@
  *            see LICENSING.md
  *
  * A Commitment has status u, startup v and shutdown w per period.  u is
- * always integer on a MIP build.  With the logic row
- * `u[p] − u[p−1] = v[p] − w[p]` and the status rows `v ≤ u`,
- * `w ≤ 1 − u` (`transition_status_rows`), an integral u (and integral
- * `initial_status`, rounded at 0.5) forces v, w ∈ {0, 1} in all four
- * (u[p−1], u[p]) cases; ramp rows, min up/down, tiers or user rows only
- * remove points.  So v / w need not be declared integer
- * (Knueven, Ostrowski & Watson 2020; Rajan & Takriti 2005).  Without the
- * status rows they must be: C1 + `v + w ≤ 1` admit v = w = ½ for a
- * unit that stays on.
+ * always integer on a MIP build.  The logic row
+ * `u[p] − u[p−1] = v[p] − w[p]` and the exclusion `v + w ≤ 1` alone admit
+ * v = w = ½ for a unit that stays on (or off), which the start / stop ramp
+ * terms (SU·v, SD·w) and user rows on startup / shutdown reward, so v / w
+ * must be integer for the formulation to be exact (UnitCommitment.jl's
+ * Gar1962 model: binary `switch_on` / `switch_off`).
  *
  * `transition_integrality`:
- *  - `auto` (default): continuous when the status rows are on, binary
- *    when `transition_status_rows = false`.
- *  - `continuous`: always continuous in [0, 1].
- *  - `binary`: always binary (the original three-binary model).
+ *  - `auto` (default): binary (exact).
+ *  - `continuous`: always continuous in [0, 1] (smaller MIP, not exact
+ *    with start / stop ramps).
+ *  - `binary`: always binary.
+ *
+ * History: on 2026-11-25 the rows `v ≤ u`, `w ≤ 1 − u`
+ * (`transition_status_rows`) were added and `auto` kept v / w continuous
+ * while they were on.  They were removed on 2026-11-26 (redundant in a
+ * MIP with binary v / w; on the CEN PCP case they made the relaxed LP
+ * degenerate with a near-singular basis, and CPLEX declared feasible LPs
+ * infeasible), so `auto` is binary again, as it was with the rows off.
+ * The key `transition_status_rows` is still parsed and ignored with a
+ * warning.
  *
  * `startup_tier_integrality` (hot / warm / cold start selectors y):
  *  - `continuous` (default): with v / w integral, the tier rows
@@ -38,8 +44,11 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <span>
+#include <variant>
 
+#include <gtopt/basic_types.hpp>
 #include <gtopt/enum_option.hpp>
 
 namespace gtopt
@@ -48,7 +57,7 @@ namespace gtopt
 /// Integrality of the commitment startup / shutdown columns.
 enum class TransitionIntegrality : std::uint8_t
 {
-  automatic = 0,  ///< Continuous with status rows, binary without (default)
+  automatic = 0,  ///< Binary (default; exact)
   continuous = 1,  ///< Always continuous in [0, 1]
   binary = 2,  ///< Always binary
 };
@@ -66,21 +75,18 @@ inline constexpr auto transition_integrality_entries =
   return std::span {transition_integrality_entries};
 }
 
-/// Whether v / w are declared integer (before any relax), given the mode
-/// and whether the `v ≤ u` / `w ≤ 1 − u` status rows are emitted.
-[[nodiscard]] constexpr bool transition_cols_binary(TransitionIntegrality mode,
-                                                    bool status_rows) noexcept
+/// Whether v / w are declared integer (before any relax) for the mode:
+/// `auto` and `binary` → binary, `continuous` → continuous.
+[[nodiscard]] constexpr bool transition_cols_binary(
+    TransitionIntegrality mode) noexcept
 {
-  switch (mode) {
-    case TransitionIntegrality::continuous:
-      return false;
-    case TransitionIntegrality::binary:
-      return true;
-    case TransitionIntegrality::automatic:
-      break;
-  }
-  return !status_rows;
+  return mode != TransitionIntegrality::continuous;
 }
+
+/// JSON value of the removed `transition_status_rows` key (a bool or a
+/// name): still parsed so old inputs load, then ignored with a warning.
+using BoolOrName = std::variant<bool, Name>;
+using OptBoolOrName = std::optional<BoolOrName>;
 
 /// Integrality of the hot / warm / cold startup-tier selectors.
 enum class StartupTierIntegrality : std::uint8_t

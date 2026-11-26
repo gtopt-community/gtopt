@@ -408,7 +408,80 @@ def test_log_and_write(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None
     out = sr.write_sanity_report(report, tmp_path / "sub" / "r.json")
     data = json.loads(out.read_text(encoding="utf-8"))
     assert data["findings"]["line_x_outlier"]["count"] == 2
-    assert data["tie_threshold"] == pytest.approx(1e-3)
+    # Effective floor = max(absolute 1e-3, 0.01 x system median |X|/V²).
+    xs = sorted(c["x"] for c in _guatemala_line_x(buggy=True))
+    assert data["tie_threshold"] == pytest.approx(
+        max(1e-3, 0.01 * sr._percentile(xs, 0.5))  # pylint: disable=protected-access
+    )
+    assert data["tie_threshold"] > 1e-3
+
+
+def _guatemala_line_x(*, buggy: bool) -> list[dict[str, float]]:
+    """Per-line ``x = |X|/V²`` of the Guatemala fixture (V = 1)."""
+    case = _guatemala_case(buggy=buggy, with_bus_kv=False)
+    return [{"x": abs(ln["reactance"])} for ln in case["system"]["line_array"]]
+
+
+def test_tie_threshold_relative_and_absolute() -> None:
+    """``tiny_reactance_rel_threshold`` raises the floor; ``0`` disables it."""
+    lines = [
+        {"uid": i, "name": f"l{i}_69", "bus_a": 1, "bus_b": 2, "reactance": 0.1}
+        for i in range(6)
+    ]
+    # x = 5e-4 is above the absolute 1e-6 floor but below 0.01 x 0.1.
+    lines.append(
+        {"uid": 9, "name": "tie_69", "bus_a": 1, "bus_b": 2, "reactance": 5e-4}
+    )
+    report = sr.build_sanity_report(_planning({"line_array": lines}))
+    assert report.tie_threshold == pytest.approx(1e-3)
+    assert report.flagged["line_below_tie"].count == 1
+    legacy = _planning({"line_array": lines}, tiny_reactance_rel_threshold=0.0)
+    report = sr.build_sanity_report(legacy)
+    assert report.tie_threshold == pytest.approx(sr.DEFAULT_TIE_THRESHOLD)
+    assert "line_below_tie" not in report.flagged
+
+
+def test_xr_skips_ties_and_lossless_lines() -> None:
+    """X/R is not checked on ties nor on lines below the R floor."""
+    lines = [
+        {"uid": i, "name": f"l{i}_69", "bus_a": 1, "bus_b": 2, "reactance": 0.1}
+        for i in range(6)
+    ]
+    # R/V² = 5.2e-8 < 1e-7: made lossless by gtopt, X/R = 1.9e6 is moot.
+    lines.append(
+        {
+            "uid": 7,
+            "name": "lossless",
+            "bus_a": 1,
+            "bus_b": 2,
+            "reactance": 0.1,
+            "resistance": 5.2e-8,
+        }
+    )
+    # A tie (x = 1e-7) with X/R = 1000.
+    lines.append(
+        {
+            "uid": 8,
+            "name": "tie",
+            "bus_a": 1,
+            "bus_b": 2,
+            "reactance": 1e-7,
+            "resistance": 1e-10,
+        }
+    )
+    # A genuine high X/R line.
+    lines.append(
+        {
+            "uid": 9,
+            "name": "hv",
+            "bus_a": 1,
+            "bus_b": 2,
+            "reactance": 0.1,
+            "resistance": 1e-4,
+        }
+    )
+    report = sr.build_sanity_report(_planning({"line_array": lines}))
+    assert [o["name"] for o in report.flagged["line_xr"].offenders] == ["hv"]
 
 
 def test_log_small_classes_and_clean(caplog: pytest.LogCaptureFixture) -> None:

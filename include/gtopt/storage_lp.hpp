@@ -12,8 +12,10 @@
 
 #pragma once
 
+#include <optional>
 #include <span>
 
+#include <gtopt/cell_partition.hpp>
 #include <gtopt/constraint_names.hpp>
 #include <gtopt/cost_helper.hpp>
 #include <gtopt/index_holder.hpp>
@@ -23,6 +25,7 @@
 #include <gtopt/object_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/state_variable.hpp>
+#include <gtopt/storage_integration.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -121,6 +124,10 @@ struct StorageOptions
   /// `PlanningOptionsLP::battery_annual_standing_loss()` (default 0.48 =
   /// 4 %/month).
   double default_annual_standing_loss {0.0};
+  /// Point-stage storage integration rule resolved for the element
+  /// (`PlanningOptionsLP::storage_integration(element, reservoir)`);
+  /// unset: the global `storage_integration`.
+  std::optional<StorageIntegration> integration {};
 };
 
 template<typename Object>
@@ -147,6 +154,10 @@ public:
   /// downstream tooling (ScaledView lookup, cut I/O, Pampl readers)
   /// already depends on.
   static constexpr std::string_view EnergyBalanceName {"energy_balance"};
+  /// Point-stage envelope rows (banded integration): charge-only /
+  /// discharge-only level bounds over each node interval.
+  static constexpr std::string_view EnvelopeUpName {"envelope_up"};
+  static constexpr std::string_view EnvelopeDnName {"envelope_dn"};
   static constexpr std::string_view SoftEminName {"soft_emin"};
   static constexpr std::string_view DrainName {"drain"};
   static constexpr std::string_view EfinName {"efin"};
@@ -161,6 +172,15 @@ public:
   /// (``StorageOptions::max_cycles_day`` / PLEXOS ``Max Cycles Day``).
   /// Duals surface as ``<class>/cycle_limit_…``.
   static constexpr std::string_view CycleLimitName {"cycle_limit"};
+  /// Weighted cycle group (``Stage::cycle_group``) rows: the chain
+  /// carrying the SoC from one grouped stage to the next
+  /// (`eini_{d+1} = eini_d + w_d·Δ_d`), the group closure
+  /// (`Σ_d w_d·Δ_d = 0`) and the per-block bound of the LAST repetition
+  /// (`emin ≤ energy_b + (w_d − 1)·Δ_d ≤ emax`).
+  static constexpr std::string_view CycleChainName {"cycle_chain"};
+  static constexpr std::string_view CycleCloseName {"cycle_close"};
+  static constexpr std::string_view CycleShiftName {"cycle_shift"};
+  static constexpr std::string_view CycleShiftCapName {"cycle_shift_cap"};
 
   [[nodiscard]] constexpr auto&& storage(this auto&& self) noexcept
   {
@@ -561,10 +581,20 @@ public:
     // the stage already represents sub-daily operation and no scaling is
     // needed.
     const auto& blocks = stage.blocks();
-    const bool use_daily_cycle = opts.daily_cycle && stage.duration() > 24.0
-        && (stage.duration() / static_cast<double>(blocks.size())) > 1.0;
-    const double dc_stage_scale =
-        use_daily_cycle ? (24.0 / stage.duration()) : 1.0;
+    //
+    // A stage with `period_hours` (typical week / day with weighted block
+    // durations) states its real period explicitly: the cycle is that
+    // period and the balance runs on real time steps
+    // Δt_b = duration_b · period_hours / stage_duration.
+    const auto period_hours = stage.period_hours();
+    const bool use_daily_cycle = opts.daily_cycle
+        && (period_hours.has_value()
+            || (stage.duration() > 24.0
+                && (stage.duration() / static_cast<double>(blocks.size()))
+                    > 1.0));
+    const double dc_stage_scale = use_daily_cycle
+        ? (period_hours ? stage.time_scale() : 24.0 / stage.duration())
+        : 1.0;
 
     const auto is_last_stage =
         stage.uid() == sc.simulation().stages().back().uid();
@@ -621,6 +651,33 @@ public:
     //
     // Global final condition ("efin") is an explicit named constraint row
     // added AFTER the block loop for the last stage of the last phase only.
+    //
+    // Weighted cycle group (`Stage::cycle_group`, daily_cycle storages
+    // only).  Stage d of a group stands for `w_d` identical repetitions
+    // of its day, played in stage order; Δ_d = efin_d − eini_d is the
+    // SoC change of ONE repetition.  Instead of the per-stage closure
+    // `efin_d == eini_d`:
+    //   chain    eini_{d+1} = eini_d + w_d·Δ_d          (fresh eini col)
+    //   closure  eini_last + w_last·Δ_last = eini_first  (Σ_d w_d·Δ_d = 0)
+    //   bounds   emin ≤ energy_{d,b} + (w_d − 1)·Δ_d ≤ emax  (w_d > 1)
+    // The SoC of repetition j is energy_{d,b} + j·Δ_d — linear in j — so
+    // bounding the first (column bounds) and the last repetition bounds
+    // them all.  A stage following a grouped stage in the same phase
+    // always starts from the chained level (which, after the closure of
+    // the previous group, is that group's start level).
+    const auto cycle_group =
+        opts.daily_cycle ? stage.cycle_group() : std::optional<Int> {};
+    const bool in_cycle_group = cycle_group.has_value();
+    const bool prev_chained = prev_stage != nullptr && prev_phase == nullptr
+        && opts.daily_cycle && prev_stage->cycle_group().has_value()
+        && efin_cols.contains({scenario.uid(), prev_stage->uid()});
+    const bool group_first =
+        !(prev_chained && prev_stage->cycle_group() == cycle_group);
+    const auto* const next_stage = sc.simulation().next_stage_in_phase(stage);
+    const bool group_last = in_cycle_group
+        && (next_stage == nullptr || next_stage->cycle_group() != cycle_group
+            || !is_active(*next_stage));
+
     ColIndex eicol;
     // Commissioning: a state-carrying storage that was inactive in the
     // previous stage (e.g. a battery that enters service in this stage).
@@ -663,7 +720,36 @@ public:
           .context = stg_ctx,
       });
     } else if (prev_phase == nullptr) {
-      if (opts.break_stage_chain) {
+      if (prev_chained && !opts.break_stage_chain) {
+        // Weighted cycle group: fresh start level chained to the
+        // previous grouped stage.
+        eicol = lp.add_col({
+            .lowb = sini_lowb,
+            .uppb = stage_emax,
+            .cost_scale_type = ConstraintScaleType::Energy,
+            .scale = energy_scale,
+            .class_name = opts.class_name,
+            .variable_name = EiniName,
+            .variable_uid = opts.variable_uid,
+            .context = stg_ctx,
+        });
+        const auto prev_ctx =
+            make_stage_context(scenario.uid(), prev_stage->uid());
+        const double w_prev = prev_stage->cycle_weight();
+        auto chain_row =
+            SparseRow {
+                .cost_scale_type = ConstraintScaleType::Energy,
+                .class_name = cname,
+                .constraint_name = CycleChainName,
+                .variable_uid = opts.variable_uid,
+                .context = stg_ctx,
+            }
+                .equal(0);
+        chain_row[eicol] += 1.0;
+        chain_row[eini_col_at(scenario, *prev_stage)] += w_prev - 1.0;
+        chain_row[efin_cols.at(prev_ctx)] += -w_prev;
+        cycle_chain_rows[stg_ctx] = lp.add_row(std::move(chain_row));
+      } else if (opts.break_stage_chain) {
         // Reset stage inside a shared LP: decouple from the previous
         // stage's efin — a fresh eini column becomes the chain start
         // and the caller provisions it (bounds pin / debit row).  The
@@ -748,8 +834,146 @@ public:
     // stg_ctx (StageContext = tuple<ScenarioUid, StageUid>) serves as both
     // the LP hierarchy context and the index holder key.
 
+    // Point-sampled stages (`Stage.sampling = "point"`): the element's
+    // resolved `storage_integration` (block | trapezoid | lg4 | lg6
+    // [_pos]; see ModelOptions) — banded (local Lagrange) integration of
+    // the storage's own flows on the node grid `Block.time`.
+    // The level of block k is then the state AT node t_k (the last one at
+    // the period end) and the period total stays the block-weight
+    // quadrature.  See storage_integration.hpp.
+    // Block-sampled stages always use the block recursion.
+    const auto integration = stage.point_sampling()
+        ? opts.integration.value_or(sc.options().storage_integration())
+        : StorageIntegration {};
+    IntegrationRows band_rows;
+    std::vector<double> band_interval;
+    if (integration.banded() && blocks.size() >= 2) {
+      std::vector<double> times;
+      std::vector<double> weights;
+      times.reserve(blocks.size());
+      weights.reserve(blocks.size());
+      double clock = 0.0;
+      for (const auto& block : blocks) {
+        const double real_dt = stage.real_duration(block);
+        times.push_back(block.time().value_or(clock + (0.5 * real_dt)));
+        weights.push_back(block.duration() * dc_stage_scale);
+        clock += real_dt;
+      }
+      const bool increasing =
+          std::ranges::adjacent_find(times, std::greater_equal<>())
+              == times.end()
+          && times.front() >= 0.0 && times.back() <= clock + 1e-9;
+      if (increasing) {
+        band_rows = local_integration_rows(
+            times, weights, 0.0, std::max(clock, times.back()), integration);
+        // interval lengths (in the weights' units) for the loss term
+        const double wsum = std::ranges::fold_left(weights, 0.0, std::plus<>());
+        const double scale = clock > 0.0 ? wsum / clock : 1.0;
+        band_interval.reserve(times.size());
+        for (std::size_t k = 0; k < times.size(); ++k) {
+          const double a = k == 0 ? 0.0 : times[k - 1];
+          const double b = k + 1 == times.size() ? clock : times[k];
+          band_interval.push_back((b - a) * scale);
+        }
+      } else {
+        SPDLOG_WARN(
+            "StorageLP: storage_integration needs increasing block times "
+            "inside the stage period (class='{}' uid={} stage={}); using "
+            "the block recursion",
+            cname,
+            uid(),
+            stage.uid());
+      }
+    }
+    const bool banded = !band_rows.empty();
+
+    // Banded rows reference the drain of neighbouring blocks: create all
+    // drain columns first.
+    const auto make_drain_col = [&](const auto& block)
+    {
+      return lp.add_col({
+          .lowb = 0,
+          .uppb = drain_capacity.value_or(LinearProblem::DblMax),
+          .cost = CostHelper::block_ecost(scenario, stage, block, *drain_cost),
+          .scale = flow_scale,
+          .class_name = opts.class_name,
+          .variable_name = DrainName,
+          .variable_uid = opts.variable_uid,
+          .context =
+              make_block_context(scenario.uid(), stage.uid(), block.uid()),
+      });
+    };
+    if (banded && drain_enabled) {
+      for (const auto& block : blocks) {
+        dcols[block.uid()] = make_drain_col(block);
+      }
+    }
+
+    // Flow terms of block `fb` with time weight `dt` (the block's own
+    // duration·dc_stage_scale for the block recursion, D_kj when banded).
+    const auto add_flow_terms = [&](SparseRow& row, const auto& fb, double dt)
+    {
+      const auto fbuid = fb.uid();
+      const auto has_fout = fout_cols.contains(fbuid);
+      const auto has_finp = finp_cols.contains(fbuid);
+      if (has_fout) {
+        const auto fout_col = fout_cols.at(fbuid);
+        row[fout_col] +=
+            (flow_conversion_rate / fout_efficiency_at(fbuid)) * dt;
+        if (has_finp) {
+          const auto finp_col = finp_cols.at(fbuid);
+          // if the input and output are the same, we only need one entry
+          if (fout_col != finp_col) {
+            row[finp_col] -=
+                (flow_conversion_rate * finp_efficiency_at(fbuid)) * dt;
+          }
+        }
+      } else if (has_finp) {
+        // No fout — finp is a pure inflow (adds to storage volume).
+        row[finp_cols.at(fbuid)] -=
+            (flow_conversion_rate * finp_efficiency_at(fbuid)) * dt;
+      }
+      if (drain_enabled && dcols.contains(fbuid)) {
+        row[dcols.at(fbuid)] += flow_conversion_rate * dt;
+      }
+    };
+
+    // Charge-only / discharge-only terms of block `fb` (envelope rows).
+    // A storage whose input and output share one signed column has no
+    // separable charge: it gets no envelope.
+    const auto add_charge_terms = [&](SparseRow& row, const auto& fb, double dt)
+    {
+      const auto fbuid = fb.uid();
+      if (!finp_cols.contains(fbuid)) {
+        return;
+      }
+      const auto finp_col = finp_cols.at(fbuid);
+      if (fout_cols.contains(fbuid) && fout_cols.at(fbuid) == finp_col) {
+        return;
+      }
+      row[finp_col] += (flow_conversion_rate * finp_efficiency_at(fbuid)) * dt;
+    };
+    const auto add_discharge_terms =
+        [&](SparseRow& row, const auto& fb, double dt)
+    {
+      const auto fbuid = fb.uid();
+      if (fout_cols.contains(fbuid)) {
+        const auto fout_col = fout_cols.at(fbuid);
+        if (finp_cols.contains(fbuid) && finp_cols.at(fbuid) == fout_col) {
+          return;
+        }
+        row[fout_col] +=
+            (flow_conversion_rate / fout_efficiency_at(fbuid)) * dt;
+      }
+      if (drain_enabled && dcols.contains(fbuid)) {
+        row[dcols.at(fbuid)] += flow_conversion_rate * dt;
+      }
+    };
+
     auto prev_vc = eicol;
+    std::size_t block_pos = 0;
     for (const auto& block : blocks) {
+      const auto k = block_pos++;
       const auto buid = block.uid();
       // is_last_block identifies the terminal block for the global efin
       // condition.  The eini column feeds into the first block automatically
@@ -852,7 +1076,9 @@ public:
 
       ecols[buid] = ec;
 
-      erow[prev_vc] = -(1 - (hour_loss * block.duration() * dc_stage_scale));
+      const double loss_dt =
+          banded ? band_interval[k] : block.duration() * dc_stage_scale;
+      erow[prev_vc] = -(1 - (hour_loss * loss_dt));
       erow[ec] = 1;
 
       // Physical flow coefficients: fcr × duration × dc_stage_scale.
@@ -861,48 +1087,15 @@ public:
       // fout_cols and finp_cols may each be empty.  VolumeRight with
       // source_flow_right passes empty finp (outflow injected later);
       // VolumeRight always passes empty fout (outflow via FlowRight).
-      const auto has_fout = fout_cols.contains(buid);
-      const auto has_finp = finp_cols.contains(buid);
-
-      if (has_fout) {
-        const auto fout_col = fout_cols.at(buid);
-        const auto fout_eff_b = fout_efficiency_at(buid);
-        erow[fout_col] = +(flow_conversion_rate / fout_eff_b) * block.duration()
-            * dc_stage_scale;
-
-        if (has_finp) {
-          const auto finp_col = finp_cols.at(buid);
-          // if the input and output are the same, we only need one entry
-          if (fout_col != finp_col) {
-            const auto finp_eff_b = finp_efficiency_at(buid);
-            erow[finp_col] = -(flow_conversion_rate * finp_eff_b)
-                * block.duration() * dc_stage_scale;
-          }
-        }
-      } else if (has_finp) {
-        // No fout — finp is a pure inflow (adds to storage volume).
-        const auto finp_col = finp_cols.at(buid);
-        const auto finp_eff_b = finp_efficiency_at(buid);
-        erow[finp_col] = -(flow_conversion_rate * finp_eff_b) * block.duration()
-            * dc_stage_scale;
+      if (drain_enabled && !banded) {
+        dcols[buid] = make_drain_col(block);
       }
-
-      if (drain_enabled) {
-        // Physical drain cost — flatten() applies col_scale.
-        const auto dcol = lp.add_col({
-            .lowb = 0,
-            .uppb = drain_capacity.value_or(LinearProblem::DblMax),
-            .cost =
-                CostHelper::block_ecost(scenario, stage, block, *drain_cost),
-            .scale = flow_scale,
-            .class_name = opts.class_name,
-            .variable_name = DrainName,
-            .variable_uid = opts.variable_uid,
-            .context = block_ctx,
-        });
-
-        dcols[buid] = dcol;
-        erow[dcol] = flow_conversion_rate * block.duration() * dc_stage_scale;
+      if (banded) {
+        for (const auto& term : band_rows[k]) {
+          add_flow_terms(erow, blocks[term.node], term.weight);
+        }
+      } else {
+        add_flow_terms(erow, block, block.duration() * dc_stage_scale);
       }
 
       erows[buid] = lp.add_row(std::move(erow));
@@ -922,6 +1115,59 @@ public:
         crow[ec] = -1.0;
 
         crows[buid] = lp.add_row(std::move(crow));
+      }
+
+      // ── Envelope rows (banded integration on point stages) ──
+      // Levels are bounded only AT the nodes, so a charge at t_{k−1} and
+      // a discharge at t_k would cancel inside the row of [t_{k−1}, t_k]
+      // and let the storage shift up to ½·Δ·pmax beyond emax per switch.
+      // The true level of the interpolated flows inside the interval is
+      // bounded by its charge-only / discharge-only integrals, taken with
+      // the SAME interval weights D_kj as the balance row (so a pure
+      // charge or discharge makes the envelope coincide with the balance
+      // and never binds tighter than it):
+      //   e_{k−1} + Σ_j D_kj·η_in·fin_j       ≤ emax (≤ capacity)
+      //   e_{k−1} − Σ_j D_kj·fout_j/η_out     ≥ emin
+      if (banded && band_interval[k] > 0.0) {
+        const auto add_interval = [&](SparseRow& row, const auto& terms)
+        {
+          // max(D_kj, 0): a negative weight must not loosen the bound
+          for (const auto& term : band_rows[k]) {
+            terms(row, blocks[term.node], std::max(term.weight, 0.0));
+          }
+        };
+        auto up =
+            SparseRow {
+                .class_name = cname,
+                .constraint_name = EnvelopeUpName,
+                .variable_uid = opts.variable_uid,
+                .context = block_ctx,
+            }
+                .less_equal(capacity_col ? 0.0 : block_emax);
+        add_interval(up, add_charge_terms);
+        if (up.size() > 0) {
+          up[prev_vc] += 1.0;
+          if (capacity_col) {
+            up[*capacity_col] = -1.0;
+          }
+          [[maybe_unused]] const auto r = lp.add_row(std::move(up));
+        }
+        auto dn =
+            SparseRow {
+                .class_name = cname,
+                .constraint_name = EnvelopeDnName,
+                .variable_uid = opts.variable_uid,
+                .context = block_ctx,
+            }
+                .greater_equal(block_lowb);
+        add_interval(dn, add_discharge_terms);
+        if (dn.size() > 0) {
+          for (auto&& [col, coef] : dn.cmap) {
+            coef = -coef;
+          }
+          dn[prev_vc] += 1.0;
+          [[maybe_unused]] const auto r = lp.add_row(std::move(dn));
+        }
       }
 
       // Global final condition: for the last block of the last stage only,
@@ -1062,6 +1308,67 @@ public:
           opts.scost,
           energy_scale,
           stg_ctx);
+    } else if (in_cycle_group) {
+      // Weighted cycle group: remember the group's start level; close the
+      // group at its last stage (Σ_d w_d·Δ_d = 0).
+      const auto start_col = group_first
+          ? eicol
+          : cycle_group_start_cols.at(
+                make_stage_context(scenario.uid(), prev_stage->uid()));
+      cycle_group_start_cols[stg_ctx] = start_col;
+      const double w_d = stage.cycle_weight();
+      if (group_last) {
+        auto close_row =
+            SparseRow {
+                .cost_scale_type = ConstraintScaleType::Energy,
+                .class_name = cname,
+                .constraint_name = CycleCloseName,
+                .variable_uid = opts.variable_uid,
+                .context = stg_ctx,
+            }
+                .equal(0);
+        close_row[prev_vc] += w_d;
+        close_row[eicol] += 1.0 - w_d;
+        close_row[start_col] += -1.0;
+        cycle_close_rows[stg_ctx] = lp.add_row(std::move(close_row));
+      }
+      if (w_d > 1.0) {
+        // Bounds of the last repetition: emin ≤ e_b + (w_d−1)·Δ_d ≤ emax.
+        const double shift = w_d - 1.0;
+        BIndexHolder<RowIndex> shift_rows;
+        for (const auto& block : blocks) {
+          const auto buid = block.uid();
+          const auto [block_emax, block_emin] =
+              sc.block_maxmin_at(stage, block, emax, emin, stage_capacity);
+          const bool last_blk = (buid == blocks.back().uid());
+          const double lowb =
+              strict_volume ? (last_blk ? efin_block_lowb : block_emin) : 0.0;
+          auto shift_row =
+              SparseRow {
+                  .cost_scale_type = ConstraintScaleType::Energy,
+                  .class_name = cname,
+                  .constraint_name = CycleShiftName,
+                  .variable_uid = opts.variable_uid,
+                  .context =
+                      make_block_context(scenario.uid(), stage.uid(), buid),
+              }
+                  .bound(lowb, block_emax);
+          shift_row[ecols.at(buid)] += 1.0;
+          shift_row[prev_vc] += shift;
+          shift_row[eicol] += -shift;
+          if (capacity_col) {
+            // capacity_col ≥ e_b + (w_d−1)·Δ_d  (expandable storage)
+            auto cap_row = shift_row;
+            cap_row.constraint_name = CycleShiftCapName;
+            cap_row.bound(-LinearProblem::DblMax, 0.0);
+            cap_row[*capacity_col] += -1.0;
+            [[maybe_unused]] const auto cap_idx =
+                lp.add_row(std::move(cap_row));
+          }
+          shift_rows[buid] = lp.add_row(std::move(shift_row));
+        }
+        cycle_shift_rows[stg_ctx] = std::move(shift_rows);
+      }
     } else {
       // No cross-stage/phase state coupling: add efin == eini constraint so
       // that each independent segment (phase or single-stage horizon) is
@@ -1133,7 +1440,12 @@ public:
     // `opts.max_cycles_day`.  Emitted only when `max_cycles_day > 0` AND the
     // stage capacity is finite.
     if (opts.max_cycles_day > 0.0 && stage_capacity < LinearProblem::DblMax) {
-      const double rhs = opts.max_cycles_day * stage_capacity;
+      // With `period_hours` the windows are real days while a coupled
+      // (non-daily-cycle) storage's coefficients carry weighted durations
+      // (1/κ repetitions): scale the cap by dc_stage_scale / κ (= 1 for a
+      // daily_cycle storage).
+      const double rhs = opts.max_cycles_day * stage_capacity
+          * (period_hours ? dc_stage_scale / stage.time_scale() : 1.0);
 
       // `cycle_rows` is an STBIndexHolder = (scenario, stage) → per-block
       // map.  We collect each window's row keyed by the window's first block
@@ -1171,23 +1483,30 @@ public:
         cyc_rows[first_buid] = lp.add_row(std::move(row));
       };
 
-      if (use_daily_cycle) {
+      if (use_daily_cycle && !period_hours) {
         // One row summing all blocks of the stage.
         emit_window(blocks.front().uid(), blocks.begin(), blocks.end());
       } else {
-        // Rolling 24 h windows in chronological order.
+        // Days are unions of whole cells (block stages: the blocks;
+        // point stages: the quadrature cells around the nodes): cell k
+        // joins day ⌊mid_k / 24⌋ (cell_partition.hpp), so a day's energy
+        // is the quadrature of its cells.
+        std::vector<double> cells;
+        cells.reserve(blocks.size());
+        for (const auto& block : blocks) {
+          cells.push_back(stage.real_duration(block));
+        }
+        const auto day_of =
+            duration_groups(cells, 24.0, stage.point_sampling());
         auto win_begin = blocks.begin();
-        double win_hours = 0.0;
-        for (auto it = blocks.begin(); it != blocks.end(); ++it) {
-          win_hours += it->duration();
-          const auto next = std::next(it);
-          // Close the window once it spans (at least) 24 h, or at the end.
-          if (win_hours >= 24.0 || next == blocks.end()) {
-            emit_window(win_begin->uid(), win_begin, next);
-            win_begin = next;
-            win_hours = 0.0;
+        std::size_t k = 0;
+        for (auto it = blocks.begin(); it != blocks.end(); ++it, ++k) {
+          if (k > 0 && day_of[k] != day_of[k - 1]) {
+            emit_window(win_begin->uid(), win_begin, it);
+            win_begin = it;
           }
         }
+        emit_window(win_begin->uid(), win_begin, blocks.end());
       }
 
       cycle_rows[stg_ctx] = std::move(cyc_rows);
@@ -1368,6 +1687,14 @@ private:
   /// ``StorageOptions::max_cycles_day`` is unset/zero or the stage capacity
   /// is unbounded.
   STBIndexHolder<RowIndex> cycle_rows;
+
+  /// Weighted cycle group bookkeeping (``Stage::cycle_group``): the group's
+  /// start-level column per grouped stage, and the chain / closure /
+  /// last-repetition bound rows.
+  STIndexHolder<ColIndex> cycle_group_start_cols;
+  STIndexHolder<RowIndex> cycle_chain_rows;
+  STIndexHolder<RowIndex> cycle_close_rows;
+  STBIndexHolder<RowIndex> cycle_shift_rows;
 
   /// Combined dual correction factor per (scenario, stage):
   ///   dual_physical = dual_LP * output_dual_scale[{suid, tuid}]

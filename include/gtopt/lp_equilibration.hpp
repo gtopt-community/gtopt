@@ -98,7 +98,8 @@ namespace gtopt
     std::span<double> matval,
     std::span<double> rowlb,
     std::span<double> rowub,
-    double infinity);
+    double infinity,
+    std::span<const std::int32_t> rowpin = {});
 
 /// Bulk Ruiz geometric-mean iterative equilibration: alternately
 /// normalises rows and columns by `1/sqrt(infinity-norm)` until the worst
@@ -125,6 +126,7 @@ namespace gtopt
     double infinity,
     FastSqrtMethod sqrt_method,
     int max_iterations,
-    double tolerance);
+    double tolerance,
+    std::span<const std::int32_t> rowpin = {});
 
 }  // namespace gtopt

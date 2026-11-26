@@ -15,6 +15,7 @@
 #include <format>
 #include <functional>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <optional>
 #include <ranges>
@@ -34,6 +35,7 @@
 #include <gtopt/generator_enums.hpp>
 #include <gtopt/line_enums.hpp>
 #include <gtopt/pricing_mode.hpp>
+#include <gtopt/storage_integration.hpp>
 #include <gtopt/storage_state_defaults.hpp>
 #include <gtopt/transition_integrality.hpp>
 #include <gtopt/user_constraint_enums.hpp>
@@ -2407,6 +2409,242 @@ void check_ranges(ValidationResult& result, const Planning& planning)
     }
   }
 
+  if (const auto& rf = planning.options.model_options.ramp_formula;
+      rf && *rf != "backward" && *rf != "central2")
+  {
+    result.errors.push_back(std::format(
+        "model_options.ramp_formula '{}' must be 'backward' or 'central2'",
+        *rf));
+  }
+
+  if (planning.options.model_options.ramp_formula.value_or("") == "central2") {
+    result.warnings.emplace_back(
+        "model_options.ramp_formula 'central2' is not recommended: the "
+        "central derivative is a convex combination of the two adjacent "
+        "interval slopes, so zig-zag dispatch passes the ramp rows; use "
+        "the default 'backward'");
+  }
+
+  {
+    const auto check_integration =
+        [&](std::string_view what, const OptName& value)
+    {
+      if (value && !StorageIntegration::is_valid(*value)) {
+        result.errors.push_back(
+            std::format("{} '{}' must be 'block' (alias 'cc' / "
+                        "'clenshaw_curtis'), 'trapezoid', 'lg4', 'lg6', "
+                        "'lg4_pos' or 'lg6_pos'",
+                        what,
+                        *value));
+      }
+    };
+    const auto& mo = planning.options.model_options;
+    check_integration("model_options.storage_integration",
+                      mo.storage_integration);
+    check_integration("model_options.reservoir_storage_integration",
+                      mo.reservoir_storage_integration);
+    check_integration("model_options.battery_storage_integration",
+                      mo.battery_storage_integration);
+    for (const auto& rsv : planning.system.reservoir_array) {
+      check_integration(
+          std::format("Reservoir '{}': storage_integration", rsv.name),
+          rsv.storage_integration);
+    }
+    for (const auto& bat : planning.system.battery_array) {
+      check_integration(
+          std::format("Battery '{}': storage_integration", bat.name),
+          bat.storage_integration);
+    }
+  }
+
+  // Stage.sampling: "block" | "point"; point stages need increasing node
+  // times Block.time on every block.
+  for (const auto& stg : sim.stage_array) {
+    if (!stg.sampling) {
+      continue;
+    }
+    if (*stg.sampling != "block" && *stg.sampling != "point") {
+      result.errors.push_back(
+          std::format("Stage uid={}: sampling '{}' must be 'block' or 'point'",
+                      stg.uid,
+                      *stg.sampling));
+      continue;
+    }
+    if (*stg.sampling != "point") {
+      continue;
+    }
+    double prev = -std::numeric_limits<double>::infinity();
+    for (std::size_t b = stg.first_block;
+         b < stg.first_block + stg.count_block && b < sim.block_array.size();
+         ++b)
+    {
+      const auto& t = sim.block_array[b].time;
+      if (!t || *t <= prev || *t < 0.0) {
+        result.errors.push_back(std::format(
+            "Stage uid={}: sampling 'point' needs strictly increasing, "
+            "non-negative Block.time on every block (block uid={})",
+            stg.uid,
+            sim.block_array[b].uid));
+        break;
+      }
+      prev = *t;
+    }
+    // Every node must lie inside its cell [τ_{k−1}, τ_k], τ_k = Σ_{j≤k}
+    // w_j (real durations: scaled to `period_hours` when set) — the
+    // durations are the quadrature weights of the node set and all
+    // duration logic (UC periods, days, windows) groups these cells.
+    const auto first = static_cast<std::size_t>(stg.first_block);
+    const auto last =
+        std::min<std::size_t>(first + static_cast<std::size_t>(stg.count_block),
+                              sim.block_array.size());
+    double wsum = 0.0;
+    for (std::size_t b = first; b < last; ++b) {
+      wsum += sim.block_array[b].duration;
+    }
+    const double period = stg.period_hours.value_or(0.0);
+    const double scale = (stg.period_hours && wsum > 0.0) ? period / wsum : 1.0;
+    const double tol = 1e-9 * std::max(1.0, wsum * scale);
+    double tau = 0.0;
+    for (std::size_t b = first; b < last; ++b) {
+      const auto& blk = sim.block_array[b];
+      const double lo = tau;
+      tau += blk.duration * scale;
+      if (blk.time && (*blk.time < lo - tol || *blk.time > tau + tol)) {
+        result.errors.push_back(std::format(
+            "Stage uid={}: point node time {} of block uid={} lies outside "
+            "its cell [{}, {}] (cells are the cumulative block durations, "
+            "the quadrature weights of the nodes)",
+            stg.uid,
+            *blk.time,
+            blk.uid,
+            lo,
+            tau));
+        break;
+      }
+    }
+    // A periodic grid whose last node is the period end repeats node 0
+    // (t_N ≡ t_0): drop node N and add its weight to node 0.
+    if (stg.period_hours && last >= first + 3) {
+      const auto& t_first = sim.block_array[first].time;
+      const auto& t_last = sim.block_array[last - 1].time;
+      if (t_first && t_last
+          && std::abs(t_last.value_or(0.0) - t_first.value_or(0.0) - period)
+              < 1e-9 * std::max(1.0, period))
+      {
+        result.warnings.push_back(std::format(
+            "Stage uid={}: the last point node is the period end "
+            "(t_N = t_0 + period_hours): it repeats node 0 of the cycle; "
+            "drop it and add its weight to node 0",
+            stg.uid));
+      }
+    }
+  }
+
+  // Daily-cycle batteries: every stage closes with efin == eini and the
+  // stages of a phase are chained, so the level at each stage boundary of
+  // the first phase equals the battery's `eini`.  A stage whose emax at
+  // its first / last block is below eini (retired or mothballed unit with
+  // emax = 0) makes the LP infeasible at its `storage_close` row — report
+  // it here, naming the battery and the stage, instead of a bare
+  // presolve infeasibility.  Skipped with cycle groups (weighted closure).
+  {
+    const bool any_group = std::ranges::any_of(
+        sim.stage_array,
+        [](const auto& st) { return st.cycle_group.has_value(); });
+    std::size_t chain_end = sim.stage_array.size();
+    if (!sim.phase_array.empty()) {
+      const auto& ph = sim.phase_array.front();
+      if (ph.count_stage != std::dynamic_extent) {
+        chain_end = std::min(chain_end, ph.first_stage + ph.count_stage);
+      }
+    }
+    constexpr double tol = 1e-9;
+    for (const auto& bat : planning.system.battery_array) {
+      if (any_group || !bat.daily_cycle.value_or(true) || !bat.eini
+          || !bat.emax)
+      {
+        continue;
+      }
+      const auto eini = bat.eini.value_or(0.0);
+      const auto emax = bat.emax.value_or(
+          std::remove_cvref_t<decltype(bat.emax)>::value_type {});
+      const auto* rows = std::get_if<std::vector<std::vector<double>>>(&emax);
+      const auto* scalar = std::get_if<double>(&emax);
+      for (std::size_t i = 0; i < chain_end; ++i) {
+        double cap = 0.0;
+        if (scalar != nullptr) {
+          cap = *scalar;
+        } else if (rows != nullptr && i < rows->size() && !(*rows)[i].empty()) {
+          cap = std::min((*rows)[i].front(), (*rows)[i].back());
+        } else {
+          break;  // file schedule / short table: not checked here
+        }
+        if (eini > cap + tol) {
+          result.errors.push_back(std::format(
+              "Battery '{}': daily_cycle chains eini={} to every stage "
+              "boundary, but stage uid={} has emax={} at its first/last "
+              "block (retired or zero-capacity stage): the LP is "
+              "infeasible at its storage_close row.  Lower eini to {} or "
+              "set daily_cycle=false",
+              bat.name,
+              eini,
+              sim.stage_array[i].uid,
+              cap,
+              cap));
+          break;
+        }
+      }
+    }
+  }
+
+  // Storage cycle groups: positive weight; a group is a run of
+  // consecutive stages that does not cross a phase boundary.
+  {
+    std::vector<std::size_t> phase_of(sim.stage_array.size(), 0);
+    for (std::size_t p = 0; p < sim.phase_array.size(); ++p) {
+      const auto& ph = sim.phase_array[p];
+      const auto last = std::min(sim.stage_array.size(),
+                                 ph.count_stage == std::dynamic_extent
+                                     ? sim.stage_array.size()
+                                     : ph.first_stage + ph.count_stage);
+      for (auto i = ph.first_stage; i < last; ++i) {
+        phase_of[i] = p;
+      }
+    }
+    std::vector<Int> closed;  // groups already started
+    for (std::size_t i = 0; i < sim.stage_array.size(); ++i) {
+      const auto& stg = sim.stage_array[i];
+      if (stg.cycle_weight.value_or(1.0) <= 0.0) {
+        result.errors.push_back(
+            std::format("Stage uid={}: cycle_weight ({}) must be > 0",
+                        stg.uid,
+                        stg.cycle_weight.value_or(0.0)));
+      }
+      if (!stg.cycle_group) {
+        continue;
+      }
+      const auto grp = *stg.cycle_group;
+      const bool continues =
+          i > 0 && sim.stage_array[i - 1].cycle_group == stg.cycle_group;
+      if (continues && phase_of[i - 1] != phase_of[i]) {
+        result.errors.push_back(
+            std::format("Stage uid={}: cycle_group {} crosses a phase boundary",
+                        stg.uid,
+                        grp));
+      }
+      if (!continues) {
+        if (std::ranges::contains(closed, grp)) {
+          result.errors.push_back(std::format(
+              "Stage uid={}: cycle_group {} is not a run of consecutive "
+              "stages",
+              stg.uid,
+              grp));
+        }
+        closed.push_back(grp);
+      }
+    }
+  }
+
   // Generator capacity non-negative (warning only)
   for (const auto& gen : planning.system.generator_array) {
     if (gen.capacity.has_value()) {
@@ -2739,6 +2977,12 @@ void check_model_option_names(ValidationResult& result,
         *mo.tiny_reactance_mode,
         names(std::type_identity<TinyReactanceMode> {}));
   }
+  if (const auto& rel = mo.tiny_reactance_rel_threshold;
+      rel && (!std::isfinite(*rel) || *rel < 0.0 || *rel >= 1.0))
+  {
+    result.errors.push_back(std::format(
+        "{}.tiny_reactance_rel_threshold: {} must be in [0, 1)", where, *rel));
+  }
   if (const auto& om = mo.objective_mode;
       om && *om != "cost" && *om != "emissions" && *om != "emission")
   {
@@ -2786,6 +3030,28 @@ void check_model_options(ValidationResult& result, const Planning& planning)
           result,
           *level.model_options,
           std::format("cascade_options.level_array[{}].model_options", i));
+    }
+  }
+  // `transition_status_rows` was removed on 2026-11-26: still parsed so
+  // old inputs load, ignored here with one warning.
+  {
+    bool removed_key = opts.model_options.transition_status_rows.has_value()
+        || opts.cascade_options.model_options.transition_status_rows
+               .has_value();
+    for (const auto& level : opts.cascade_options.level_array) {
+      removed_key = removed_key
+          || (level.model_options
+              && level.model_options->transition_status_rows.has_value());
+    }
+    for (const auto& cm : planning.system.commitment_array) {
+      removed_key = removed_key || cm.transition_status_rows.has_value();
+    }
+    if (removed_key) {
+      result.warnings.emplace_back(
+          "transition_status_rows was removed (2026-11-26) and is ignored: "
+          "the commitment rows startup <= status / shutdown <= 1 - status "
+          "no longer exist (startup / shutdown are binary under "
+          "transition_integrality = auto)");
     }
   }
   std::string ti_names;
@@ -3937,6 +4203,72 @@ void check_coupler_activation(ValidationResult& result,
   }
 }
 
+/// `uc_formulation` names (global and per unit) and the power-based
+/// start-up / shut-down trajectory data.
+void check_uc_formulation(ValidationResult& result, const Planning& planning)
+{
+  const auto valid = [](const OptName& v)
+  { return !v || *v == "energy_block" || *v == "power_based"; };
+  const auto& global = planning.options.model_options.uc_formulation;
+  if (!valid(global)) {
+    result.errors.push_back(
+        std::format("model_options.uc_formulation '{}' must be "
+                    "'energy_block' or 'power_based'",
+                    global.value_or("")));
+  }
+  const bool global_pb = global.value_or("") == "power_based";
+  for (const auto& cm : planning.system.commitment_array) {
+    if (!valid(cm.uc_formulation)) {
+      result.errors.push_back(
+          std::format("Commitment '{}': uc_formulation '{}' must be "
+                      "'energy_block' or 'power_based'",
+                      cm.name,
+                      cm.uc_formulation.value_or("")));
+      continue;
+    }
+    const bool has_traj =
+        !cm.startup_trajectory.empty() || !cm.shutdown_trajectory.empty();
+    if (cm.trajectory_step && *cm.trajectory_step <= 0.0) {
+      result.errors.push_back(
+          std::format("Commitment '{}': trajectory_step must be > 0 (got {})",
+                      cm.name,
+                      *cm.trajectory_step));
+    }
+    for (const auto* traj : {&cm.startup_trajectory, &cm.shutdown_trajectory}) {
+      if (std::ranges::any_of(*traj, [](double x) { return x < 0.0; })) {
+        result.errors.push_back(std::format(
+            "Commitment '{}': start-up / shut-down trajectory powers must "
+            "be >= 0",
+            cm.name));
+      }
+    }
+    if (!has_traj) {
+      continue;
+    }
+    if (!cm.is_power_based(global_pb)) {
+      result.warnings.push_back(
+          std::format("Commitment '{}': startup_trajectory / "
+                      "shutdown_trajectory are only used by "
+                      "uc_formulation 'power_based' (ignored)",
+                      cm.name));
+      continue;
+    }
+    const double step = cm.trajectory_step.value_or(1.0);
+    const double span = step
+        * static_cast<double>(cm.startup_trajectory.size()
+                              + cm.shutdown_trajectory.size());
+    if (cm.min_down_time.value_or(0.0) + 1e-9 < span) {
+      result.warnings.push_back(std::format(
+          "Commitment '{}': min_down_time {} h is shorter than the start-up "
+          "+ shut-down trajectories ({} h); a shut-down and the next start "
+          "can overlap",
+          cm.name,
+          cm.min_down_time.value_or(0.0),
+          span));
+    }
+  }
+}
+
 }  // namespace
 
 [[nodiscard]] ValidationResult validate_planning(Planning& planning)
@@ -3973,6 +4305,209 @@ void check_coupler_activation(ValidationResult& result,
   check_completeness(result, planning);
   check_scenario_probabilities(result, planning);
   check_model_sanity(result, planning);
+  check_uc_formulation(result, planning);
+
+  // Commitment grid / cycle options
+  for (const auto& cm : planning.system.commitment_array) {
+    if (cm.commitment_grid && *cm.commitment_grid != "block"
+        && *cm.commitment_grid != "overlay" && *cm.commitment_grid != "cells")
+    {
+      result.errors.push_back(
+          std::format("Commitment '{}': commitment_grid '{}' must be "
+                      "'block', 'overlay' or 'cells'",
+                      cm.name,
+                      *cm.commitment_grid));
+    } else if (cm.commitment_grid == "block" && cm.commitment_period) {
+      result.errors.push_back(
+          std::format("Commitment '{}': commitment_grid 'block' (one status "
+                      "per block) conflicts with commitment_period; use "
+                      "'overlay' or drop commitment_period",
+                      cm.name));
+    } else if ((cm.commitment_grid == "overlay"
+                || cm.commitment_grid == "cells")
+               && !cm.commitment_period)
+    {
+      result.errors.push_back(
+          std::format("Commitment '{}': commitment_grid '{}' needs "
+                      "commitment_period (hours or \"auto\")",
+                      cm.name,
+                      *cm.commitment_grid));
+    }
+    if (cm.ramp_allowance && *cm.ramp_allowance != "boundary"
+        && *cm.ramp_allowance != "period")
+    {
+      result.errors.push_back(
+          std::format("Commitment '{}': ramp_allowance '{}' must be "
+                      "'boundary' or 'period'",
+                      cm.name,
+                      *cm.ramp_allowance));
+    }
+    if (cm.cycle && *cm.cycle != "none" && *cm.cycle != "stage") {
+      result.errors.push_back(
+          std::format("Commitment '{}': cycle '{}' must be 'none' or 'stage'",
+                      cm.name,
+                      *cm.cycle));
+    }
+    for (const auto& mode : cm.long_transition_schedule) {
+      if (!mode.empty() && mode != "on" && mode != "off" && mode != "no_uc") {
+        result.errors.push_back(std::format(
+            "Commitment '{}': long_transition_schedule entry '{}' must be "
+            "'on', 'off' or 'no_uc'",
+            cm.name,
+            mode));
+      }
+    }
+    if (cm.long_transition && *cm.long_transition != "on"
+        && *cm.long_transition != "off" && *cm.long_transition != "no_uc")
+    {
+      result.errors.push_back(
+          std::format("Commitment '{}': long_transition '{}' must be 'on', "
+                      "'off' or 'no_uc'",
+                      cm.name,
+                      *cm.long_transition));
+    }
+    if (cm.is_cyclic()
+        && (cm.initial_status || cm.initial_hours || cm.initial_power
+            || cm.ini_hours_up || cm.ini_hours_down))
+    {
+      result.warnings.push_back(
+          std::format("Commitment '{}': cycle 'stage' ignores "
+                      "initial_status / initial_hours / initial_power (the "
+                      "first period wraps to the last)",
+                      cm.name));
+    }
+  }
+
+  // Long-transition cyclic units: min up / down time or start window
+  // longer than the typical period cannot be honoured within the cycle.
+  // Every such unit must be declared explicitly (`long_transition`: on /
+  // off / no_uc); undeclared ones are reported together, declared ones
+  // get a warning each plus a summary table.
+  {
+    const auto& sim = planning.simulation;
+    const auto& dflt = planning.options.model_options.long_transition;
+    // `active` at stage position @p pos (scalar / per-stage vector;
+    // file schedules are not resolved here — treated as active)
+    const auto active_at = [](const OptActive& act, std::size_t pos) -> bool
+    {
+      if (!act) {
+        return true;
+      }
+      return std::visit(
+          [&](const auto& v) -> bool
+          {
+            using T = std::decay_t<decltype(v)>;
+            if constexpr (std::is_same_v<T, IntBool>) {
+              return v != False;
+            } else if constexpr (std::ranges::range<T>
+                                 && !std::is_convertible_v<T, std::string>)
+            {
+              return pos >= v.size() || v[pos] != False;
+            } else {
+              return true;
+            }
+          },
+          *act);
+    };
+    std::vector<std::string> undeclared;
+    std::string table;
+    for (const auto& cm : planning.system.commitment_array) {
+      if (!cm.is_cyclic()) {
+        continue;
+      }
+      std::string unit_dropped;
+      std::string unit_modes;
+      for (std::size_t pos = 0; pos < sim.stage_array.size(); ++pos) {
+        const auto& stg = sim.stage_array[pos];
+        if (!stg.chronological.value_or(false) || !active_at(cm.active, pos)) {
+          continue;
+        }
+        double cycle = 0.0;
+        const auto first = static_cast<std::size_t>(stg.first_block);
+        for (std::size_t b = first;
+             b < first + static_cast<std::size_t>(stg.count_block)
+             && b < sim.block_array.size();
+             ++b)
+        {
+          cycle += sim.block_array[b].duration;
+        }
+        if (stg.period_hours) {
+          cycle = *stg.period_hours;
+        }
+        const auto longs = cm.long_constraints(cycle);
+        if (longs.empty()) {
+          continue;
+        }
+        std::string what;
+        for (const auto& [name, hours] : longs) {
+          what +=
+              std::format("{}{} = {} h", what.empty() ? "" : ", ", name, hours);
+        }
+        const auto mode = cm.long_transition_at(pos, dflt);
+        if (mode.empty()) {
+          undeclared.push_back(
+              std::format("  - '{}' stage uid={}: {} > typical period {} h",
+                          cm.name,
+                          stg.uid,
+                          what,
+                          cycle));
+          continue;
+        }
+        if (unit_dropped.empty()) {
+          unit_dropped = what;
+        }
+        if (!unit_modes.contains(mode)) {
+          unit_modes +=
+              std::format("{}{}", unit_modes.empty() ? "" : "/", mode);
+        }
+      }
+      if (!unit_modes.empty()) {
+        std::string_view source = "per-stage schedule";
+        if (cm.long_transition_schedule.empty()) {
+          source = cm.long_transition ? "unit" : "model_options default";
+        }
+        result.warnings.push_back(std::format(
+            "Commitment '{}': long_transition {} ({}) — constraints not "
+            "emitted: {}",
+            cm.name,
+            unit_modes,
+            source,
+            unit_dropped));
+        table += std::format("\n  {:<24} {:<10} {:<22} {}",
+                             cm.name,
+                             unit_modes,
+                             source,
+                             unit_dropped);
+      }
+    }
+    if (!undeclared.empty()) {
+      std::string msg =
+          "Cyclic commitments with time constraints longer than the typical "
+          "period must declare how to handle them (no silent dropping):";
+      for (const auto& u : undeclared) {
+        msg += "\n" + u;
+      }
+      msg +=
+          "\nAdd to each listed commitment ONE of:\n"
+          R"(  "long_transition": "on"     (committed all period, pmin..pmax))"
+          "\n"
+          R"(  "long_transition": "off"    (unavailable, output 0))"
+          "\n"
+          R"(  "long_transition": "no_uc"  (continuous 0..pmax, no commitment))"
+          "\nor per stage: \"long_transition_schedule\": [\"on\", \"off\", "
+          "...], or a planning default model_options.long_transition.";
+      result.errors.push_back(std::move(msg));
+    }
+    if (!table.empty()) {
+      result.warnings.push_back(
+          std::format("Long-transition summary:\n  {:<24} {:<10} {:<22} {}{}",
+                      "unit",
+                      "mode",
+                      "source",
+                      "dropped constraints",
+                      table));
+    }
+  }
 
   // Gates for Optimal Transmission Switching (issue #509).  Count the
   // active LineCommitment rows once; both the method gate (rejects

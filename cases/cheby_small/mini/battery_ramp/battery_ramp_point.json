@@ -1,0 +1,212 @@
+{
+ "options": {
+  "annual_discount_rate": 0.0,
+  "output_format": "csv",
+  "output_compression": "uncompressed",
+  "model_options": {
+   "use_single_bus": true,
+   "demand_fail_cost": 10000,
+   "scale_objective": 1,
+   "battery_annual_standing_loss": 0.0,
+   "battery_storage_integration": "cc",
+   "reservoir_storage_integration": "cc"
+  }
+ },
+ "simulation": {
+  "block_array": [
+   {
+    "uid": 1,
+    "duration": 0.020869565217391,
+    "time": 0
+   },
+   {
+    "uid": 2,
+    "duration": 0.200105905932956,
+    "time": 0.102661663514275
+   },
+   {
+    "uid": 3,
+    "duration": 0.408310014550942,
+    "time": 0.40889008453118
+   },
+   {
+    "uid": 4,
+    "duration": 0.600225822380407,
+    "time": 0.913445609864559
+   },
+   {
+    "uid": 5,
+    "duration": 0.78594423808046,
+    "time": 1.60769515458674
+   },
+   {
+    "uid": 6,
+    "duration": 0.955863452078959,
+    "time": 2.47975991650518
+   },
+   {
+    "uid": 7,
+    "duration": 1.11100357921195,
+    "time": 3.51471862576143
+   },
+   {
+    "uid": 8,
+    "duration": 1.24597006304015,
+    "time": 4.69486285189535
+   },
+   {
+    "uid": 9,
+    "duration": 1.36054050674053,
+    "time": 6
+   },
+   {
+    "uid": 10,
+    "duration": 1.45105822747142,
+    "time": 7.40779881161892
+   },
+   {
+    "uid": 11,
+    "duration": 1.5174270568908,
+    "time": 8.89417145876975
+   },
+   {
+    "uid": 12,
+    "duration": 1.55721131170481,
+    "time": 10.4336856933594
+   },
+   {
+    "uid": 13,
+    "duration": 1.57094051339845,
+    "time": 12
+   },
+   {
+    "uid": 14,
+    "duration": 1.55721131170481,
+    "time": 13.5663143066406
+   },
+   {
+    "uid": 15,
+    "duration": 1.5174270568908,
+    "time": 15.1058285412302
+   },
+   {
+    "uid": 16,
+    "duration": 1.45105822747142,
+    "time": 16.5922011883811
+   },
+   {
+    "uid": 17,
+    "duration": 1.36054050674054,
+    "time": 18
+   },
+   {
+    "uid": 18,
+    "duration": 1.24597006304015,
+    "time": 19.3051371481046
+   },
+   {
+    "uid": 19,
+    "duration": 1.11100357921195,
+    "time": 20.4852813742386
+   },
+   {
+    "uid": 20,
+    "duration": 0.955863452078962,
+    "time": 21.5202400834948
+   },
+   {
+    "uid": 21,
+    "duration": 0.785944238080461,
+    "time": 22.3923048454133
+   },
+   {
+    "uid": 22,
+    "duration": 0.600225822380406,
+    "time": 23.0865543901354
+   },
+   {
+    "uid": 23,
+    "duration": 0.408310014550943,
+    "time": 23.5911099154688
+   },
+   {
+    "uid": 24,
+    "duration": 0.200105905932959,
+    "time": 23.8973383364857
+   },
+   {
+    "uid": 25,
+    "duration": 0.0208695652173917,
+    "time": 24
+   }
+  ],
+  "stage_array": [
+   {
+    "uid": 1,
+    "first_block": 0,
+    "count_block": 25,
+    "chronological": true,
+    "sampling": "point"
+   }
+  ],
+  "scenario_array": [
+   {
+    "uid": 1,
+    "probability_factor": 1
+   }
+  ]
+ },
+ "system": {
+  "name": "mini_battery_ramp",
+  "bus_array": [
+   {
+    "uid": 1,
+    "name": "b1"
+   }
+  ],
+  "demand_array": [
+   {
+    "uid": 1,
+    "name": "d1",
+    "bus": 1,
+    "lmax": [
+     [10, 10.1026616635, 10.4088900845, 10.9134456099, 11.6076951546, 12.4797599165, 13.5147186258, 14.6948628519, 16, 17.4077988116, 18.8941714588, 20.4336856934, 22, 23.5663143066, 25.1058285412, 26.5922011884, 28, 29.3051371481, 30.4852813742, 31.5202400835, 32.3923048454, 33.0865543901, 33.5911099155, 33.8973383365, 34]
+    ]
+   }
+  ],
+  "generator_array": [
+   {
+    "uid": 1,
+    "name": "g1",
+    "bus": 1,
+    "gcost": 10,
+    "capacity": 22
+   },
+   {
+    "uid": 2,
+    "name": "g2",
+    "bus": 1,
+    "gcost": 100,
+    "capacity": 1000
+   }
+  ],
+  "battery_array": [
+   {
+    "uid": 1,
+    "name": "bess",
+    "bus": 1,
+    "input_efficiency": 1,
+    "output_efficiency": 1,
+    "emin": 0,
+    "emax": 50,
+    "eini": 0,
+    "efin": 0,
+    "daily_cycle": false,
+    "use_state_variable": true,
+    "pmax_charge": 100,
+    "pmax_discharge": 100,
+    "capacity": 50
+   }
+  ]
+ }
+}

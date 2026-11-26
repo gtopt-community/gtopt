@@ -28,6 +28,7 @@ struct LpMatrixOptionsConstructor
                                            OptName fast_sqrt_method_name,
                                            OptInt ruiz_max_iterations,
                                            OptReal ruiz_tolerance,
+                                           OptBool pin_logic_rows,
                                            OptReal water_dual_target,
                                            OptReal water_dual_clamp,
                                            OptBool kvl_row_scale,
@@ -56,6 +57,7 @@ struct LpMatrixOptionsConstructor
     // the consumer applies LpMatrixOptions::default_ruiz_* (5 / 1e-3).
     opts.ruiz_max_iterations = ruiz_max_iterations;
     opts.ruiz_tolerance = ruiz_tolerance;
+    opts.pin_logic_rows = pin_logic_rows;
     opts.water_dual_target = water_dual_target;
     opts.water_dual_clamp = water_dual_clamp;
     opts.kvl_row_scale = kvl_row_scale;
@@ -81,6 +83,7 @@ struct json_data_contract<LpMatrixOptions>
                        json_string_null<"fast_sqrt_method", OptName>,
                        json_number_null<"ruiz_max_iterations", OptInt>,
                        json_number_null<"ruiz_tolerance", OptReal>,
+                       json_bool_null<"pin_logic_rows", OptBool>,
                        json_number_null<"water_dual_target", OptReal>,
                        json_number_null<"water_dual_clamp", OptReal>,
                        json_bool_null<"kvl_row_scale", OptBool>,
@@ -107,6 +110,7 @@ struct json_data_contract<LpMatrixOptions>
         sqrt_name,
         opt.ruiz_max_iterations,
         opt.ruiz_tolerance,
+        opt.pin_logic_rows,
         opt.water_dual_target,
         opt.water_dual_clamp,
         opt.kvl_row_scale,

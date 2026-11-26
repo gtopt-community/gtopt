@@ -9,6 +9,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **`lp_matrix_options.pin_logic_rows`** (bool, default `false`) and
+  `SparseRow::pin_scale`, the row-side counterpart of
+  `SparseCol::pin_scale`.  With the option on, pure commitment-logic
+  rows (Commitment and LineCommitment transition, exclusion, start-up
+  tier and window, max / min starts; Converter charge / discharge
+  exclusivity; Plant commit with unit coefficients / unique: all ±1
+  rows) keep row factor 1 under `row_max`, `ruiz` and the incremental
+  `add_row` / `add_rows` normalisation; column scales still apply and
+  the rows still enter Ruiz's column norms.  Physical duals are
+  unchanged.  Min up / down rows are never pinned: their aggregated
+  form carries the window length (UT · startup), and pinning it widened
+  uc_small's matrix range from 80 to 160.  Off by default: it left
+  kappa unchanged on every benchmark case and made a cuc39 MIP much
+  slower.
+- **`solver_options.accept_optimal_infeas`** (bool, default `true`).
+  A CPLEX LP that ends `CPX_STAT_OPTIMAL_INFEAS` (5, optimal with
+  unscaled infeasibilities) is accepted as optimal, with one warning per
+  solve giving the max unscaled primal and dual infeasibility, instead of
+  running the barrier -> dual -> primal fallback cycle (whose
+  presolve-off attempts stalled or ended in a numerical "infeasible" on
+  the CEN PCP corridor LPs). `false` restores the former rejection.
+  Also under `--set`, per SDDP pass and in `monolithic_options`. Other
+  solvers ignore it.
+- **Fallback cycle logging.** Every algorithm-fallback cycle
+  (`max_fallbacks`) now logs one WARN line listing each attempt's
+  algorithm and native solver status (code and name, new
+  `SolverBackend::raw_status()`, plugin ABI 18) and the outcome; the
+  per-attempt `resolve` lines were DEBUG only, so a monolithic run's
+  failing attempts were invisible.
+- **Relative zero-impedance floor** (`model_options.tiny_reactance_rel_threshold`,
+  default `0.01`). A line is a zero-impedance tie when `|X/V²|` is below
+  `max(dc_line_reactance_threshold, 0.01 × median |X/V²|)`. The absolute
+  `1e-6` floor missed the PLEXOS `X = 1e-4` p.u. generator-connection
+  placeholders, which sit exactly at `x = 1e-6`. On CEN PCP 2026-11-09 it
+  ties 44 lines instead of 1, and the x_τ spread drops from 1.6e4 to 3.3e3.
+  `0` restores the absolute floor. The effective floor is written back
+  into `dc_line_reactance_threshold`, so every consumer uses it.
+- **Lossless ties** (`model_options.tie_line_losses`, default `false`). A
+  zero-impedance tie gets no loss columns or rows. `true` keeps the
+  legacy tie loss model.
+- **Ordered-fill bound on PWL loss segments**
+  (`model_options.loss_segment_bound`, default `true`). Each segment column
+  is capped at `min(w_k, max(0, tmax − b_{k−1}))`. This is a valid
+  tightening cut that only bites when the segments reach past the flow
+  cap: a `loss_envelope` above `tmax` used to leave the last segment
+  unbounded. It limits non-physical loss inflation; it does not fix
+  arbitrage. `false` restores the width-only bounds.
+
 - **`solver_options.deterministic_parallel`** (bool, default unset =
   opportunistic, the former behaviour). `true` runs CPLEX in
   deterministic parallel mode (`CPX_PARAM_PARALLELMODE = 1`): the same
@@ -164,14 +212,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `GTOPT_PLUGIN_CHECK`) decides what a failed check does: `warning`
   logs it and loads the plugin; `error` refuses it.  See
   `docs/solvers.md`, "Plugin integrity".
-- Commitment options `transition_integrality` (`auto` / `continuous` /
-  `binary`) and `transition_status_rows` (bool), in `model_options` and
-  per `Commitment` (the per-unit value wins): select the integrality of
-  startup / shutdown and whether the `startup ≤ status`,
-  `shutdown ≤ 1 − status` rows are emitted.  `auto` (default) keeps
-  startup / shutdown continuous while those rows are on (an integer
-  status then makes them 0/1) and binary when they are off.  See
-  `docs/unit-commitment.md` §4.1.
+- Commitment option `transition_integrality` (`auto` / `continuous` /
+  `binary`), in `model_options` and per `Commitment` (the per-unit value
+  wins): integrality of startup / shutdown.  `auto` (default) = binary.
+  See `docs/unit-commitment.md` §4.1.
 - Commitment option `startup_tier_integrality` (`continuous` /
   `integer`, `model_options` or per `Commitment`): integrality of the
   hot / warm / cold start selectors.  Default `continuous` (the tier
@@ -269,6 +313,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and `backward_solver_options` override the optional solver fields
   (tolerances, `mip_gap`, `time_limit`, `barrier_solver`, …) for that
   level.
+
+### Removed
+
+- **Commitment rows `startup ≤ status` / `shutdown ≤ 1 − status` and the
+  option `transition_status_rows`** (added 2026-11-25, unit and line
+  commitments).  Why: with binary startup / shutdown
+  (`transition_integrality = auto`) they are redundant in a MIP; at
+  scale they made the LP degenerate and near-singular (the exclusion row
+  is their exact sum, and they were emitted for fixed-status periods
+  too: 155 014 of 219 564 rows on the CEN PCP case), CPLEX's crossover
+  ended at kappa 1e16 and more, and CPLEX declared feasible PCP LPs
+  infeasible.  Without them the same LP solves with kappa ≈ 2e7.
+  `transition_integrality = auto` is binary again (it was continuous
+  only while the rows were on), which is exact and is UnitCommitment.jl's
+  Gar1962 model; LP relaxations and MIP sizes of commitment cases move
+  back to the pre-2026-11-25 values (Hua-Baldick Ex. 2 relaxed price
+  820/13 ≈ 63.08 again).  Input files that still set
+  `transition_status_rows` (bool or name, in `model_options` or a
+  `Commitment`) load; the key is ignored with one warning.
 
 ### Changed
 
@@ -381,6 +444,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Kappa: a solver "infinity" is no kappa.** CPLEX answers
+  `CPX_KAPPA` with status 0 and its huge-value sentinel 1e75 when it
+  cannot bound the condition of the final basis; `solution.csv`,
+  `max_kappa` and the high-kappa warning reported it as kappa = 1e+75.
+  That sentinel (>= 1e75), +inf and NaN now read as unavailable (-1),
+  with one CPLEX warning per process; huge finite estimates (CPLEX
+  reports 2.3e16 on that LP's basis) are kept and still trip the
+  high-kappa warning.
+- **Cascade `solution.csv` summary.** A cascade never set the run
+  summary, so `max_kappa` was -1 next to valid per-cell kappas and
+  `gap` / `gap_change` were defaults; the last level's values are now
+  written.
+- `auto_scale_theta` logs and keeps the default `scale_theta` when every
+  line is a DC link or a tie (no median). The model sanity check no longer
+  reports X/R on ties or on lines below the resistance floor.
+  `gtopt_shared.sanity_report` mirrors the relative tie floor.
 - **HiGHS SDDP runs are several times faster.** The HiGHS plugin asked
   HiGHS for the exact basis condition number after every solve, one
   FTRAN per basis row: on the CEN 2y case that was about 75 % of the
@@ -475,13 +554,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   with `initial_power` above `ramp_down` was kept on for block 1.  On
   the RTS-GMLC UC.jl benchmark this cost +3.5 % (five units forced on);
   gtopt now matches UnitCommitment.jl's optimum.
-- Commitment startup and shutdown columns are now tied to the status
-  (`startup ≤ status`, `shutdown ≤ 1 − status`).  Without these rows a
-  unit that stayed on (or off) could take startup = shutdown = ½ and use
-  the startup / shutdown ramp terms for extra ramping at half the
-  start-stop cost.  The LP relaxation is also tighter.  Option
-  `transition_status_rows` (`model_options` or per `Commitment`,
-  default `true`); `false` drops the rows.
 - Commitment `initial_status` is rounded at 0.5 (as LineCommitment
   already did), so the first-period startup / shutdown stay 0/1.
 - `pricing_mode = fast_start` now relaxes integer start-up tier
@@ -500,7 +572,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `≥ cold_start_time`), and a line open since before the horizon
   counts `initial_hours` at every block, not only the first: a later
   first close was always priced cold.  Line startup / shutdown columns
-  get the same status rows as units.
+  are binary (with the line status' domain): continuous ones admitted
+  startup = shutdown = ½ on a line that stayed closed.
 
 
 ## [1.2.0] - 2026-11-24

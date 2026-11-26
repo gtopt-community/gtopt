@@ -121,6 +121,8 @@ bool CarrierStorageLP<Storage, NodeLP, NodeRef, Defaults>::add_to_lp(
       .variable_uid = uid,
       .energy_scale = es,
       .flow_scale = fs,
+      .integration =
+          sc.options().storage_integration(std::nullopt, /*reservoir=*/false),
   };
   if (!StorageBase::add_to_lp(cname,
                               ampl_name,

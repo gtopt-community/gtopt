@@ -147,6 +147,8 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
       .scost = rsv_scost,
       .water_value_hint = reservoir().water_value_hint.value_or(rsv_scost),
       .dual_scale = reservoir().dual_scale.value_or(1.0),
+      .integration = sc.options().storage_integration(
+          reservoir().storage_integration, /*reservoir=*/true),
   };
   if (!StorageBase::add_to_lp(
           cname,

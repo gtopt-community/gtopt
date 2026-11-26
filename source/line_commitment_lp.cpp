@@ -545,39 +545,53 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
       const auto ucol = u_it->second;
       const auto ctx = make_block_context(scenario.uid(), stage.uid(), buid);
 
-      // Continuous-in-[0,1] v_l with ``pin_scale = true`` (the C1
-      // equality references its coefficient literally; we don't want
-      // VariableScaleMap to silently rescale it).
-      const auto vcol = lp.add_col(SparseCol {
-          .lowb = 0.0,
-          .uppb = 1.0,
-          .cost = v_cost,
-          .is_integer = false,
-          .pin_scale = true,
-          .class_name = cname,
-          .variable_name = StartupName,
-          .variable_uid = cuid,
-          .context = ctx,
-      });
+      // Startup v_l / shutdown w_l: binary with u's domain (relaxed
+      // together with u under `relax`, a continuous phase or `--no-mip`).
+      // C1 + C3 alone admit v = w = ½ on a line that stays closed (or
+      // open), which the tier windows below would read as a real
+      // shutdown, so they must be integer for the model to be exact (the
+      // rows v ≤ u / w ≤ 1 − u that made continuous v / w exact were
+      // removed on 2026-11-26).  ``pin_scale = true``: the C1 equality
+      // references their coefficients literally.
+      const auto vw_domain =
+          is_relax ? IntegerDomain::Relaxed : IntegerDomain::Binary;
+      const std::array<BlockUid, 1> vw_blocks {buid};
+      const auto add_vw = [&](std::string_view name, double cost)
+      {
+        return sc.add_integer_col(lp,
+                                  IntegerVariable::key(scenario,
+                                                       stage,
+                                                       Element::class_name,
+                                                       cuid,
+                                                       name,
+                                                       IntegerScope::Block,
+                                                       buid),
+                                  SparseCol {
+                                      .lowb = 0.0,
+                                      .uppb = 1.0,
+                                      .cost = cost,
+                                      .pin_scale = true,
+                                      .class_name = cname,
+                                      .variable_name = name,
+                                      .variable_uid = cuid,
+                                      .context = ctx,
+                                  },
+                                  vw_domain,
+                                  IntegerScope::Block,
+                                  buid,
+                                  std::span<const BlockUid> {vw_blocks});
+      };
+      const auto vcol = add_vw(StartupName, v_cost);
       vcols[buid] = vcol;
 
-      const auto wcol = lp.add_col(SparseCol {
-          .lowb = 0.0,
-          .uppb = 1.0,
-          .cost = w_cost,
-          .is_integer = false,
-          .pin_scale = true,
-          .class_name = cname,
-          .variable_name = ShutdownName,
-          .variable_uid = cuid,
-          .context = ctx,
-      });
+      const auto wcol = add_vw(ShutdownName, w_cost);
       wcols[buid] = wcol;
 
       // C1: u[t] − u[t−1] − v[t] + w[t] = 0
       //   t = 0:  u[0] − v[0] + w[0] = initial_u
       {
         SparseRow row {
+            .pin_scale = true,  // pure commitment logic
             .class_name = cname,
             .constraint_name = LogicName,
             .variable_uid = cuid,
@@ -596,6 +610,7 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
       // C3: v[t] + w[t] ≤ 1
       {
         SparseRow row {
+            .pin_scale = true,  // pure commitment logic
             .class_name = cname,
             .constraint_name = ExclusionName,
             .variable_uid = cuid,
@@ -605,35 +620,6 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
         row[vcol] = 1.0;
         row[wcol] = 1.0;
         erows[buid] = lp.add_row(std::move(row));
-      }
-
-      // C3a / C3b: v[t] ≤ u[t], w[t] ≤ 1 − u[t].  With an integer u
-      // they and C1 pin v / w to the exact switching event; C1 + C3
-      // alone admit v = w = ½ on a line that stays closed (or open),
-      // which the tier windows below would read as a real shutdown.
-      {
-        SparseRow row {
-            .class_name = cname,
-            .constraint_name = StartupStatusName,
-            .variable_uid = cuid,
-            .context = ctx,
-        };
-        row.less_equal(0.0);
-        row[vcol] = 1.0;
-        row[ucol] = -1.0;
-        std::ignore = lp.add_row(std::move(row));
-      }
-      {
-        SparseRow row {
-            .class_name = cname,
-            .constraint_name = ShutdownStatusName,
-            .variable_uid = cuid,
-            .context = ctx,
-        };
-        row.less_equal(1.0);
-        row[wcol] = 1.0;
-        row[ucol] = 1.0;
-        std::ignore = lp.add_row(std::move(row));
       }
 
       prev_ucol = ucol;
@@ -770,6 +756,7 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
       auto fresh_row = [&]() -> SparseRow
       {
         SparseRow r;
+        r.pin_scale = true;  // pure commitment logic (Σ v vs a count)
         r.class_name = cname;
         r.constraint_name = MaxStartsName;
         r.variable_uid = cuid;
@@ -929,6 +916,7 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
           // C8: v[t] = y_hot[t] + y_warm[t] + y_cold[t]
           {
             SparseRow row {
+                .pin_scale = true,  // pure commitment logic
                 .class_name = cname,
                 .constraint_name = TierSelectName,
                 .variable_uid = cuid,
@@ -958,6 +946,7 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
           // initial_offline + Σ dur[0..t-1] at t; while that is below
           // a threshold the window row gets a constant ``1`` of slack.
           SparseRow hot_row {
+              .pin_scale = true,  // pure commitment logic
               .class_name = cname,
               .constraint_name = HotWindowName,
               .variable_uid = cuid,
@@ -966,6 +955,7 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
           hot_row.less_equal(0.0);
           hot_row[hcol] = 1.0;
           SparseRow warm_row {
+              .pin_scale = true,  // pure commitment logic
               .class_name = cname,
               .constraint_name = WarmWindowName,
               .variable_uid = cuid,

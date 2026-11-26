@@ -224,6 +224,67 @@ public:
     return stage().chronological.value_or(false);
   }
 
+  /// @return Storage cycle group id (unset = per-stage daily closure)
+  [[nodiscard]] constexpr auto cycle_group() const noexcept
+  {
+    return stage().cycle_group;
+  }
+
+  /// @return Repetitions of this stage inside its cycle group
+  ///         (default: periods represented, `duration / period_hours`;
+  ///         days, `duration / 24`, when `period_hours` is unset)
+  [[nodiscard]] constexpr double cycle_weight() const noexcept
+  {
+    const auto period = stage().period_hours;
+    return stage().cycle_weight.value_or(
+        (period && *period > 0.0) ? m_duration_ / *period : m_duration_ / 24.0);
+  }
+
+  /// @return Real length of the sampled chronological period [h], if set
+  [[nodiscard]] constexpr auto period_hours() const noexcept
+  {
+    return stage().period_hours;
+  }
+
+  /// @return True when block values are point samples at `Block.time`
+  ///         (`Stage.sampling = "point"`)
+  [[nodiscard]] bool point_sampling() const noexcept
+  {
+    return stage().sampling.value_or("block") == "point";
+  }
+
+  /// @return True when the stage is a circular typical period
+  ///         (`Stage.periodic`, default: `period_hours` set or point
+  ///         sampling): intra-period couplings wrap, only state
+  ///         variables are not periodic
+  [[nodiscard]] bool is_periodic() const noexcept
+  {
+    return stage().is_periodic();
+  }
+
+  /// @return Repetitions n of the typical period inside the stage
+  ///         (`duration / period_hours`, 1 when `period_hours` is unset)
+  [[nodiscard]] constexpr double repetitions() const noexcept
+  {
+    const auto period = stage().period_hours;
+    return (period && *period > 0.0) ? m_duration_ / *period : 1.0;
+  }
+
+  /// @return Real-time factor κ: real Δt_b = duration_b · κ
+  ///         (`period_hours / duration`, 1 when `period_hours` is unset)
+  [[nodiscard]] constexpr double time_scale() const noexcept
+  {
+    const auto period = stage().period_hours;
+    return (period && m_duration_ > 0.0) ? *period / m_duration_ : 1.0;
+  }
+
+  /// @return Real time step of a block of this stage [h]
+  [[nodiscard]] constexpr double real_duration(
+      const BlockLP& block) const noexcept
+  {
+    return block.duration() * time_scale();
+  }
+
   /// @return Span of blocks in this stage
   [[nodiscard]] constexpr const auto& blocks() const noexcept
   {

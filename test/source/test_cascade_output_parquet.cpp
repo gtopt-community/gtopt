@@ -477,6 +477,21 @@ auto run_cascade_and_check_outputs(LowMemoryMode memory_mode, int max_iters)
     // Cascade runs the SDDP path, whose LP objective scale is 1.0 unless
     // overridden — obj_value is physical either way.
     CHECK(std::stod(rcols[13]) > 0.0);
+
+    // The cascade sets the solution.csv summary of its last level's LP:
+    // max_kappa is the run-wide max, so it is never below a cell's
+    // kappa.  Before, a cascade left it at the -1 default next to a
+    // valid per-cell kappa (cases/reserve_cascade_hydro: 1132 vs -1).
+    CHECK(hcols[5] == "kappa");
+    CHECK(hcols[6] == "max_kappa");
+    const double kappa = std::stod(rcols[5]);
+    const double max_kappa = std::stod(rcols[6]);
+    CAPTURE(kappa);
+    CAPTURE(max_kappa);
+    if (kappa >= 0.0) {
+      CHECK(max_kappa >= kappa * (1.0 - 1e-12));
+    }
+    CHECK(std::stod(rcols[7]) >= 0.0);  // gap from the last level
   }
 
   std::filesystem::remove_all(tmpdir);

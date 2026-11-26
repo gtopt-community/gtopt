@@ -29,6 +29,7 @@
 #include <gtopt/phase_range_set.hpp>
 #include <gtopt/planning_options.hpp>
 #include <gtopt/pricing_mode.hpp>
+#include <gtopt/storage_integration.hpp>
 #include <gtopt/transition_integrality.hpp>
 #include <gtopt/variable_scale.hpp>
 
@@ -131,8 +132,8 @@ public:
    *  never falsely promoted — a 1e-5 floor WOULD wrongly catch them.
    *  V-vs-kV unit-typo lines (`x_pu ≈ 1e-7…1e-9`) and HVDC/phase-shifters
    *  (`X = 0`) are caught.
-   *  Set to `0.0` via `--set model_options.dc_line_reactance_threshold=0`
-   *  to disable promotion entirely. */
+   *  The effective floor is `max(this, tiny_reactance_rel_threshold ×
+   *  median |X/V²|)`; set both to `0.0` to disable promotion entirely. */
   static constexpr Real default_dc_line_reactance_threshold = 1e-6;
   /** @brief Default treatment of nonzero sub-threshold reactances.
    *
@@ -142,6 +143,20 @@ public:
    *  treatment let the LP use such lines as free phase shifters. */
   static constexpr TinyReactanceMode default_tiny_reactance_mode =
       TinyReactanceMode::tie;
+  /** @brief Default relative tie floor (`tiny_reactance_rel_threshold`).
+   *
+   *  A line with `|X/V²| < 0.01 · median(|X/V²|)` is a zero-impedance
+   *  tie.  Tying such a line changes the flow split of any parallel
+   *  path of median impedance by at most ~1 %, while its KVL flow
+   *  coefficient would sit two or more decades below the rest of the
+   *  network.  CEN PCP 2026-11-09: median 2.3e-4 → floor 2.3e-6, ties
+   *  the 42 PLEXOS `X = 1e-4` p.u. generator-connection placeholders
+   *  (`x = 1e-6`, exactly the absolute floor) that the absolute
+   *  `1e-6` floor misses (44 ties instead of 1); x_τ spread 1.6e4 →
+   *  3.3e3. */
+  static constexpr Real default_tiny_reactance_rel_threshold = 0.01;
+  /** @brief Default for `tie_line_losses`: ties are lossless. */
+  static constexpr Bool default_tie_line_losses = false;
   /** @brief Default per-unit resistance floor for lossless auto-promotion.
    *
    *  Lines whose per-unit loss term `|R/V²|` falls below this value are
@@ -500,6 +515,68 @@ public:
     return m_options_.model_options.allow_oversupply.value_or(false);
   }
 
+  /// @brief Ramp discretisation: true for `ramp_formula = "central2"`
+  /// (opt-in, second-order non-uniform derivative), false for the
+  /// default `"backward"` interval slope (block and point stages alike).
+  /// See `ModelOptions::ramp_formula`.
+  [[nodiscard]] bool ramp_central2() const
+  {
+    return m_options_.model_options.ramp_formula.value_or("backward")
+        == "central2";
+  }
+
+  /// @brief Global UC formulation is `"power_based"` (default
+  /// `"energy_block"`).  See `ModelOptions::uc_formulation`.
+  [[nodiscard]] bool uc_power_based() const
+  {
+    return m_options_.model_options.uc_formulation.value_or("energy_block")
+        == "power_based";
+  }
+
+  /// @brief `central2` ramps wrap cyclically over the stage period.
+  [[nodiscard]] constexpr bool ramp_wrap() const
+  {
+    return m_options_.model_options.ramp_wrap.value_or(false);
+  }
+
+  /// @brief Global storage-balance integration rule
+  /// (`storage_integration`) of a POINT-sampled stage (block stages
+  /// always use the block recursion): `block` by default.
+  [[nodiscard]] StorageIntegration storage_integration() const
+  {
+    return StorageIntegration::parse(
+        m_options_.model_options.storage_integration.value_or("block"));
+  }
+
+  /// @brief Point-stage integration rule of one storage element:
+  /// element value → per-type option (`reservoir_storage_integration` /
+  /// `battery_storage_integration`) → global `storage_integration` →
+  /// built-in per-type default (`lg4_pos` for reservoirs, `block`).
+  [[nodiscard]] StorageIntegration storage_integration(const OptName& element,
+                                                       bool reservoir) const
+  {
+    const auto& mo = m_options_.model_options;
+    if (element) {
+      return StorageIntegration::parse(*element);
+    }
+    if (const auto& per_type = reservoir ? mo.reservoir_storage_integration
+                                         : mo.battery_storage_integration)
+    {
+      return StorageIntegration::parse(*per_type);
+    }
+    if (mo.storage_integration) {
+      return StorageIntegration::parse(*mo.storage_integration);
+    }
+    return StorageIntegration::parse(reservoir ? "lg4_pos" : "block");
+  }
+
+  /// @brief Planning default of `Commitment.long_transition` (unset:
+  /// undeclared long cyclic units are a validation error).
+  [[nodiscard]] const OptName& long_transition() const noexcept
+  {
+    return m_options_.model_options.long_transition;
+  }
+
   /// @brief Gets the objective function scaling factor.
   ///
   /// Default depends on planning method:
@@ -545,6 +622,20 @@ public:
   /// Priority: model_options.tiny_reactance_mode (string) →
   ///           default_tiny_reactance_mode (tie).
   /// An unrecognised string falls back to the default.
+  /// @brief Relative tie floor (see `default_tiny_reactance_rel_threshold`).
+  [[nodiscard]] constexpr auto tiny_reactance_rel_threshold() const
+  {
+    return m_options_.model_options.tiny_reactance_rel_threshold.value_or(
+        default_tiny_reactance_rel_threshold);
+  }
+
+  /// @brief Whether zero-impedance ties keep their loss model.
+  [[nodiscard]] constexpr auto tie_line_losses() const
+  {
+    return m_options_.model_options.tie_line_losses.value_or(
+        default_tie_line_losses);
+  }
+
   [[nodiscard]] constexpr TinyReactanceMode tiny_reactance_mode() const
   {
     if (m_options_.model_options.tiny_reactance_mode.has_value()) {
@@ -615,13 +706,6 @@ public:
     }
     return enum_from_name<TransitionIntegrality>(*m).value_or(
         TransitionIntegrality::automatic);
-  }
-
-  /// Default for emitting the commitment `v <= u` / `w <= 1 - u` rows
-  /// (`model_options.transition_status_rows`, default `true`).
-  [[nodiscard]] constexpr bool transition_status_rows() const
-  {
-    return m_options_.model_options.transition_status_rows.value_or(true);
   }
 
   /// Default integrality of the startup-tier selectors
@@ -831,6 +915,13 @@ public:
   [[nodiscard]] constexpr auto loss_use_sos2() const
   {
     return m_options_.model_options.loss_use_sos2.value_or(false);
+  }
+
+  /// @brief Ordered-fill cap on PWL loss segments
+  /// (`model_options.loss_segment_bound`, default `true`).
+  [[nodiscard]] constexpr auto loss_segment_bound() const
+  {
+    return m_options_.model_options.loss_segment_bound.value_or(true);
   }
 
   /// @brief Gets the bound for voltage-angle variables (`θ ∈

@@ -46,6 +46,7 @@ from .parsers import (
 from .plexos_loader import PlexosBundle, locate_bundle
 from .plexos_solution import PlexosSolution, open_solution
 from .plexos_xml import PlexosDb, load_xml
+from .uc_cycle import apply_uc_cycle
 
 
 logger = logging.getLogger(__name__)
@@ -632,6 +633,11 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
                 options.get("water_value_factor")
                 or os.environ.get("GTOPT_WATER_VALUE_FACTOR")
             ),
+        )
+        apply_uc_cycle(
+            planning,
+            cycle=str(options.get("uc_cycle") or "none"),
+            long_transition=options.get("long_transition"),
         )
         # CLI override goes into model_options (gtopt's nested layout).
         if options.get("use_single_bus"):

@@ -1065,6 +1065,12 @@ bool HighsSolverBackend::model_is_mip() const
                              { return t != HighsVarType::kContinuous; });
 }
 
+std::pair<int, std::string> HighsSolverBackend::raw_status() const
+{
+  const auto status = m_highs_->getModelStatus();
+  return {static_cast<int>(status), m_highs_->modelStatusToString(status)};
+}
+
 bool HighsSolverBackend::is_abandoned() const
 {
   const auto status = m_highs_->getModelStatus();

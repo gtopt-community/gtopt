@@ -974,6 +974,7 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
   cloned.m_sos2_member_cols_ = m_sos2_member_cols_;
   cloned.m_fast_start_cols_ = m_fast_start_cols_;
   cloned.m_scaling_.equilibration_method = m_scaling_.equilibration_method;
+  cloned.m_scaling_.pin_logic_rows = m_scaling_.pin_logic_rows;
   cloned.m_base_numrows_ = m_base_numrows_;
   cloned.m_base_numrows_set_ = m_base_numrows_set_;
   cloned.m_log_tag_ = m_log_tag_;
@@ -1244,6 +1245,7 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   // Benders cut construction to physical accessors can apply the same
   // per-row scaling to post-build cut rows as the structural build did.
   m_scaling_.equilibration_method = flat_lp.equilibration_method;
+  m_scaling_.pin_logic_rows = flat_lp.pin_logic_rows;
 
   // Preserve VariableScaleMap for dynamic column auto-scaling.
   // `detach_for_write` is a no-op here in practice (load_flat runs
@@ -2200,7 +2202,10 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
   //   - ROW-MAX normalization (default): divide by max-abs.  Right
   //     for structural rows where no single column carries the
   //     row's defining magnitude.
-  if (have_equilibration) {
+  // A `pin_scale` row (pure commitment logic) keeps row factor 1, as in
+  // the bulk pass (`LpMatrixOptions::pin_logic_rows`).
+  const bool pinned_row = row.pin_scale && m_scaling_.pin_logic_rows;
+  if (have_equilibration && !pinned_row) {
     double norm = 0.0;
     if (row.pivot_col != unknown_index) {
       // Find pivot_col's coefficient in the (already-step-1-and-1b-
@@ -2408,7 +2413,7 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
     //    path's step-3 normalisation (linear_interface.cpp:2038-2071).
     //    Pivot-column normalisation when set; row-max otherwise.
     double composite_scale = row.scale * m_scale_objective_;
-    if (have_equilibration) {
+    if (have_equilibration && !(row.pin_scale && m_scaling_.pin_logic_rows)) {
       const double inv_rs_so = 1.0 / composite_scale;
       double norm = 0.0;
       if (row.pivot_col != unknown_index) {
@@ -3435,7 +3440,22 @@ std::optional<double> LinearInterface::backend_kappa() const
   }
   ++m_kappa_queries_;
   g_total_kappa_queries.fetch_add(1, std::memory_order_relaxed);
-  return m_backend_->get_kappa();
+  const auto k = m_backend_->get_kappa();
+  if (!k.has_value()) {
+    return std::nullopt;
+  }
+  // A solver "infinity" (CPLEX's 1e75 sentinel, +inf, NaN) is not a
+  // condition number: report no kappa rather than poison max_kappa,
+  // solution.csv and the high-kappa warning with it.
+  if (const auto finite = finite_kappa(*k); finite.has_value()) {
+    return finite;
+  }
+  SPDLOG_DEBUG(
+      "{}: solver reported kappa {:g} (not a finite condition "
+      "number); treated as unavailable",
+      get_prob_name(),
+      *k);
+  return std::nullopt;
 }
 
 void LinearInterface::query_solve_kappa()

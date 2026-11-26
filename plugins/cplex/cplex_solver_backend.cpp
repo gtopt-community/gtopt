@@ -2222,6 +2222,7 @@ void CplexSolverBackend::initial_solve()
   double s0 = 0.0;
   CPXgetdettime(m_env_lp_.env(), &t0);
   CPXgettime(m_env_lp_.env(), &s0);
+  m_optimal_infeas_warned_ = false;
   const int cplex_type = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());
   if (cplex_type == CPXPROB_MILP || cplex_type == CPXPROB_MIQP) {
     m_solve_status_ = CPXmipopt(m_env_lp_.env(), m_env_lp_.lp());
@@ -2238,6 +2239,7 @@ void CplexSolverBackend::resolve()
   double s0 = 0.0;
   CPXgetdettime(m_env_lp_.env(), &t0);
   CPXgettime(m_env_lp_.env(), &s0);
+  m_optimal_infeas_warned_ = false;
   const int cplex_type = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());
   if (cplex_type == CPXPROB_MILP || cplex_type == CPXPROB_MIQP) {
     m_solve_status_ = CPXmipopt(m_env_lp_.env(), m_env_lp_.lp());
@@ -2333,8 +2335,31 @@ void CplexSolverBackend::disengage_robust_solve() noexcept
 bool CplexSolverBackend::is_proven_optimal() const
 {
   const int stat = CPXgetstat(m_env_lp_.env(), m_env_lp_.lp());
-  const bool status_optimal = stat == CPX_STAT_OPTIMAL || stat == CPXMIP_OPTIMAL
+  bool status_optimal = stat == CPX_STAT_OPTIMAL || stat == CPXMIP_OPTIMAL
       || stat == CPXMIP_OPTIMAL_TOL;
+  // CPX_STAT_OPTIMAL_INFEAS (5): optimal for the scaled LP, but the
+  // unscaled solution violates a tolerance.  Not optimal by default (the
+  // fallback cycle re-solves); `accept_optimal_infeas` accepts it.
+  if (stat == CPX_STAT_OPTIMAL_INFEAS && m_prep_.options.has_value()
+      && m_prep_.options->accept_optimal_infeas_enabled())
+  {
+    status_optimal = true;
+    if (!m_optimal_infeas_warned_) {
+      m_optimal_infeas_warned_ = true;
+      double max_primal = -1.0;
+      double max_dual = -1.0;
+      (void)CPXgetdblquality(
+          m_env_lp_.env(), m_env_lp_.lp(), &max_primal, CPX_MAX_PRIMAL_INFEAS);
+      (void)CPXgetdblquality(
+          m_env_lp_.env(), m_env_lp_.lp(), &max_dual, CPX_MAX_DUAL_INFEAS);
+      spdlog::warn(
+          "CPLEX: CPX_STAT_OPTIMAL_INFEAS (optimal with unscaled "
+          "infeasibilities) accepted as optimal (accept_optimal_infeas): "
+          "max unscaled primal infeasibility {:.3g}, dual {:.3g}",
+          max_primal,
+          max_dual);
+    }
+  }
   if (!status_optimal) {
     return false;
   }
@@ -2394,6 +2419,21 @@ bool CplexSolverBackend::has_mip_incumbent() const
   return CPXsolninfo(env, lp, &method, &soln_type, &primal_feas, &dual_feas)
       == 0
       && soln_type != CPX_NO_SOLN && primal_feas != 0;
+}
+
+std::pair<int, std::string> CplexSolverBackend::raw_status() const
+{
+  auto* env = m_env_lp_.env();
+  auto* lp = m_env_lp_.lp();
+  if (env == nullptr || lp == nullptr) {
+    return {-1, "no problem"};
+  }
+  const int stat = CPXgetstat(env, lp);
+  std::array<char, CPXMESSAGEBUFSIZE> buf {};
+  if (CPXgetstatstring(env, stat, buf.data()) == nullptr) {
+    return {stat, "unknown"};
+  }
+  return {stat, std::string {buf.data()}};
 }
 
 bool CplexSolverBackend::is_abandoned() const
@@ -2474,16 +2514,29 @@ std::optional<double> CplexSolverBackend::get_kappa() const
   if (mode == KappaMode::off) {
     return std::nullopt;
   }
+  const int what = mode == KappaMode::exact ? CPX_EXACT_KAPPA : CPX_KAPPA;
   double kappa = 0.0;
-  if (CPXgetdblquality(m_env_lp_.env(),
-                       m_env_lp_.lp(),
-                       &kappa,
-                       mode == KappaMode::exact ? CPX_EXACT_KAPPA : CPX_KAPPA)
-      != 0)
-  {
+  if (CPXgetdblquality(m_env_lp_.env(), m_env_lp_.lp(), &kappa, what) != 0) {
     return std::nullopt;
   }
-  return kappa;
+  // Status 0 does not mean a finite value: when CPLEX cannot bound the
+  // condition of the final basis (numerically singular: the log then
+  // shows "Repairing basis singularity" / a raised Markowitz threshold)
+  // it fills its huge-value sentinel 1e75.  That is "no condition
+  // number", not kappa = 1e75.
+  if (is_infinite_kappa(kappa)) {
+    static std::atomic_flag warned = ATOMIC_FLAG_INIT;
+    if (!warned.test_and_set(std::memory_order_relaxed)) {
+      spdlog::warn(
+          "CPLEX: {} returned its infinity sentinel {:g}: the final basis "
+          "is numerically singular (no finite condition estimate); kappa "
+          "is reported as unavailable (logged once)",
+          what == CPX_EXACT_KAPPA ? "CPX_EXACT_KAPPA" : "CPX_KAPPA",
+          kappa);
+    }
+    return std::nullopt;
+  }
+  return finite_kappa(kappa);
 }
 
 void CplexSolverBackend::open_log(FILE* /*file*/, int level)

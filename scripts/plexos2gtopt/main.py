@@ -1465,6 +1465,26 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--uc-cycle",
+        choices=("none", "stage"),
+        default="none",
+        help=(
+            "'stage': cyclic unit commitment over each stage (typical "
+            "day/week): commitments get cycle='stage' and no initial state"
+        ),
+    )
+    parser.add_argument(
+        "--long-transition",
+        choices=("on", "off", "no_uc"),
+        default=None,
+        help=(
+            "with --uc-cycle stage: declare long_transition on every unit "
+            "whose min up/down time exceeds the typical period (the list "
+            "is printed).  Without it those units stay undeclared and "
+            "gtopt rejects the case listing them"
+        ),
+    )
+    parser.add_argument(
         "-V",
         "--version",
         action="version",
@@ -1592,6 +1612,8 @@ def main(argv: list[str] | None = None) -> None:
         "plexos_version": getattr(args, "plexos_version", None),
         "lp_relax": args.lp_relax,
         "uc_relax": getattr(args, "uc_relax", "auto"),
+        "uc_cycle": getattr(args, "uc_cycle", "none"),
+        "long_transition": getattr(args, "long_transition", None),
         "plexos_model": getattr(args, "plexos_model", None),
         "plexos_start_date": getattr(args, "plexos_start_date", None),
         "plexos_sample": getattr(args, "plexos_sample", 1),

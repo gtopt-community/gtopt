@@ -26,6 +26,10 @@ thermal unit ``t``     ``Generator`` (pmin 0, gcost = variable cost) +
 The ``native`` formulation replaces the user-constraint rows with the
 built-in ``Commitment`` ramp / startup-shutdown-ramp fields, which do not
 couple the reserves to the ramps (a relaxation of the paper model).
+``power_based`` uses the same native fields under
+``model_options.uc_formulation = "power_based"`` (power at the hour
+boundaries, trapezoid energies, reserve-coupled instantaneous ramps):
+a different model from the paper's hourly energy-block IUC.
 """
 
 from __future__ import annotations
@@ -38,7 +42,7 @@ from typing import Any
 from cucdata2gtopt._model import UnitParams, derive_unit
 from cucdata2gtopt._reader import CucData
 
-FORMULATIONS = ("paper", "native")
+FORMULATIONS = ("paper", "native", "power_based")
 #: ``chronological``: one chronological stage, the full IUC model.
 #: ``block``: the same hours as non-chronological blocks -- gtopt's block
 #: commitment (per-block ``Pmin u <= g <= Pmax u``, no startup / shutdown
@@ -286,11 +290,17 @@ def _commitment(
         entry["fixed_status"] = [
             [float(u.ini_uc) if b < pinned else -1.0 for b in range(nblocks)]
         ]
-    if formulation == "native":
+    if formulation in ("native", "power_based"):
         entry["ramp_up"] = u.ramp_up
         entry["ramp_down"] = u.ramp_dn
         entry["startup_ramp"] = u.su_cap
         entry["shutdown_ramp"] = u.sd_cap
+    if formulation == "power_based":
+        # The workbook's initial output is the hour-0 AVERAGE; the
+        # power-based model would read it as the instantaneous power at
+        # t = 0 (a unit at pmax could then only ramp down at RD through
+        # hour 1).  Leave it unknown: P̂_0 is free in [pmin, pmax].
+        del entry["initial_power"]
     return entry
 
 
@@ -458,7 +468,7 @@ def build_case(data: CucData, opts: CaseOptions) -> dict[str, Any]:
         ],
         "scenario_array": [{"uid": 1, "probability_factor": 1}],
     }
-    options = {
+    options: dict[str, Any] = {
         "output_format": "csv",
         "output_compression": "uncompressed",
         "model_options": {
@@ -468,6 +478,8 @@ def build_case(data: CucData, opts: CaseOptions) -> dict[str, Any]:
             "demand_fail_cost": ens_cost,
         },
     }
+    if opts.formulation == "power_based":
+        options["model_options"]["uc_formulation"] = "power_based"
     return {"options": options, "simulation": simulation, "system": system}
 
 

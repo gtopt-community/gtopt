@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <limits>
 #include <optional>
 #include <string>
 #include <utility>
@@ -30,6 +31,7 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/solution_csv.hpp>
+#include <gtopt/solver_backend.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_registry.hpp>
 #include <unistd.h>
@@ -399,6 +401,173 @@ TEST_CASE("kappa_mode exact vs estimate on every backend")  // NOLINT
     // other solvers' estimates may land on either side.
     if (est && exact && name == "highs") {
       CHECK(est.value_or(0.0) <= (exact.value_or(0.0) * (1.0 + 1e-6)) + 1e-9);
+    }
+  }
+}
+
+TEST_CASE("finite_kappa rejects solver infinity sentinels")  // NOLINT
+{
+  // CPLEX answers CPX_KAPPA with status 0 and its huge-value sentinel
+  // 1e75 when it cannot bound the basis condition (CEN PCP 2025-10-19
+  // relaxed solve).  That is no kappa.
+  CHECK(is_infinite_kappa(1e75));
+  CHECK_FALSE(finite_kappa(1e75).has_value());
+  CHECK_FALSE(finite_kappa(k_kappa_infinite).has_value());
+  CHECK_FALSE(
+      finite_kappa(std::numeric_limits<double>::infinity()).has_value());
+  CHECK_FALSE(
+      finite_kappa(std::numeric_limits<double>::quiet_NaN()).has_value());
+  CHECK(is_infinite_kappa(std::numeric_limits<double>::quiet_NaN()));
+  CHECK_FALSE(finite_kappa(-1.0).has_value());
+
+  // Real condition numbers pass through, huge ones included: CPLEX
+  // itself reports 2.3e16 (CPX_KAPPA) / 2.5e16 (CPX_EXACT_KAPPA) on that
+  // LP's final basis and 2.6e26 after a primal re-solve from it -
+  // numerically singular bases the high-kappa warning must still flag.
+  CHECK(finite_kappa(1.0).value_or(-1.0) == doctest::Approx(1.0));
+  CHECK(finite_kappa(1.81e7).value_or(-1.0) == doctest::Approx(1.81e7));
+  CHECK(finite_kappa(2.33e16).value_or(-1.0) == doctest::Approx(2.33e16));
+  CHECK(finite_kappa(2.59e26).value_or(-1.0) == doctest::Approx(2.59e26));
+  CHECK(finite_kappa(1e74).value_or(-1.0) == doctest::Approx(1e74));
+  CHECK_FALSE(is_infinite_kappa(2.59e26));
+}
+
+namespace
+{
+
+/// Three-period unit commitment built as a MIP and LP-relaxed, the shape
+/// of the `--no-mip` PCP solve: status u (integer), startup v, shutdown
+/// w, logic u[t] - u[t-1] - v[t] + w[t] = 0, the status rows v <= u and
+/// w <= 1 - u, the exclusion v + w <= 1, Pmin u <= p <= Pmax u and a
+/// demand row with a costly slack.
+void add_relaxed_uc_lp(LinearInterface& li)
+{
+  constexpr auto demand = std::to_array({30.0, 80.0, 10.0});
+  constexpr double pmin = 40.0;
+  constexpr double pmax = 100.0;
+  std::optional<ColIndex> u_prev;
+  for (const double d : demand) {
+    const auto u = li.add_col(SparseCol {
+        .uppb = 1.0,
+        .cost = 5.0,
+        .is_integer = true,
+    });
+    const auto v = li.add_col(SparseCol {
+        .uppb = 1.0,
+        .cost = 50.0,
+    });
+    const auto w = li.add_col(SparseCol {
+        .uppb = 1.0,
+        .cost = 1.0,
+    });
+    const auto p = li.add_col(SparseCol {
+        .uppb = pmax,
+        .cost = 2.0,
+    });
+    const auto fail = li.add_col(SparseCol {
+        .uppb = d,
+        .cost = 1000.0,
+    });
+
+    SparseRow logic;  // u[t] - u[t-1] - v[t] + w[t] = 0 (u[-1] = 0)
+    logic[u] = 1.0;
+    if (u_prev.has_value()) {
+      logic[*u_prev] = -1.0;
+    }
+    logic[v] = -1.0;
+    logic[w] = 1.0;
+    logic.lowb = 0.0;
+    logic.uppb = 0.0;
+    (void)li.add_row(logic);
+
+    SparseRow startup;  // v <= u
+    startup[v] = 1.0;
+    startup[u] = -1.0;
+    startup.lowb = -LinearProblem::DblMax;
+    startup.uppb = 0.0;
+    (void)li.add_row(startup);
+
+    SparseRow shutdown;  // w + u <= 1
+    shutdown[w] = 1.0;
+    shutdown[u] = 1.0;
+    shutdown.lowb = -LinearProblem::DblMax;
+    shutdown.uppb = 1.0;
+    (void)li.add_row(shutdown);
+
+    SparseRow exclusion;  // v + w <= 1
+    exclusion[v] = 1.0;
+    exclusion[w] = 1.0;
+    exclusion.lowb = -LinearProblem::DblMax;
+    exclusion.uppb = 1.0;
+    (void)li.add_row(exclusion);
+
+    SparseRow pmax_row;  // p - Pmax u <= 0
+    pmax_row[p] = 1.0;
+    pmax_row[u] = -pmax;
+    pmax_row.lowb = -LinearProblem::DblMax;
+    pmax_row.uppb = 0.0;
+    (void)li.add_row(pmax_row);
+
+    SparseRow pmin_row;  // p - Pmin u >= 0
+    pmin_row[p] = 1.0;
+    pmin_row[u] = -pmin;
+    pmin_row.lowb = 0.0;
+    pmin_row.uppb = LinearProblem::DblMax;
+    (void)li.add_row(pmin_row);
+
+    SparseRow balance;  // p + fail >= d
+    balance[p] = 1.0;
+    balance[fail] = 1.0;
+    balance.lowb = d;
+    balance.uppb = LinearProblem::DblMax;
+    (void)li.add_row(balance);
+
+    u_prev = u;
+  }
+}
+
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "kappa of a relaxed MIP model is finite or absent, never a sentinel")
+{
+  for (const auto name : kappa_backends) {
+    if (!have_kappa_backend(name)) {
+      continue;
+    }
+    for (const auto algo : {LPAlgo::dual, LPAlgo::primal, LPAlgo::barrier}) {
+      for (const auto mode : {KappaMode::estimate, KappaMode::exact}) {
+        CAPTURE(name);
+        CAPTURE(static_cast<int>(algo));
+        CAPTURE(static_cast<int>(mode));
+        LinearInterface li(name);
+        add_relaxed_uc_lp(li);
+        (void)li.relax_integers();
+        REQUIRE(li.initial_solve(SolverOptions {
+                                     .algorithm = algo,
+                                     .threads = 1,
+                                     .kappa_mode = mode,
+                                 })
+                    .has_value());
+        REQUIRE(li.is_optimal());
+        const auto kappa = li.get_kappa();
+        if (kappa.has_value()) {
+          CHECK(*kappa >= 0.0);
+          CHECK(*kappa < k_kappa_infinite);
+          CHECK_FALSE(is_infinite_kappa(*kappa));
+          CHECK(li.solver_stats().max_kappa
+                == doctest::Approx(kappa.value_or(-1.0)));
+        } else {
+          CHECK(li.solver_stats().max_kappa == doctest::Approx(-1.0));
+        }
+        // CPLEX ends every LP solve here (barrier with its default
+        // crossover too) on a basis: a plausible finite kappa.
+        if (name == "cplex") {
+          CHECK(kappa.has_value());
+          CHECK(kappa.value_or(0.0) >= 1.0);
+          CHECK(kappa.value_or(k_kappa_infinite) < 1e6);
+        }
+      }
     }
   }
 }

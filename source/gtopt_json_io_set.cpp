@@ -300,6 +300,9 @@ solver_field_setters()
           {"deterministic_parallel",
            [](SolverOptions& o, std::string_view n, const std::string& v)
            { o.deterministic_parallel = require_bool(n, v); }},
+          {"accept_optimal_infeas",
+           [](SolverOptions& o, std::string_view n, const std::string& v)
+           { o.accept_optimal_infeas = require_bool(n, v); }},
           {"optimal_eps",
            [](SolverOptions& o, std::string_view, const std::string& v)
            { o.optimal_eps = std::stod(v); }},

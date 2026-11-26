@@ -299,6 +299,11 @@ struct Battery
   /// Default for batteries is true (enabled); can be disabled explicitly.
   OptBool daily_cycle {};
 
+  /// Point-stage storage integration rule of this element (`block` = `cc` |
+  /// `trapezoid` | `lg4` | `lg6` | `lg4_pos` | `lg6_pos`); unset: the
+  /// per-type / global model option (see ModelOptions).
+  OptName storage_integration {};
+
   /// Daily energy-throughput limit — PLEXOS ``Battery.Max Cycles Day``.
   /// Sets the HARD constraint ``Σ_blocks discharge·Δt ≤ N · capacity`` per
   /// day, where ``N = max_cycles_day`` and ``capacity`` is the usable energy

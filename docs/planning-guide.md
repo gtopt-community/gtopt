@@ -1280,7 +1280,7 @@ output/
 | Column | Description |
 |--------|-------------|
 | `obj_value` | Total cost in physical units (`scale_objective` already reversed) |
-| `kappa` | Basis condition number (`-1` when unavailable) |
+| `kappa` | Basis condition number (`-1` when unavailable, including a solver "infinite" answer such as CPLEX's 1e75 sentinel for a numerically singular basis) |
 | `status` | 0 = optimal; 1 = infeasible; 2 = unbounded; 5 = MIP limit reached, incumbent polished; -1 = not solved |
 | `scale_objective` | Objective scale factor of the LP (`obj_value / scale_objective` = LP-raw objective) |
 | `gtopt_version`, `gtopt_revision` | The gtopt build that wrote the file: version and `git describe` revision (same on every row) |

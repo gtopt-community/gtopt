@@ -101,8 +101,6 @@ public:
   /// C3 exclusion row: ``v[t] + w[t] ≤ 1`` (mutual exclusion of the
   /// startup and shutdown indicators).
   static constexpr std::string_view ExclusionName {"exclusion"};
-  static constexpr std::string_view StartupStatusName {"startup_status"};
-  static constexpr std::string_view ShutdownStatusName {"shutdown_status"};
   /// v1.2 time-based constraint labels (mirror ``CommitmentLP``).
   static constexpr std::string_view MinUpTimeName {"min_up_time"};
   static constexpr std::string_view MinDownTimeName {"min_down_time"};

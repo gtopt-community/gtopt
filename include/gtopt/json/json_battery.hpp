@@ -126,6 +126,7 @@ struct json_data_contract<Battery>
       json_bool_null<"integer_expmod", OptBool>,  ///< Integer expansion modules
       json_bool_null<"use_state_variable", OptBool>,  ///< Stage/phase coupling
       json_bool_null<"daily_cycle", OptBool>,  ///< Daily cycle operation
+      json_string_null<"storage_integration", OptName>,
       json_number_null<"max_cycles_day", OptReal>,  ///< Daily throughput
                                                     ///< limit (PLEXOS Max
                                                     ///< Cycles Day): hard
@@ -205,6 +206,7 @@ struct json_data_contract<Battery>
                                  battery.integer_expmod,
                                  battery.use_state_variable,
                                  battery.daily_cycle,
+                                 battery.storage_integration,
                                  battery.max_cycles_day,
                                  battery.commitment,
                                  battery.exclusive_charge_discharge,

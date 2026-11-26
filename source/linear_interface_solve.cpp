@@ -213,6 +213,30 @@ void scale_optimality_tol_for_objective(SolverOptions& opts,
   retry_opts.time_limit = remaining;
   return true;
 }
+
+/// "barrier: status 5 'optimal with unscaled infeasibilities'" — one
+/// solve attempt of the fallback cycle, with the backend's native status.
+[[nodiscard]] std::string describe_attempt(const SolverBackend& backend,
+                                           LPAlgo algo)
+{
+  const auto [code, name] = backend.raw_status();
+  return std::format("{}: status {} '{}'", algo, code, name);
+}
+
+/// One line for the whole fallback cycle: every attempt's algorithm and
+/// native status, then the outcome.
+[[nodiscard]] std::string join_attempts(const std::vector<std::string>& v)
+{
+  std::string out;
+  for (const auto& a : v) {
+    if (!out.empty()) {
+      out += " -> ";
+    }
+    out += a;
+  }
+  return out;
+}
+
 }  // namespace
 
 std::expected<int, Error> LinearInterface::initial_solve(
@@ -286,6 +310,11 @@ std::expected<int, Error> LinearInterface::initial_solve(
     // attempt and every fallback below.
     const auto solve_t0 = Clock::now();
     timed_solve();
+    // Native status of every attempt, for the cycle's warn line.
+    std::vector<std::string> attempts;
+    if (!is_optimal() && effective.max_fallbacks > 0) {
+      attempts.push_back(describe_attempt(*m_backend_, effective.algorithm));
+    }
 
     // Options of the last attempt that PROVED infeasibility (status 2).
     // A later fallback attempt that merely gives up must not overwrite
@@ -315,10 +344,13 @@ std::expected<int, Error> LinearInterface::initial_solve(
           break;
         }
         const auto next_algo = next_fallback_algo(current_algo);
-        spdlog::warn("{}: initial_solve non-optimal with {}, fallback to {}",
-                     m_log_tag_.empty() ? get_prob_name() : m_log_tag_,
-                     current_algo,
-                     next_algo);
+        spdlog::warn(
+            "{}: initial_solve non-optimal with {} (backend {}), fallback to "
+            "{}",
+            m_log_tag_.empty() ? get_prob_name() : m_log_tag_,
+            current_algo,
+            attempts.empty() ? std::string {"n/a"} : attempts.back(),
+            next_algo);
 
         fallback_opts.algorithm = next_algo;
         fallback_opts.presolve = false;
@@ -333,6 +365,7 @@ std::expected<int, Error> LinearInterface::initial_solve(
 
         ++m_solver_stats_.fallback_solves;
         timed_solve();
+        attempts.push_back(describe_attempt(*m_backend_, next_algo));
         if (get_status() == 2) {
           proven_infeasible_opts = fallback_opts;
         }
@@ -350,6 +383,16 @@ std::expected<int, Error> LinearInterface::initial_solve(
         ++m_solver_stats_.fallback_solves;
         timed_solve();
       }
+    }
+
+    // Every attempt's native status at WARN, one line per cycle (the
+    // per-attempt resolve lines stay DEBUG: SDDP's infeasible clones
+    // would print 2-3 lines each).
+    if (attempts.size() > 1) {
+      spdlog::warn("{}: initial_solve fallback cycle: {}; final: {}",
+                   m_log_tag_.empty() ? get_prob_name() : m_log_tag_,
+                   join_attempts(attempts),
+                   is_optimal() ? "optimal" : "non-optimal");
     }
 
     if (!is_optimal()) {
@@ -455,6 +498,11 @@ std::expected<int, Error> LinearInterface::resolve(
     // attempt and every fallback below.
     const auto solve_t0 = Clock::now();
     timed_solve();
+    // Native status of every attempt, for the cycle's warn line.
+    std::vector<std::string> attempts;
+    if (!is_optimal() && effective.max_fallbacks > 0) {
+      attempts.push_back(describe_attempt(*m_backend_, effective.algorithm));
+    }
 
     // Options of the last attempt that PROVED infeasibility (status 2).
     // A later fallback attempt that merely gives up must not overwrite
@@ -490,10 +538,13 @@ std::expected<int, Error> LinearInterface::resolve(
         // fcut" INFO line in sddp_forward_pass.cpp, so the fallback-step
         // chatter is noise in the main log.  Still available at debug
         // level for a deep post-mortem.
-        SPDLOG_DEBUG("{}: resolve non-optimal with {}, fallback to {}",
-                     m_log_tag_.empty() ? get_prob_name() : m_log_tag_,
-                     current_algo,
-                     next_algo);
+        SPDLOG_DEBUG(
+            "{}: resolve non-optimal with {} (backend {}), fallback "
+            "to {}",
+            m_log_tag_.empty() ? get_prob_name() : m_log_tag_,
+            current_algo,
+            attempts.empty() ? std::string {"n/a"} : attempts.back(),
+            next_algo);
 
         fallback_opts.algorithm = next_algo;
         fallback_opts.presolve = false;
@@ -508,6 +559,7 @@ std::expected<int, Error> LinearInterface::resolve(
 
         ++m_solver_stats_.fallback_solves;
         timed_solve();
+        attempts.push_back(describe_attempt(*m_backend_, next_algo));
         if (get_status() == 2) {
           proven_infeasible_opts = fallback_opts;
         }
@@ -525,6 +577,16 @@ std::expected<int, Error> LinearInterface::resolve(
         ++m_solver_stats_.fallback_solves;
         timed_solve();
       }
+    }
+
+    // Every attempt's native status at WARN, one line per cycle (the
+    // per-attempt resolve lines stay DEBUG: SDDP's infeasible clones
+    // would print 2-3 lines each).
+    if (attempts.size() > 1) {
+      spdlog::warn("{}: resolve fallback cycle: {}; final: {}",
+                   m_log_tag_.empty() ? get_prob_name() : m_log_tag_,
+                   join_attempts(attempts),
+                   is_optimal() ? "optimal" : "non-optimal");
     }
 
     if (!is_optimal()) {

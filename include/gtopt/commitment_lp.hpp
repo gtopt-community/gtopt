@@ -20,6 +20,8 @@
 #pragma once
 
 #include <optional>
+#include <span>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -34,14 +36,18 @@ class CommitmentLP : public ObjectLP<Commitment>
 {
 public:
   static constexpr std::string_view StatusName {"status"};
+  /// Fixed start / shutdown between consecutive stages declared
+  /// `long_transition` off → on / on → off.
+  static constexpr std::string_view StartupTransitionName {
+      "startup_transition"};
+  static constexpr std::string_view ShutdownTransitionName {
+      "shutdown_transition"};
   static constexpr std::string_view StartupName {"startup"};
   static constexpr std::string_view ShutdownName {"shutdown"};
   static constexpr std::string_view GenUpperName {"gen_upper"};
   static constexpr std::string_view GenLowerName {"gen_lower"};
   static constexpr std::string_view LogicName {"logic"};
   static constexpr std::string_view ExclusionName {"exclusion"};
-  static constexpr std::string_view StartupStatusName {"startup_status"};
-  static constexpr std::string_view ShutdownStatusName {"shutdown_status"};
   static constexpr std::string_view RampUpName {"ramp_up"};
   static constexpr std::string_view RampDownName {"ramp_down"};
   static constexpr std::string_view SegmentName {"segment"};
@@ -53,6 +59,8 @@ public:
   static constexpr std::string_view StartupTypeName {"startup_type"};
   static constexpr std::string_view MaxStartsName {"max_starts"};
   static constexpr std::string_view MinStartsName {"min_starts"};
+  /// power_based: total power at the end of each block [MW]
+  static constexpr std::string_view PowerName {"power"};
 
   using Base = ObjectLP<Commitment>;
 
@@ -120,6 +128,14 @@ public:
   /// commitment is inactive there.  Used by the MIP-start `CommitmentLogicRule`
   /// to derive v from the repaired status (u) transitions so the C1 logic rows
   /// (`u[p] - u[p-1] - v[p] + w[p] = 0`) hold for the injected integer start.
+  /// power_based: P̂ (total power at the end of each block), or null.
+  [[nodiscard]] const BIndexHolder<ColIndex>* find_power_cols(
+      const ScenarioLP& scenario, const StageLP& stage) const
+  {
+    const auto it = power_cols_.find({scenario.uid(), stage.uid()});
+    return it != power_cols_.end() ? &it->second : nullptr;
+  }
+
   [[nodiscard]] const BIndexHolder<ColIndex>* find_startup_cols(
       const ScenarioLP& scenario, const StageLP& stage) const
   {
@@ -134,6 +150,15 @@ public:
   {
     const auto it = shutdown_cols_.find({scenario.uid(), stage.uid()});
     return it != shutdown_cols_.end() ? &it->second : nullptr;
+  }
+
+  /// Per-node ramp-up (C4) rows for a (scenario, stage), keyed by block
+  /// uid; nullptr when the commitment has no ramp rows there.
+  [[nodiscard]] const BIndexHolder<RowIndex>* find_ramp_up_rows(
+      const ScenarioLP& scenario, const StageLP& stage) const
+  {
+    const auto it = ramp_up_rows_.find({scenario.uid(), stage.uid()});
+    return it != ramp_up_rows_.end() ? &it->second : nullptr;
   }
 
   /// Scheduled ``Commitment.pmin`` [MW] at (stage, block), or nullopt
@@ -220,6 +245,44 @@ private:
   /// per scope window (hour / day / week / horizon).  Indexed by the
   /// window-ending block uid so the dual on each row is recoverable.
   STBIndexHolder<RowIndex> max_starts_rows_;
+
+  /// Declared `long_transition` mode of a cyclic unit whose time
+  /// constraints @p long_list exceed the typical period (empty when none
+  /// apply); warns once per unit and adds the fixed start / shutdown of a
+  /// declared off ↔ on change from the previous stage.
+  [[nodiscard]] std::string_view setup_long_transition(
+      SystemContext& sc,
+      const ScenarioLP& scenario,
+      const StageLP& stage,
+      LinearProblem& lp,
+      double cycle_len,
+      std::span<const std::pair<std::string_view, double>> long_list);
+
+  /// One warning per unit for dropped long-transition constraints.
+  bool m_long_warned_ {false};
+
+  // ── power_based (docs/unit-commitment.md §4.6) ──
+  bool power_based_warned_ {false};
+  STBIndexHolder<ColIndex> power_cols_;  ///< P̂ at the end of each block
+  /// False (warned once) on a point stage or an expandable generator,
+  /// which keep the energy-block rows.
+  [[nodiscard]] bool power_based_applies(const StageLP& stage,
+                                         bool point,
+                                         bool expandable);
+  void add_power_based(SystemContext& sc,
+                       const ScenarioLP& scenario,
+                       const StageLP& stage,
+                       LinearProblem& lp,
+                       const BIndexHolder<ColIndex>& generation_cols,
+                       std::span<const std::size_t> block_period,
+                       std::span<const std::size_t> period_starts,
+                       std::span<const double> period_real,
+                       const BIndexHolder<ColIndex>& ucols,
+                       std::span<const ColIndex> period_vcol,
+                       std::span<const ColIndex> period_wcol,
+                       bool cyclic,
+                       double initial_u,
+                       bool horizon_start);
 };
 
 // Pin the data-struct constant value so an accidental rename of the

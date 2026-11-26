@@ -31,23 +31,16 @@ MIP dispatch (published Table 4 and gtopt): `unit1` 70 / 40 / 70,
 | LMP | `fixed` | 60 / 60 / 60 | 60 / 60 / 60 | 560 / 560 |
 | aCHP1 | — | 60 / 60 / 64 | — | 160 / 360 |
 | CHP (aCHP2) | — | 60 / 60 / 65.6 | — | 0 / 360 |
-| — | `relaxed` | — | 60 / 60 / 314/5 = 62.8 | — |
+| — | `relaxed` | — | 60 / 60 / 820/13 ≈ 63.08 | — |
 
 Expected differences:
 
 - `relaxed` is the LP relaxation of the 3-binary UC with ramp rows
   `p_t − p_{t−1} ≤ RU·u_{t−1} + SU·v_t`.  With ramps that is not the
   convex hull of each unit's multi-period set (H&B add valid
-  inequalities to get there), so the hour-3 price 62.8 is below both
-  aCHP1 (64) and CHP (65.6): the relaxed-LP price is not the
-  convex-hull price.  The status rows `v ≤ u`, `w ≤ 1 − u`
-  (`transition_status_rows`, default on) tighten the relaxation (LP
-  bound 20569.23 → 20583.75, MIP 20960), and so does the first-block
-  ramp-up row on the start-up column, `p₁ − SU·v₁ ≤ 0` instead of
-  `p₁ ≤ SU` (bound → 20596.00, price 62.625 → 62.8);
-  `transition_status_rows = false` reproduces the previous 820/13 ≈
-  63.08.  The same LP written
-  out by hand (scipy / HiGHS) gives both values.
+  inequalities to get there), so the hour-3 price 63.08 is below both
+  aCHP1 (64) and CHP (65.6).  The same LP written out by hand gives the
+  same duals.
 - The uplift tool's self-schedule ignores ramps, so at the aCHP1 / CHP
   prices it credits `unit2` with a start in hour 3 at 100 MW (ramp
   infeasible) and reports 360 $ instead of 160 / 0.  `unit1` uplift

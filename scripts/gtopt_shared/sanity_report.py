@@ -140,6 +140,10 @@ STANDARD_KV_LEVELS: frozenset[float] = frozenset(
 
 #: C++ ``PlanningOptionsLP::default_dc_line_reactance_threshold``.
 DEFAULT_TIE_THRESHOLD = 1e-6
+#: C++ ``PlanningOptionsLP::default_tiny_reactance_rel_threshold``.
+DEFAULT_TIE_REL_THRESHOLD = 0.01
+#: C++ ``PlanningOptionsLP::default_dc_line_resistance_threshold``.
+DEFAULT_RESISTANCE_THRESHOLD = 1e-7
 
 _INT_GROUP = re.compile(r"\d+")
 
@@ -183,6 +187,8 @@ class SanityReport:
     findings: dict[str, Finding] = field(default_factory=dict)
     line_classes: list[dict[str, Any]] = field(default_factory=list)
     tie_threshold: float = DEFAULT_TIE_THRESHOLD
+    tie_rel_threshold: float = DEFAULT_TIE_REL_THRESHOLD
+    resistance_threshold: float = DEFAULT_RESISTANCE_THRESHOLD
 
     def finding(self, category: str, message: str) -> Finding:
         """Return (creating on first use) the finding for ``category``."""
@@ -382,12 +388,6 @@ def _check_lines(
 ) -> None:
     buses = _index(system.get("bus_array", []) or [])
     rows: list[dict[str, Any]] = []
-    xr = report.finding("line_xr", f"lines with X/R > {th.line_xr_max:g}")
-    below = report.finding(
-        "line_below_tie",
-        f"lines with |X|/V² below the tie threshold {report.tie_threshold:g} "
-        "(become zero-impedance ties)",
-    )
     for line in system.get("line_array", []) or []:
         if not _is_active(line):
             continue
@@ -404,11 +404,37 @@ def _check_lines(
         rows.append(
             {"name": name, "kv_class": kv_class, "source": source, "x": x_eff}
             | ({"r": r_eff} if r_eff is not None else {})
+            | ({"xr": x / r} if r else {})
         )
-        if r and r > 0 and x / r > th.line_xr_max:
-            xr.add(x / r, name=name, kv_class=kv_class, xr=x / r)
-        if x_eff < report.tie_threshold:
-            below.add(1.0 / x_eff, name=name, kv_class=kv_class, x=x_eff)
+
+    # Effective zero-impedance floor (C++ ``effective_tiny_reactance_
+    # threshold``): max(absolute, rel x system median |X|/V²).  Lines below
+    # it are ties with no KVL flow term (and lossless by default), so they
+    # skip the X/R check; they stay in the kV-class outlier list, which
+    # hunts conversion unit bugs.
+    if rows and report.tie_rel_threshold > 0.0:
+        sys_median = _percentile(sorted(r["x"] for r in rows), 0.5)
+        report.tie_threshold = max(
+            report.tie_threshold, report.tie_rel_threshold * sys_median
+        )
+    xr = report.finding("line_xr", f"lines with X/R > {th.line_xr_max:g}")
+    below = report.finding(
+        "line_below_tie",
+        f"lines with |X|/V² below the tie threshold {report.tie_threshold:.3g} "
+        "(become zero-impedance ties)",
+    )
+    for row in rows:
+        if row["x"] < report.tie_threshold:
+            row["tie"] = True
+            below.add(
+                1.0 / row["x"], name=row["name"], kv_class=row["kv_class"], x=row["x"]
+            )
+        elif (
+            "xr" in row
+            and row.get("r", 0.0) >= report.resistance_threshold
+            and row["xr"] > th.line_xr_max
+        ):
+            xr.add(row["xr"], name=row["name"], kv_class=row["kv_class"], xr=row["xr"])
 
     outlier = report.finding(
         "line_x_outlier",
@@ -430,7 +456,7 @@ def _check_lines(
             "x_median": med,
             "x_p5": _percentile(xs, 0.05),
             "x_p95": _percentile(xs, 0.95),
-            "below_tie": sum(1 for v in xs if v < report.tie_threshold),
+            "below_tie": sum(1 for m in members if m.get("tie")),
         }
         if rs:
             entry |= {
@@ -786,9 +812,15 @@ def build_sanity_report(
     system = planning.get("system", {}) or {}
     model = (planning.get("options", {}) or {}).get("model_options", {}) or {}
     tie = _num(model.get("dc_line_reactance_threshold"))
+    tie_rel = _num(model.get("tiny_reactance_rel_threshold"))
+    r_floor = _num(model.get("dc_line_resistance_threshold"))
     report = SanityReport(
         case=case or str(system.get("name") or "case"),
         tie_threshold=DEFAULT_TIE_THRESHOLD if tie is None else tie,
+        tie_rel_threshold=DEFAULT_TIE_REL_THRESHOLD if tie_rel is None else tie_rel,
+        resistance_threshold=(
+            DEFAULT_RESISTANCE_THRESHOLD if r_floor is None else r_floor
+        ),
     )
     resolver = (
         StageSchedResolver.from_planning(planning, case_dir)

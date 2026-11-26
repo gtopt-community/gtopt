@@ -13,6 +13,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <gtopt/solver_backend.hpp>
@@ -237,6 +238,7 @@ public:
   [[nodiscard]] bool is_proven_optimal() const override;
   [[nodiscard]] bool has_mip_incumbent() const override;
   [[nodiscard]] bool is_abandoned() const override;
+  [[nodiscard]] std::pair<int, std::string> raw_status() const override;
   [[nodiscard]] bool is_proven_primal_infeasible() const override;
   [[nodiscard]] bool is_proven_dual_infeasible() const override;
   // ---- solver options ----
@@ -315,6 +317,9 @@ private:
 
   int m_solve_status_ {0};
   SolveEffort m_last_effort_ {};  // wall + ticks of the most recent solve
+  /// One "accepted CPX_STAT_OPTIMAL_INFEAS" warning per solve
+  /// (`is_proven_optimal` is queried many times per solve).
+  mutable bool m_optimal_infeas_warned_ {false};
   // Cached option values (updated by apply_options)
   LPAlgo m_algorithm_ {LPAlgo::default_algo};
   int m_threads_ {0};

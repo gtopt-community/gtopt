@@ -436,6 +436,32 @@ struct SolverOptions
     return deterministic_parallel.value_or(false);
   }
 
+  /** @brief Accept an LP "optimal with unscaled infeasibilities" status.
+   *
+   *  CPLEX ends some numerically hard LPs with CPX_STAT_OPTIMAL_INFEAS
+   *  (5): optimal for the scaled problem, but the unscaled solution
+   *  violates a primal or dual tolerance.
+   *
+   *  - unset / `true` (default): accepted as optimal, with one warning
+   *    per solve carrying the max unscaled primal and dual infeasibility
+   *    (CPX_MAX_PRIMAL_INFEAS / CPX_MAX_DUAL_INFEAS); no fallback
+   *    re-solve runs.
+   *  - `false`: not optimal — the LinearInterface algorithm-fallback
+   *    cycle re-solves (barrier → dual → primal) and the cell fails when
+   *    no attempt ends OPTIMAL.  The behaviour before this option (on
+   *    the CEN PCP corridor LPs the presolve-off fallbacks then stalled
+   *    or ended in a numerical "infeasible").
+   *
+   *  Backend mapping: CPLEX only (LP solves; the MIP-dual fixed-LP pass
+   *  always accepted status 5).  Other solvers ignore it.
+   */
+  std::optional<bool> accept_optimal_infeas {};
+
+  [[nodiscard]] constexpr bool accept_optimal_infeas_enabled() const noexcept
+  {
+    return accept_optimal_infeas.value_or(true);
+  }
+
   [[nodiscard]] constexpr KappaMode effective_kappa_mode() const noexcept
   {
     return kappa_mode.value_or(KappaMode::estimate);
@@ -479,6 +505,7 @@ struct SolverOptions
     merge_opt(kappa_mode, other.kappa_mode);
     merge_opt(cold_solve_without_basis, other.cold_solve_without_basis);
     merge_opt(deterministic_parallel, other.deterministic_parallel);
+    merge_opt(accept_optimal_infeas, other.accept_optimal_infeas);
     merge_opt(param_file, other.param_file);
   }
 
@@ -551,6 +578,7 @@ struct SolverOptions
     merge_opt(kappa_mode, user.kappa_mode);
     merge_opt(cold_solve_without_basis, user.cold_solve_without_basis);
     merge_opt(deterministic_parallel, user.deterministic_parallel);
+    merge_opt(accept_optimal_infeas, user.accept_optimal_infeas);
     merge_opt(param_file, user.param_file);
   }
 };

@@ -32,6 +32,8 @@
 #include <vector>
 
 #include <gtopt/field_sched.hpp>
+#include <gtopt/planning_lp.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/validate_planning.hpp>
 #include <spdlog/spdlog.h>
 
@@ -516,10 +518,18 @@ struct LineImpedance
   return v[mid];
 }
 
+/// `x_floor`: the effective zero-impedance floor on `|X|/V²`
+/// (`PlanningLP::effective_tiny_reactance_threshold`) — lines below it
+/// are ties / DC links with no KVL flow term, so their X/R is not checked
+/// (they stay in the kV-class outlier test, which hunts unit bugs).  `r_floor`:
+/// the per-unit resistance floor (`dc_line_resistance_threshold`) — a line
+/// below it is made lossless, so its X/R is meaningless.
 void check_line_impedance(ValidationResult& result,
                           const System& sys,
                           const SanityOptions& opts,
-                          std::size_t max_listed)
+                          std::size_t max_listed,
+                          double x_floor,
+                          double r_floor)
 {
   std::unordered_map<Uid, std::optional<double>> kv_by_uid;
   std::unordered_map<std::string_view, std::optional<double>> kv_by_name;
@@ -551,14 +561,19 @@ void check_line_impedance(ValidationResult& result,
     if (!x || *x <= 0.0) {
       continue;  // DC link or zero-impedance tie — handled at LP build
     }
-    const auto r = magnitude(line.resistance);
-    if (r && *r > 0.0 && *x / *r > xr_max) {
-      xr_off.add(*x / *r,
-                 std::format("Line '{}' X/R={:.3g}", line.name, *x / *r));
-    }
     const auto vline = magnitude(line.voltage);
     const double v = (vline && *vline > 0.0) ? *vline : 1.0;
     const double x_eff = *x / (v * v);
+    // X/R is moot on a zero-impedance tie (no KVL flow term, lossless by
+    // default) and on a line below the R floor (made lossless).  Ties stay
+    // in the kV-class outlier test below: that one hunts unit bugs.
+    const bool is_tie = x_eff < x_floor;
+    const auto r = magnitude(line.resistance);
+    if (!is_tie && r && *r > 0.0 && *r / (v * v) >= r_floor && *x / *r > xr_max)
+    {
+      xr_off.add(*x / *r,
+                 std::format("Line '{}' X/R={:.3g}", line.name, *x / *r));
+    }
     if (vline && *vline > 1.0) {
       const double x_pu = 100.0 * x_eff;  // 100 MVA base
       if (x_pu > x_pu_max) {
@@ -711,7 +726,14 @@ void check_model_sanity(ValidationResult& result, const Planning& planning)
   check_reward_vs_coupled_penalty(result, planning.system, opts, max_listed);
   check_profiles(result, planning.system, opts, max_listed);
   check_zero_capacity_units(result, planning.system, max_listed);
-  check_line_impedance(result, planning.system, opts, max_listed);
+  check_line_impedance(
+      result,
+      planning.system,
+      opts,
+      max_listed,
+      PlanningLP::effective_tiny_reactance_threshold(planning),
+      planning.options.model_options.dc_line_resistance_threshold.value_or(
+          PlanningOptionsLP::default_dc_line_resistance_threshold));
   check_reserve_levels(result, planning.system, max_listed);
 }
 

@@ -25,6 +25,8 @@ from plexos2gtopt.isp_traces import (
     parse_month_pattern,
     read_interval_trace,
     read_yearly_column,
+    steps_per_day,
+    trace_resolution,
 )
 from plexos2gtopt.plexos_xml import NS
 
@@ -470,6 +472,17 @@ def test_interval_trace_and_locator(tmp_path: Path) -> None:
     assert arr2[1] == pytest.approx(2.5)
     with pytest.raises(KeyError):
         read_interval_trace(path, date(2027, 7, 3), 1, fill="none")
+    # half-hourly reads keep the 48 interval values
+    with trace_resolution(48):
+        assert steps_per_day() == 48
+        hh = read_interval_trace(path, date(2026, 7, 2), 1)
+    assert steps_per_day() == 24
+    assert hh.shape == (48,)
+    assert hh[0] == pytest.approx(0.0) and hh[47] == pytest.approx(47.0)
+    assert hh.reshape(24, 2).mean(axis=1) == pytest.approx(arr)
+    with pytest.raises(ValueError):
+        with trace_resolution(12):
+            pass
 
 
 def test_yearly_column(tmp_path: Path) -> None:

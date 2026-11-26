@@ -146,6 +146,29 @@ def test_deprecated_keys_are_contract_fields() -> None:
             assert target.split(".")[-1] in fc_fields, target
 
 
+def test_removed_keys_are_contract_fields_and_flagged() -> None:
+    types = _types()
+    for contract, keys in jc.REMOVED_KEYS.items():
+        missing = set(keys) - set(types[contract]["fields"])
+        assert not missing, f"{contract}: {sorted(missing)} no longer parsed"
+    issues = jc.find_schema_problems(
+        {
+            "options": {"model_options": {"transition_status_rows": True}},
+            "system": {
+                "commitment_array": [
+                    {"uid": 1, "name": "c", "transition_status_rows": "always"}
+                ]
+            },
+        }
+    )
+    got = {(i.kind, i.path) for i in issues}
+    assert ("deprecated", "options.model_options.transition_status_rows") in got
+    assert (
+        "deprecated",
+        "system.commitment_array[0].transition_status_rows",
+    ) in got
+
+
 @needs_checkout
 def test_deprecated_keys_match_cpp_alias_resolver() -> None:
     """Every (section, key) alias resolved in C++ is listed, and vice versa."""
@@ -333,7 +356,8 @@ def test_igtopt_round_trip_every_column(tmp_path: Path) -> None:
     ws.append(["use_single_bus", True])
     sheets = (set(FIELD_META) - set(FIELD_META_OPTION_ENTRIES)) & set(_all_arrays())
     for sheet in sorted(sheets):
-        cols = [r for r in FIELD_META[sheet] if r[1] in _SAMPLE]
+        removed = jc.REMOVED_KEYS.get(_all_arrays()[sheet], {})
+        cols = [r for r in FIELD_META[sheet] if r[1] in _SAMPLE and r[0] not in removed]
         data = wb.create_sheet(sheet)
         data.append([r[0] for r in cols])
         data.append([_SAMPLE[r[1]] for r in cols])

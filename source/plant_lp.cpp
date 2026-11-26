@@ -16,6 +16,9 @@
  * reference them.
  */
 
+#include <algorithm>
+#include <cmath>
+
 #include <gtopt/commitment_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/index_holder.hpp>
@@ -173,7 +176,12 @@ bool PlantLP::add_to_lp(const SystemContext& sc,
 
     if (opt_n_units) {
       const auto n_units_val = static_cast<double>(*opt_n_units);
+      const auto& coeffs = plant().commit_coeffs;
       SparseRow row {
+          // Pure commitment logic; pinned only with unit coefficients
+          // (a weighted count keeps the usual row balancing).
+          .pin_scale = std::ranges::all_of(
+              coeffs, [](double c) { return std::abs(c) == 1.0; }),
           .class_name = cname,
           .constraint_name = CommitName,
           .variable_uid = uid(),
@@ -181,7 +189,6 @@ bool PlantLP::add_to_lp(const SystemContext& sc,
       };
       row.less_equal(n_units_val);
       bool has_term = false;
-      const auto& coeffs = plant().commit_coeffs;
       for (std::size_t i = 0; i < status_at_first_block.size(); ++i) {
         const auto& maybe_col = status_at_first_block[i];
         if (!maybe_col) {
@@ -199,6 +206,7 @@ bool PlantLP::add_to_lp(const SystemContext& sc,
 
     if (want_uniq) {
       SparseRow row {
+          .pin_scale = true,  // pure commitment logic
           .class_name = cname,
           .constraint_name = UniqName,
           .variable_uid = uid(),

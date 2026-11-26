@@ -287,6 +287,26 @@ public:
     return {&phase_stages[previous(phase_stage_index)], nullptr};
   }
 
+  /// Next stage of the SAME phase, or nullptr at the phase's last stage.
+  [[nodiscard]] constexpr auto next_stage_in_phase(
+      const StageLP& stage) const noexcept -> const StageLP*
+  {
+    if (const auto phase_index = stage.phase_index();
+        phase_index != PhaseIndex {unknown_index}
+        && stage.phase_stage_index() != PhaseStageIndex {unknown_index})
+    {
+      const auto next_index = next(stage.phase_stage_index());
+      const auto& stages = phases()[phase_index].stages();
+      return std::cmp_less(static_cast<Index>(next_index), stages.size())
+          ? &stages[next_index]
+          : nullptr;
+    }
+    const auto next_index = next(stage.stage_index());
+    return std::cmp_less(static_cast<Index>(next_index), m_stage_array_.size())
+        ? &m_stage_array_[next_index]
+        : nullptr;
+  }
+
   // Get method with deducing this for automatic const handling
   using lp_key_t = StateVariable::LPKey;
   using state_variable_key_t = StateVariable::Key;

@@ -82,6 +82,16 @@ struct SparseRow
   /// callers.  Default `unknown_index` preserves legacy row-max
   /// behavior.
   ColIndex pivot_col {unknown_index};
+  /// Row-side counterpart of `SparseCol::pin_scale`: when true (and
+  /// `LpMatrixOptions::pin_logic_rows`, default off, allows it) the row
+  /// keeps row factor 1 in every equilibration pass — bulk row_max and
+  /// Ruiz in `LinearProblem::flatten`, and the per-row normalisation of
+  /// `LinearInterface::add_row` / `add_rows`.  Column scales are still
+  /// folded into its coefficients, and the row still enters the column
+  /// norms of Ruiz.  For pure commitment-logic rows (every nonzero on a
+  /// pinned binary column, small integer coefficients, RHS 0 / 1 / N),
+  /// which need no balancing.
+  bool pin_scale {false};
   /// Time-basis of this row's dual, used to choose the inverse factor family
   /// when the LP dual is read back to physical units in `OutputContext`.
   ///   - `Power`  → readback ÷ (prob·disc·duration) (DEFAULT — per-block

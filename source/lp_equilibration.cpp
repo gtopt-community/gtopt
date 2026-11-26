@@ -139,7 +139,8 @@ std::vector<double> apply_row_max_equilibration(
     std::span<double> matval,
     std::span<double> rowlb,
     std::span<double> rowub,
-    double infinity)
+    double infinity,
+    std::span<const std::int32_t> rowpin)
 {
   infinity = cap_infinity(infinity);
   // Bulk row-max equilibration used at build time.  The per-row scaling
@@ -155,10 +156,17 @@ std::vector<double> apply_row_max_equilibration(
     row_scales[r] = std::max(row_scales[r], std::abs(matval[k]));
   }
 
-  // 2. Convert to reciprocals (1/scale); use 1.0 for empty rows.
+  // 2. Convert to reciprocals (1/scale); use 1.0 for empty rows and for
+  //    pinned rows (`rowpin`: row factor stays 1).
   //    Multiplying by reciprocal is ~4x faster than dividing.
   for (auto& s : row_scales) {
     s = (s > 0.0) ? (1.0 / s) : 1.0;
+  }
+  for (const auto idx : rowpin) {
+    const auto r = static_cast<size_t>(idx);
+    if (r < nrows) {
+      row_scales[r] = 1.0;
+    }
   }
 
   // 3. Apply scaling to matrix coefficients using reciprocal multiply.
@@ -211,7 +219,8 @@ std::vector<double> apply_ruiz_scaling(std::span<const std::int32_t> matbeg,
                                        double infinity,
                                        FastSqrtMethod sqrt_method,
                                        int max_iterations,
-                                       double tolerance)
+                                       double tolerance,
+                                       std::span<const std::int32_t> rowpin)
 {
   infinity = cap_infinity(infinity);
   const auto nrows = rowlb.size();
@@ -230,6 +239,16 @@ std::vector<double> apply_ruiz_scaling(std::span<const std::int32_t> matbeg,
     const auto j = static_cast<size_t>(idx);
     if (j < ncols) {
       is_pinned_col[j] = true;
+    }
+  }
+
+  // Pinned rows (`rowpin`, `SparseRow::pin_scale`) keep row factor 1 in
+  // every iteration; their entries still count in the column norms.
+  std::vector<bool> is_pinned_row(nrows, false);
+  for (const auto idx : rowpin) {
+    const auto r = static_cast<size_t>(idx);
+    if (r < nrows) {
+      is_pinned_row[r] = true;
     }
   }
 
@@ -262,12 +281,13 @@ std::vector<double> apply_ruiz_scaling(std::span<const std::int32_t> matbeg,
     double max_deviation = 0.0;
     for (size_t r = 0; r < nrows; ++r) {
       const double n = row_inf_norm[r];
-      if (n > 0.0) {
+      // Pinned rows (and empty rows) keep factor 1 and are left out of
+      // the convergence test.
+      const bool balance = !is_pinned_row[r] && n > 0.0;
+      if (balance) {
         max_deviation = std::max(max_deviation, std::abs(n - 1.0));
-        row_factor[r] = 1.0 / fast_sqrt(n, sqrt_method);
-      } else {
-        row_factor[r] = 1.0;
       }
+      row_factor[r] = balance ? 1.0 / fast_sqrt(n, sqrt_method) : 1.0;
     }
 
     // 3. Compute column reciprocal factors and track convergence.

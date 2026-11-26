@@ -285,6 +285,20 @@ def test_build_case_reserve_scale_native(workbook: Path) -> None:
     assert ig["pmax"] == 40 * factor
 
 
+def test_build_case_power_based(workbook: Path) -> None:
+    data = _data(workbook)
+    case = build_case(data, CaseOptions(system=39, formulation="power_based"))
+    system = case["system"]
+    assert system["name"].endswith("_power_based")
+    assert case["options"]["model_options"]["uc_formulation"] == "power_based"
+    com = system["commitment_array"][0]
+    assert "ramp_up" in com and "startup_ramp" in com
+    assert all("initial_power" not in c for c in system["commitment_array"])
+    assert "user_constraint_array" not in system
+    native = build_case(data, CaseOptions(system=39, formulation="native"))
+    assert "uc_formulation" not in native["options"]["model_options"]
+
+
 def test_build_case_pins_initial_commitment(workbook: Path) -> None:
     data = _data(workbook)
     raw = data.clusters[1]

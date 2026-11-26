@@ -58,6 +58,18 @@ public:
     return m_block_.duration;
   }
 
+  /// Explicit node time inside the stage period [h] (unset = midpoint)
+  [[nodiscard]] constexpr auto time() const noexcept -> OptReal
+  {
+    return m_block_.time;
+  }
+
+  /// Commitment cell label (unset = no explicit binary grid)
+  [[nodiscard]] constexpr auto commitment_cell() const noexcept -> OptInt
+  {
+    return m_block_.commitment_cell;
+  }
+
   [[nodiscard]] constexpr auto index() const noexcept -> BlockIndex
   {
     return m_index_;

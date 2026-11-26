@@ -413,7 +413,7 @@ TEST_CASE("fast-start commitment columns are registered")  // NOLINT
     const PlanningLP planning_lp(toy_planning({}, solver));
     const auto& system = planning_lp.system(SceneIndex {0}, PhaseIndex {0});
     const auto cols = system.linear_interface().fast_start_cols();
-    REQUIRE(cols.size() == 2);  // g_fast u, two blocks
+    REQUIRE(cols.size() == 6);  // g_fast u, v, w (binary), two blocks
 
     const auto& scenario = planning_lp.simulation().scenarios().front();
     const auto& stage = planning_lp.simulation().stages().front();
@@ -434,12 +434,12 @@ TEST_CASE("fast-start commitment columns are registered")  // NOLINT
   SUBCASE("explicit false disables, explicit true enables")
   {
     CHECK(count_fast({.fast_fast = R"("fast_start": false,)"}) == 0);
-    CHECK(count_fast({.fast_slow = R"("fast_start": true,)"}) == 4);
+    CHECK(count_fast({.fast_slow = R"("fast_start": true,)"}) == 12);
   }
 
   SUBCASE("fast_start_max_hours widens the auto rule")
   {
-    CHECK(count_fast({.model = R"("fast_start_max_hours": 4,)"}) == 4);
+    CHECK(count_fast({.model = R"("fast_start_max_hours": 4,)"}) == 12);
     CHECK(count_fast({.model = R"("fast_start_max_hours": 0.5,)"}) == 0);
   }
 }
@@ -496,8 +496,10 @@ TEST_CASE("pricing modes on the 2-bus UC toy")  // NOLINT
           CHECK(r.pricing.applied == PricingMode::fast_start);
           CHECK(r.pricing.attempted);
           CHECK_FALSE(r.pricing.fallback);
-          CHECK(r.pricing.relaxed_columns == 2);
-          CHECK(r.pricing.pinned_columns == 2);
+          // g_fast u, v, w (binary under transition_integrality = auto)
+          // x 2 blocks; the slow unit's 6 are pinned.
+          CHECK(r.pricing.relaxed_columns == 6);
+          CHECK(r.pricing.pinned_columns == 6);
           CHECK(r.pricing.status == 0);
         });
   }
@@ -512,7 +514,7 @@ TEST_CASE("pricing modes on the 2-bus UC toy")  // NOLINT
           // Hour 2: 10 + 300 $/h / 120 MW = 12.5 $/MWh.
           check_prices(r, 60.0, 12.5);
           CHECK(r.pricing.applied == PricingMode::relaxed);
-          CHECK(r.pricing.relaxed_columns == 4);
+          CHECK(r.pricing.relaxed_columns == 12);  // 2 units x u, v, w x 2
           CHECK(r.pricing.pinned_columns == 0);
         });
   }
@@ -588,15 +590,16 @@ TEST_CASE(  // NOLINT
             },
             solver));
         const auto& system = planning_lp.system(SceneIndex {0}, PhaseIndex {0});
-        // Integer tiers are registered with u: 2 periods x (u + 3 tiers).
+        // Integer tiers are registered with u, v, w: 2 periods x
+        // (u + v + w + 3 tiers).
         const auto integer = std::string_view {tier_mode} == "integer";
         CHECK(system.linear_interface().fast_start_cols().size()
-              == (integer ? 8U : 2U));
+              == (integer ? 12U : 6U));
         const auto r = solve_toy(planning_lp);
         check_mip_dispatch(r);
         check_prices(r, 60.0, 10.0);
         CHECK(r.pricing.applied == PricingMode::fast_start);
-        CHECK(r.pricing.relaxed_columns == (integer ? 8 : 2));
+        CHECK(r.pricing.relaxed_columns == (integer ? 12 : 6));
       };
       if (!solver_test::run_or_skip_license(body)) {
         MESSAGE("skipped " << solver << " (license)");
@@ -683,7 +686,7 @@ TEST_CASE("pricing.csv and planning provenance are written")  // NOLINT
     planning_lp.write_out();
     const auto csv = slurp(tmpdir / "pricing.csv");
     CHECK(csv.starts_with(pricing_csv_header()));
-    CHECK(csv.contains(",fast_start,fast_start,0,1,2,2,0,"));
+    CHECK(csv.contains(",fast_start,fast_start,0,1,6,6,0,"));
   }
 
   SUBCASE("fallback recorded")

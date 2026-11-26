@@ -559,6 +559,20 @@ constexpr int kMaxOverflowBreakpoints = 16;
 /// variable — beyond the loss the line can physically carry at its
 /// limit.  When the envelope is ≥ ``f`` this is tighter than the
 /// previous ``k·envelope²`` bound.
+/// Ordered-fill upper bound of a PWL segment column starting at
+/// breakpoint ``lo``: ``min(uppb, max(0, flow_cap − lo))``.  ``flow_cap``
+/// = ``DblMax`` (no enforced cap, or ``loss_segment_bound = false``)
+/// returns ``uppb`` unchanged.
+[[nodiscard]] double ordered_fill_cap(double uppb,
+                                      double lo,
+                                      double flow_cap) noexcept
+{
+  if (!(flow_cap < LinearProblem::DblMax) || !std::isfinite(flow_cap)) {
+    return uppb;
+  }
+  return std::min(uppb, std::max(0.0, flow_cap - lo));
+}
+
 [[nodiscard]] double rated_loss_cap(double k_loss,
                                     double envelope,
                                     int nseg,
@@ -853,8 +867,11 @@ void add_segments(LinearProblem& lp,
                   SparseRow& lossrow,
                   double loss_row_scale,
                   double seg_uppb,
-                  LinePwlLayout layout = LinePwlLayout::uniform)
+                  LinePwlLayout layout = LinePwlLayout::uniform,
+                  double flow_cap = LinearProblem::DblMax)
 {
+  // Left breakpoint ``b_{k−1}`` of the current segment (ordered fill).
+  double seg_lo = 0.0;
   for (const auto k : iota_range(1, nseg + 1)) {
     const auto geom = seg_geom(envelope, nseg, k, layout);
     // loss_k matches the legacy uniform formula
@@ -896,6 +913,14 @@ void add_segments(LinearProblem& lp,
       // ``equal_error`` widths differ across segments.
       col_uppb = std::min(seg_uppb, geom.width);
     }
+    // Ordered-fill cap (``loss_segment_bound``): with ``|f| ≤ flow_cap``
+    // the physical fill puts at most ``flow_cap − b_{k−1}`` on segment
+    // k.  A valid tightening cut — it only bites when the segments cover
+    // more than the cap (envelope above tmax, or ``fp + fn``
+    // circulation) and then limits the non-physical loss the LP can book
+    // on the steep segments to the ordered secant at the cap.
+    col_uppb = ordered_fill_cap(col_uppb, seg_lo, flow_cap);
+    seg_lo += geom.width;
 
     const auto seg_col = lp.add_col({
         .lowb = 0,
@@ -1519,7 +1544,12 @@ BlockResult add_piecewise_shared(const LossConfig& config,
       lossrow,
       config.loss_row_scale,
       seg_uppb,
-      config.pwl_layout);
+      config.pwl_layout,
+      // Σ seg = fp + fn ≤ the larger direction cap on a physical
+      // (one-direction) flow.
+      (config.segment_flow_cap && enforce_capacity)
+          ? std::max(block_tmax_ab, block_tmax_ba)
+          : LinearProblem::DblMax);
 
   [[maybe_unused]] auto linkrow_idx = lp.add_row(std::move(linkrow));
   [[maybe_unused]] auto lossrow_idx = lp.add_row(std::move(lossrow));
@@ -1722,7 +1752,10 @@ DirResult add_direction(const LossConfig& config,
                lossrow,
                config.loss_row_scale,
                seg_uppb,
-               config.pwl_layout);
+               config.pwl_layout,
+               (config.segment_flow_cap && enforce_capacity)
+                   ? block_tmax
+                   : LinearProblem::DblMax);
 
   // Overflow secant segments past a decoupled envelope (see above).
   // Segment index ``K + j`` keeps the column names distinct from the
@@ -2383,9 +2416,16 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
     std::vector<ColIndex> v_cols;
     v_cols.reserve(static_cast<std::size_t>(L));
     for (int l = 1; l <= L; ++l) {
+      // Ordered-fill cap (``loss_segment_bound``): |f| ≤ fmax_phys puts at
+      // most ``fmax_phys − b_{l−1}`` on v_l — bites only when a decoupled
+      // envelope spreads the L segments past the flow cap.
+      const double v_uppb = (config.segment_flow_cap && enforce_capacity)
+          ? ordered_fill_cap(
+                seg_width, static_cast<double>(l - 1) * seg_width, fmax_phys)
+          : seg_width;
       v_cols.push_back(lp.add_col({
           .lowb = 0.0,
-          .uppb = seg_width,
+          .uppb = v_uppb,
           .cost = v_cost,
           // Pin the Ruiz column scale (see ``flow_col``): the |f| abs column
           // sits in the same chord/tangent loss rows that otherwise inflate

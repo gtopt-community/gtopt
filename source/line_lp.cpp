@@ -263,6 +263,7 @@ struct LimitParts
   // limit bounds the flow variable only).
   config.thermal_limit = raw_line.line_thermal_limit_mode_enum().value_or(
       sc.options().line_thermal_limit_mode());
+  config.segment_flow_cap = sc.options().loss_segment_bound();
   return config;
 }
 

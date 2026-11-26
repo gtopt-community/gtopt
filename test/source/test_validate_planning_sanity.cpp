@@ -486,6 +486,34 @@ TEST_CASE("sanity - line impedance per kV class")  // NOLINT
     p.options.sanity_options.line_x_min_class_size = 20;
     CHECK(count_with(sanity(p), {"class median"}) == 0);
   }
+
+  SUBCASE("X/R skips ties and lines below the resistance floor")
+  {
+    // R/V² = 5.2e-8 < 1e-7: gtopt makes the line lossless, X/R is moot.
+    p.system.line_array.push_back({
+        .uid = Uid {12},
+        .name = "l230_rfloor",
+        .bus_a = Uid {1},
+        .bus_b = Uid {2},
+        .voltage = 230.0,
+        .resistance = 5.2e-8 * 230.0 * 230.0,
+        .reactance = 12.0,
+    });
+    // A zero-impedance tie (x below the floor) with X/R = 1000.
+    p.system.line_array.push_back({
+        .uid = Uid {13},
+        .name = "l230_tie",
+        .bus_a = Uid {1},
+        .bus_b = Uid {2},
+        .voltage = 230.0,
+        .resistance = 1e-5,
+        .reactance = 1e-2,
+    });
+    const auto r2 = sanity(p);
+    CHECK(count_with(r2, {"1 line(s) with X/R > 100", "l230_xr"}) == 1);
+    CHECK(count_with(r2, {"X/R", "l230_rfloor"}) == 0);
+    CHECK(count_with(r2, {"X/R", "l230_tie"}) == 0);
+  }
 }
 
 TEST_CASE("sanity - agreement reserve level without reservoir emin")  // NOLINT

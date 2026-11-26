@@ -165,6 +165,7 @@ SOLVER_OPTION_KEYS: frozenset[str] = frozenset(
         "kappa_mode",
         "cold_solve_without_basis",
         "deterministic_parallel",
+        "accept_optimal_infeas",
     }
 )
 
@@ -190,13 +191,15 @@ MODEL_OPTION_KEYS: frozenset[str] = frozenset(
         "pricing_mode",
         "fast_start_max_hours",
         "transition_integrality",
-        "transition_status_rows",
+        "transition_status_rows",  # removed 2026-11-26: parsed, ignored
         "startup_tier_integrality",
         "naming_dialect",
         "kirchhoff_mode",
         "line_losses_mode",
         "dc_line_reactance_threshold",
         "tiny_reactance_mode",
+        "tiny_reactance_rel_threshold",
+        "tie_line_losses",
         "dc_line_resistance_threshold",
         "scale_loss_link",
         "reserve_coupling",
@@ -205,6 +208,7 @@ MODEL_OPTION_KEYS: frozenset[str] = frozenset(
         "loss_overflow_cost",
         "loss_secant_segments",
         "loss_use_sos2",
+        "loss_segment_bound",
         "line_thermal_limit_mode",
         "prev_stage_link",
         "use_line_dlr",
@@ -222,6 +226,13 @@ MODEL_OPTION_KEYS: frozenset[str] = frozenset(
         "battery_annual_standing_loss",
         "battery_annual_loss",  # legacy alias (gtopt-legacy dialect)
         "battery_power_envelope",
+        "ramp_formula",
+        "ramp_wrap",
+        "uc_formulation",
+        "storage_integration",
+        "reservoir_storage_integration",
+        "battery_storage_integration",
+        "long_transition",
     }
 )
 
@@ -235,6 +246,7 @@ LP_MATRIX_OPTION_KEYS: frozenset[str] = frozenset(
         "fast_sqrt_method",
         "ruiz_max_iterations",
         "ruiz_tolerance",
+        "pin_logic_rows",
         "water_dual_target",
         "water_dual_clamp",
         "kvl_row_scale",
@@ -367,16 +379,9 @@ OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     (
         "transition_integrality",
         "[model] Commitment startup/shutdown integrality: 'auto' (default, "
-        "continuous with transition_status_rows, binary without), "
-        "'continuous' or 'binary'.  Commitment.transition_integrality "
+        "binary), 'continuous' or 'binary'.  Commitment.transition_integrality "
         "overrides it per unit.",
         "auto",
-    ),
-    (
-        "transition_status_rows",
-        "[model] Emit the commitment rows v <= u and w <= 1 - u (default: "
-        "true).  Commitment.transition_status_rows overrides it per unit.",
-        True,
     ),
     (
         "startup_tier_integrality",

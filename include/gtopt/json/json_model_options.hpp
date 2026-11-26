@@ -19,6 +19,12 @@ namespace daw::json
 {
 using gtopt::ModelOptions;
 
+// Removed key `transition_status_rows` (bool or name): still parsed so
+// old inputs load, ignored (see transition_integrality.hpp).
+using jvtl_BoolOrName =
+    json_variant_type_list<json_bool_no_name<bool>,
+                           json_string_no_name<gtopt::Name>>;
+
 template<>
 struct json_data_contract<ModelOptions>
 {
@@ -31,6 +37,8 @@ struct json_data_contract<ModelOptions>
       json_number_null<"kirchhoff_threshold", OptReal>,
       json_number_null<"dc_line_reactance_threshold", OptReal>,
       json_string_null<"tiny_reactance_mode", OptName>,
+      json_number_null<"tiny_reactance_rel_threshold", OptReal>,
+      json_bool_null<"tie_line_losses", OptBool>,
       json_number_null<"dc_line_resistance_threshold", OptReal>,
       json_number_null<"loss_segments", OptInt>,
       json_number_null<"scale_objective", OptReal>,
@@ -41,6 +49,7 @@ struct json_data_contract<ModelOptions>
       json_number_null<"loss_overflow_cost", OptReal>,
       json_number_null<"loss_secant_segments", OptInt>,
       json_bool_null<"loss_use_sos2", OptBool>,
+      json_bool_null<"loss_segment_bound", OptBool>,
       json_number_null<"theta_max", OptReal>,
       json_bool_null<"auto_scale", OptBool>,
       json_number_null<"demand_fail_cost", OptReal>,
@@ -63,8 +72,17 @@ struct json_data_contract<ModelOptions>
       json_string_null<"reserve_coupling", OptName>,
       json_string_null<"pricing_mode", OptName>,
       json_number_null<"fast_start_max_hours", OptReal>,
+      json_string_null<"ramp_formula", OptName>,
+      json_bool_null<"ramp_wrap", OptBool>,
+      json_string_null<"uc_formulation", OptName>,
+      json_string_null<"storage_integration", OptName>,
+      json_string_null<"reservoir_storage_integration", OptName>,
+      json_string_null<"battery_storage_integration", OptName>,
+      json_string_null<"long_transition", OptName>,
       json_string_null<"transition_integrality", OptName>,
-      json_bool_null<"transition_status_rows", OptBool>,
+      json_variant_null<"transition_status_rows",
+                        gtopt::OptBoolOrName,
+                        jvtl_BoolOrName>,
       json_string_null<"startup_tier_integrality", OptName>,
       json_string_null<"line_thermal_limit_mode", OptName>,
       json_string_null<"prev_stage_link", OptName>,
@@ -83,6 +101,8 @@ struct json_data_contract<ModelOptions>
                                  opt.kirchhoff_threshold,
                                  opt.dc_line_reactance_threshold,
                                  opt.tiny_reactance_mode,
+                                 opt.tiny_reactance_rel_threshold,
+                                 opt.tie_line_losses,
                                  opt.dc_line_resistance_threshold,
                                  opt.loss_segments,
                                  opt.scale_objective,
@@ -93,6 +113,7 @@ struct json_data_contract<ModelOptions>
                                  opt.loss_overflow_cost,
                                  opt.loss_secant_segments,
                                  opt.loss_use_sos2,
+                                 opt.loss_segment_bound,
                                  opt.theta_max,
                                  opt.auto_scale,
                                  opt.demand_fail_cost,
@@ -113,6 +134,13 @@ struct json_data_contract<ModelOptions>
                                  opt.reserve_coupling,
                                  opt.pricing_mode,
                                  opt.fast_start_max_hours,
+                                 opt.ramp_formula,
+                                 opt.ramp_wrap,
+                                 opt.uc_formulation,
+                                 opt.storage_integration,
+                                 opt.reservoir_storage_integration,
+                                 opt.battery_storage_integration,
+                                 opt.long_transition,
                                  opt.transition_integrality,
                                  opt.transition_status_rows,
                                  opt.startup_tier_integrality,

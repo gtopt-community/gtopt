@@ -38,7 +38,7 @@ def test_crf_zero_life() -> None:
     assert exp.crf(0.07, 0.0) == 1.0
 
 
-def test_daily_net_load_skips_missing_traces() -> None:
+def test_net_load_skips_missing_traces() -> None:
     system = {
         "demand_array": [{"uid": 1}, {"uid": 2}],
         "generator_array": [
@@ -51,8 +51,10 @@ def test_daily_net_load_skips_missing_traces() -> None:
         ("Demand", "lmax"): {1: np.full(48, 10.0)},
         ("Generator", "pmax"): {1: np.full(48, 4.0)},
     }
-    assert np.allclose(exp._daily_net_load(system, ws, 2), [144.0, 144.0])
-    assert np.allclose(exp._daily_net_load(system, {}, 2), [0.0, 0.0])
+    # one value per trace step (hourly by default): 10 - 4 = 6 MW
+    net = exp._net_load(system, ws, 2)
+    assert net.shape == (48,) and np.allclose(net, 6.0)
+    assert np.allclose(exp._net_load(system, {}, 2), 0.0)
 
 
 def test_lt_plan_discount_rate(tmp_path: Path) -> None:

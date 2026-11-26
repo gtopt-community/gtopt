@@ -342,14 +342,11 @@ struct Solved
 
 [[nodiscard]] Solved solve_case(const std::string& json,
                                 std::string_view mode,
-                                const std::string& solver,
-                                OptBool transition_status_rows = {})
+                                const std::string& solver)
 {
   auto planning = daw::json::from_json<Planning>(json);
   planning.options.lp_matrix_options.solver_name = solver;
   planning.options.model_options.pricing_mode = std::string {mode};
-  planning.options.model_options.transition_status_rows =
-      transition_status_rows;
   PlanningLP planning_lp(std::move(planning));
   REQUIRE(planning_lp.resolve().has_value());
 
@@ -583,14 +580,14 @@ TEST_CASE("Scarf / Hogan-Ring: IP and minimum-uplift prices")  // NOLINT
           CHECK(rx.lmp[0][0] == doctest::Approx(scarf_ch_price(row.demand)));
           CHECK(rx.lmp[0][0] == doctest::Approx(row.minup_price).epsilon(1e-3));
           CHECK(rx.pricing.applied == PricingMode::relaxed);
-          CHECK(rx.pricing.relaxed_columns == 16);
+          CHECK(rx.pricing.relaxed_columns == 48);  // u, v, w
 
           // ── fast_start: no min up/down → every unit is fast-start by
           // the auto rule, so fast_start pricing == relaxed pricing ──
           const auto fs = solve_case(json, k_fast_start, solver);
           CHECK(fs.lmp[0][0] == doctest::Approx(rx.lmp[0][0]));
           CHECK(fs.pricing.applied == PricingMode::fast_start);
-          CHECK(fs.pricing.relaxed_columns == 16);
+          CHECK(fs.pricing.relaxed_columns == 48);
         }
       });
 }
@@ -828,7 +825,7 @@ TEST_CASE("PJM 2017 fast-start pricing Example 1")  // NOLINT
             CHECK(r.lmp[0][0] == doctest::Approx(117.0));
             CHECK(r.lmp[1][0] == doctest::Approx(76.0));
             CHECK(r.lmp[2][0] == doctest::Approx(35.0));
-            CHECK(r.pricing.relaxed_columns == 2);
+            CHECK(r.pricing.relaxed_columns == 6);  // u, v, w x 2
           }
         }
       },
@@ -971,7 +968,7 @@ TEST_CASE("Hua-Baldick 2017 Example 1: LMP / CHP / CHPq")  // NOLINT
             solve_case(hb1_json(true, false), k_fast_start, solver);
         check_dispatch(chpq);
         CHECK(chpq.lmp[0][0] == doctest::Approx(52.0));
-        CHECK(chpq.pricing.relaxed_columns == 1);
+        CHECK(chpq.pricing.relaxed_columns == 3);  // u, v, w
       });
 }
 
@@ -988,19 +985,11 @@ TEST_CASE("Hua-Baldick 2017 Example 2: ramp-coupled convex hull")  // NOLINT
   // 3-binary UC with ramp rows p_t − p_{t−1} ≤ RU·u_{t−1} + SU·v_t, which
   // is weaker in hour 3 even than H&B's aCHP1 description.
   //
-  // Without the transition status rows (v ≤ u, w ≤ 1 − u;
-  // `transition_status_rows = false`, the formulation before 2026-11-25)
-  // the relaxation runs both units at fractional commitment (u1 = 0.854
+  // The relaxation runs both units at fractional commitment (u1 = 0.854
   // in hours 1-2, u2 = 0.146 / 0.7 in hours 2-3) and its hour-3 dual is
   // 820/13 = 63.0769 $/MWh.  Verified independently: the same LP written
   // out by hand in scipy/HiGHS (objective 20569.23) gives the same duals
-  // (60, 60, 820/13).  With the rows (default) the relaxation is tighter
-  // and the hour-3 dual is 314/5 = 62.8 (LP objective 20596; scipy
-  // agrees).  The first-block ramp-up row uses v[0]
-  // (p[0] − SU·v[0] ≤ 0): with only the status rows and the former
-  // constant RHS p[0] ≤ SU it was 501/8 = 62.625 (objective 20583.75);
-  // duals need not move monotonically with a tighter LP.  Either way:
-  // LMP 60 < gtopt relaxed < aCHP1 64 < CHP 65.6.
+  // (60, 60, 820/13).  LMP 60 < gtopt relaxed < aCHP1 64 < CHP 65.6.
   for_each_solver(
       [](const std::string& solver)
       {
@@ -1028,17 +1017,9 @@ TEST_CASE("Hua-Baldick 2017 Example 2: ramp-coupled convex hull")  // NOLINT
         check_dispatch(rx);
         CHECK(rx.lmp[0][0] == doctest::Approx(60.0));
         CHECK(rx.lmp[0][1] == doctest::Approx(60.0));
-        CHECK(rx.lmp[0][2] == doctest::Approx(314.0 / 5.0));
+        CHECK(rx.lmp[0][2] == doctest::Approx(820.0 / 13.0));
         CHECK(rx.lmp[0][2] < 64.0);  // weaker than aCHP1 …
         CHECK(rx.lmp[0][2] < 65.6);  // … and than the exact CHP
-
-        // The formulation without the transition status rows.
-        const auto rx_old =
-            solve_case(hb2_json(), k_relaxed, solver, OptBool {false});
-        check_dispatch(rx_old);
-        CHECK(rx_old.lmp[0][0] == doctest::Approx(60.0));
-        CHECK(rx_old.lmp[0][1] == doctest::Approx(60.0));
-        CHECK(rx_old.lmp[0][2] == doctest::Approx(820.0 / 13.0));
 
         const auto fs = solve_case(hb2_json(), k_fast_start, solver);
         for (std::size_t t = 0; t < 3; ++t) {

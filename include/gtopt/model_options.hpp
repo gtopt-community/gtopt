@@ -11,6 +11,7 @@
 
 #include <gtopt/fail_segment.hpp>
 #include <gtopt/field_sched.hpp>
+#include <gtopt/transition_integrality.hpp>
 #include <gtopt/utils.hpp>
 
 namespace gtopt
@@ -60,7 +61,9 @@ struct ModelOptions
   /// (`x_pu ≥ 1e-3`) and real distribution lines/cables (`x_pu ≥ 1e-4`)
   /// are never falsely promoted, while V-vs-kV unit-typo lines
   /// (`x_pu ≈ 1e-7…1e-9`) and HVDC/phase-shifter sentinels (`X = 0`)
-  /// are caught.  Set to `0.0` to disable promotion entirely.
+  /// are caught.  The effective floor is raised to
+  /// `tiny_reactance_rel_threshold × median(|X/V²|)` when larger; set both
+  /// to `0.0` to disable promotion entirely.
   OptReal dc_line_reactance_threshold {};
   /// Treatment of lines whose reactance is set but is `0` or has
   /// `|X/V²|` below `dc_line_reactance_threshold`: `"tie"` (default)
@@ -70,6 +73,26 @@ struct ModelOptions
   /// TinyReactanceMode.  Lines with no `reactance` are DC links in both
   /// modes.
   OptName tiny_reactance_mode {};
+  /// Relative tie floor: a line whose `|X/V²|` is below
+  /// `tiny_reactance_rel_threshold × median(|X/V²|)` (median over every
+  /// line with a nonzero reactance) is treated exactly like one below
+  /// the absolute `dc_line_reactance_threshold` — a zero-impedance tie
+  /// (or a DC link under `tiny_reactance_mode = "dc"`).  The effective
+  /// floor is `max(dc_line_reactance_threshold, rel × median)`; it is
+  /// unit-system independent (per-unit, Ω/kV, PLEXOS `V = 10`) and
+  /// catches placeholder "ideal connection" reactances (e.g. PLEXOS
+  /// `X = 1e-4` p.u. on generator step-up links) sitting right at the
+  /// absolute floor.  Default (when unset): `0.01` — a tie then shifts
+  /// the flow split of any parallel path by at most ~1 %.  Set to `0`
+  /// for the legacy absolute-only floor.
+  OptReal tiny_reactance_rel_threshold {};
+  /// Losses on zero-impedance ties.  `false` (default): a tie line is
+  /// lossless — its `resistance` / `lossfactor` are dropped by
+  /// `PlanningLP::validate_line_reactance`, so no loss column, segment,
+  /// tangent or link row is built for it (a tie's `R` is as degenerate
+  /// as its `X`, and its loss rows would only stamp `R/V²`-sized
+  /// coefficients).  `true`: legacy, the tie keeps its loss model.
+  OptBool tie_line_losses {};
   /// Per-unit resistance floor `|R/V²|` below which a transmission line's
   /// quadratic losses are dropped (the line is treated as lossless).  Mirrors
   /// `dc_line_reactance_threshold`: `PlanningLP::validate_line_resistance`
@@ -170,6 +193,20 @@ struct ModelOptions
   /// with an unsupporting backend.  Per-line override beats this
   /// global.  Unset → false.
   OptBool loss_use_sos2 {};
+  /// Ordered-fill cap on PWL loss segments (default `true`): every flow
+  /// segment column `seg_k` (and the `|f|` segment columns `v_l` of
+  /// `tangent_signed_flow`) whose breakpoint interval `[b_{k−1}, b_k]`
+  /// reaches past the line's enforced flow cap `tmax` gets the upper
+  /// bound `max(0, min(w_k, tmax − b_{k−1}))` — the most it carries in
+  /// the physical (ordered) fill at `|f| ≤ tmax`, so the segments
+  /// together book at most the ordered secant at `tmax` (`R·tmax²/V²`
+  /// when `tmax` is a breakpoint).  A valid tightening cut: it
+  /// never removes a physical operating point and only bites when the
+  /// segments cover more than `tmax` (a `loss_envelope` wider than the
+  /// flow cap, or the `fp + fn` circulation of `piecewise`).  It limits
+  /// non-physical loss inflation; it is not an arbitrage fix.  `false`
+  /// restores the legacy width-only bounds.
+  OptBool loss_segment_bound {};
   /// Bound for voltage-angle variables: `θ ∈ [−theta_max, +theta_max]`.
   /// When unset, `PlanningLP::auto_scale_theta` computes it as
   /// `Σ_l tmax_l · x_τ_l` (a topology-aware upper bound on the
@@ -424,24 +461,106 @@ struct ModelOptions
   /// gtopt has no startup-time / notification-time field, so the rule
   /// uses min up/down only.  Default 1 h.
   OptReal fast_start_max_hours {};
+  /// Ramp-rate discretisation for `Commitment.ramp_up` / `ramp_down`:
+  ///  - `"backward"` (default, block and point stages): the interval
+  ///    slope `−RD·u_k·h_k − SD·w_k ≤ p_k − p_{k−1} ≤ RU·u_{k−1}·h_k +
+  ///    SU·v_k` with `h_k` the block length (block stages) or the node
+  ///    spacing `t_k − t_{k−1}` (point stages; cyclic stages wrap
+  ///    `h_0 = t_0 + H − t_{N−1}`).
+  ///  - `"central2"` (opt-in, not recommended): second-order derivative
+  ///    on the node grid `t_b`: interior `P'(t_k) = [h₋²P_{k+1} −
+  ///    h₊²P_{k−1} + (h₊² − h₋²)P_k] / (h₊h₋(h₊ + h₋))`.  It is a convex
+  ///    combination of the two adjacent slopes, so a zig-zag (with the
+  ///    cyclic wrap, the checkerboard null vector) passes the rows with
+  ///    arbitrarily large interval slopes.  A warning is issued.
+  OptName ramp_formula {};
+
+  /// `central2` only: treat the stage as a cycle (the first and last nodes
+  /// use the wrapped neighbour across the period end, `period_hours`)
+  /// instead of the one-sided end differences.  Default false.
+  OptBool ramp_wrap {};
+
+  /// Unit-commitment formulation on chronological block stages:
+  ///  - `"energy_block"` (default): the tight three-binary model on
+  ///    block-average power (C2 generation bounds, C4/C5 ramps between
+  ///    block averages).
+  ///  - `"power_based"`: Morales-España et al. power-based UC — the
+  ///    power at every block boundary is a column, each block energy is
+  ///    the trapezoid of its two boundary powers (read by the bus
+  ///    balance, costs, fuel, emissions and storage through the
+  ///    generation column), ramps bound the instantaneous power,
+  ///    start-up / shut-down trajectories carry their energy and the
+  ///    reserves are power-capacity and ramp-capability reserves.
+  ///    Binaries stay on the (uniform, >= 1 h) commitment grid.
+  /// `Commitment.uc_formulation` overrides it per unit.  See
+  /// docs/unit-commitment.md §4.6.
+  OptName uc_formulation {};
+
+  /// Storage-balance time integration on (possibly non-uniform) node grids:
+  ///  - `"block"` (default): `e_b = e_{b−1} + f_b·Δt_b` (block weight).
+  ///    `"cc"` / `"clenshaw_curtis"` are aliases: on a Chebyshev node grid
+  ///    the block weights are the Clenshaw–Curtis weights (node 0 carries
+  ///    `w_0 + w_N`), so the closed-period ΣΔe is exactly the CC
+  ///    quadrature of the net flow — the one that integrates energy and
+  ///    cost.  As sparse as a block balance, positive weights.
+  ///  - `"trapezoid"`: 2 coefficients per row, the increment over
+  ///    `[t_{k−1}, t_k]` is `(t_k − t_{k−1})/2·(f_{k−1} + f_k)`; exact for
+  ///    linear flows; columns corrected as below.
+  ///  - `"lg4"` / `"lg6"`: banded local Lagrange rule on the
+  ///    node times (`Block.time`, default block midpoints): the increment
+  ///    over `[t_{k−1}, t_k]` integrates the cubic / quintic interpolant of
+  ///    the flows on the 4 / 6 nearest nodes, columns corrected so the
+  ///    period total equals the block-weight (Clenshaw–Curtis) quadrature;
+  ///    `e_k` is then the level AT node `t_k` (last one at the period end).
+  ///  - `"lg4_pos"` / `"lg6_pos"` (recommended high-order rule): same,
+  ///    negative weights clipped to 0, then a balanced row / column
+  ///    scaling keeps every weight ≥ 0 with column sums = block weights
+  ///    and row sums = interval lengths.
+  ///  - `"lg4"` / `"lg6"` with signed weights are NOT recommended for an
+  ///    LP: negative weights shift energy between intervals (phantom
+  ///    shifts) and invalidate the charge / discharge envelope (built
+  ///    from max(D, 0) when used).
+  /// Only the storage's own charge / discharge / drain flows are banded.
+  /// Resolution per storage element: the element's own
+  /// `storage_integration` → `reservoir_storage_integration` (reservoirs)
+  /// / `battery_storage_integration` (batteries and the other energy
+  /// storages) → this global value → the built-in per-type default
+  /// (`lg4_pos` for reservoirs, `block` otherwise).  Block stages always
+  /// use the block recursion.
+  OptName storage_integration {};
+
+  /// Point-stage storage integration of reservoirs (see
+  /// `storage_integration`).  Unset: the global value, else `lg4_pos` —
+  /// a reservoir's intermediate-level error times its accumulated
+  /// production factor can be as large as a battery's whole generation.
+  OptName reservoir_storage_integration {};
+
+  /// Point-stage storage integration of batteries and the other energy
+  /// storages (hydrogen, thermal, ammonia).  Unset: the global value,
+  /// else `block`.
+  OptName battery_storage_integration {};
+
+  /// Planning-level default of `Commitment.long_transition` ("on" /
+  /// "off" / "no_uc") for cyclic units whose min up / down time or start
+  /// window exceeds the typical period.  Explicit only: every affected
+  /// unit still gets a warning.  Unset: undeclared units are an error.
+  OptName long_transition {};
 
   /// Default integrality of the commitment startup / shutdown columns
   /// (v / w); `Commitment.transition_integrality` overrides it per unit.
   /// See `TransitionIntegrality` (transition_integrality.hpp):
-  ///   * `"auto"` (default) — continuous when `transition_status_rows`
-  ///     is on (an integral u then forces v / w to {0, 1}), binary when
-  ///     it is off;
-  ///   * `"continuous"` — always continuous in [0, 1];
+  ///   * `"auto"` (default) — binary (exact);
+  ///   * `"continuous"` — always continuous in [0, 1] (not exact with
+  ///     start / stop ramps);
   ///   * `"binary"` — always binary.
   /// The status u is always integer on a MIP build; `relax`,
   /// `continuous_phases` and `--no-mip` relax u, v, w together.
   OptName transition_integrality {};
 
-  /// Default for `Commitment.transition_status_rows`: emit the rows
-  /// `v <= u` (`startup_status`) and `w <= 1 - u` (`shutdown_status`).
-  /// Default `true`.  With them off and continuous v / w, a unit that
-  /// stays on (or off) can take v = w = 1/2 and buy start/stop ramp.
-  OptBool transition_status_rows {};
+  /// REMOVED 2026-11-26 — the commitment rows `v <= u` / `w <= 1 - u`
+  /// no longer exist.  The key is still parsed (bool or name) so old
+  /// inputs load; `validate_planning` warns once and it is ignored.
+  OptBoolOrName transition_status_rows {};
 
   /// Default integrality of the hot / warm / cold startup-tier selectors;
   /// `Commitment.startup_tier_integrality` overrides it per unit.
@@ -501,6 +620,8 @@ struct ModelOptions
     merge_opt(kirchhoff_threshold, opts.kirchhoff_threshold);
     merge_opt(dc_line_reactance_threshold, opts.dc_line_reactance_threshold);
     merge_opt(tiny_reactance_mode, opts.tiny_reactance_mode);
+    merge_opt(tiny_reactance_rel_threshold, opts.tiny_reactance_rel_threshold);
+    merge_opt(tie_line_losses, opts.tie_line_losses);
     merge_opt(dc_line_resistance_threshold, opts.dc_line_resistance_threshold);
     merge_opt(loss_segments, opts.loss_segments);
     merge_opt(scale_objective, opts.scale_objective);
@@ -511,6 +632,7 @@ struct ModelOptions
     merge_opt(loss_overflow_cost, opts.loss_overflow_cost);
     merge_opt(loss_secant_segments, opts.loss_secant_segments);
     merge_opt(loss_use_sos2, opts.loss_use_sos2);
+    merge_opt(loss_segment_bound, opts.loss_segment_bound);
     merge_opt(theta_max, opts.theta_max);
     merge_opt(auto_scale, opts.auto_scale);
     merge_opt(demand_fail_cost, opts.demand_fail_cost);
@@ -540,6 +662,14 @@ struct ModelOptions
     merge_opt(dlr_limit_mode, opts.dlr_limit_mode);
     merge_opt(overload_slack_bound, opts.overload_slack_bound);
     merge_opt(max_overload_ratio, opts.max_overload_ratio);
+    merge_opt(ramp_formula, opts.ramp_formula);
+    merge_opt(ramp_wrap, opts.ramp_wrap);
+    merge_opt(uc_formulation, opts.uc_formulation);
+    merge_opt(storage_integration, opts.storage_integration);
+    merge_opt(reservoir_storage_integration,
+              opts.reservoir_storage_integration);
+    merge_opt(battery_storage_integration, opts.battery_storage_integration);
+    merge_opt(long_transition, opts.long_transition);
   }
 
   /// True if any field is set.
@@ -550,18 +680,21 @@ struct ModelOptions
         || line_losses_mode.has_value() || kirchhoff_threshold.has_value()
         || dc_line_reactance_threshold.has_value()
         || tiny_reactance_mode.has_value()
+        || tiny_reactance_rel_threshold.has_value()
+        || tie_line_losses.has_value()
         || dc_line_resistance_threshold.has_value() || loss_segments.has_value()
         || scale_objective.has_value() || scale_theta.has_value()
         || scale_loss_link.has_value() || loss_cost_eps.has_value()
         || loss_flow_abs_cost.has_value() || loss_overflow_cost.has_value()
         || loss_secant_segments.has_value() || loss_use_sos2.has_value()
-        || theta_max.has_value() || demand_fail_cost.has_value()
-        || demand_fail_segments.has_value() || reserve_shortage_cost.has_value()
-        || hydro_spill_cost.has_value() || hydro_use_value.has_value()
-        || state_violation_cost.has_value() || demand_fail_rhs_shift.has_value()
-        || continuous_phases.has_value() || naming_dialect.has_value()
-        || objective_mode.has_value() || strict_storage_emin.has_value()
-        || lp_reduction.has_value() || allow_oversupply.has_value()
+        || loss_segment_bound.has_value() || theta_max.has_value()
+        || demand_fail_cost.has_value() || demand_fail_segments.has_value()
+        || reserve_shortage_cost.has_value() || hydro_spill_cost.has_value()
+        || hydro_use_value.has_value() || state_violation_cost.has_value()
+        || demand_fail_rhs_shift.has_value() || continuous_phases.has_value()
+        || naming_dialect.has_value() || objective_mode.has_value()
+        || strict_storage_emin.has_value() || lp_reduction.has_value()
+        || allow_oversupply.has_value()
         || battery_annual_standing_loss.has_value()
         || battery_power_envelope.has_value() || reserve_coupling.has_value()
         || pricing_mode.has_value() || fast_start_max_hours.has_value()
@@ -570,7 +703,12 @@ struct ModelOptions
         || startup_tier_integrality.has_value()
         || line_thermal_limit_mode.has_value() || prev_stage_link.has_value()
         || use_line_dlr.has_value() || dlr_limit_mode.has_value()
-        || overload_slack_bound.has_value() || max_overload_ratio.has_value();
+        || overload_slack_bound.has_value() || max_overload_ratio.has_value()
+        || ramp_formula.has_value() || ramp_wrap.has_value()
+        || uc_formulation.has_value() || storage_integration.has_value()
+        || reservoir_storage_integration.has_value()
+        || battery_storage_integration.has_value()
+        || long_transition.has_value();
   }
 
   /// True iff every field set in `other` has an equal value in `*this`.
@@ -589,6 +727,9 @@ struct ModelOptions
         && covers_opt(dc_line_reactance_threshold,
                       other.dc_line_reactance_threshold)
         && covers_opt(tiny_reactance_mode, other.tiny_reactance_mode)
+        && covers_opt(tiny_reactance_rel_threshold,
+                      other.tiny_reactance_rel_threshold)
+        && covers_opt(tie_line_losses, other.tie_line_losses)
         && covers_opt(dc_line_resistance_threshold,
                       other.dc_line_resistance_threshold)
         && covers_opt(loss_segments, other.loss_segments)
@@ -600,6 +741,7 @@ struct ModelOptions
         && covers_opt(loss_overflow_cost, other.loss_overflow_cost)
         && covers_opt(loss_secant_segments, other.loss_secant_segments)
         && covers_opt(loss_use_sos2, other.loss_use_sos2)
+        && covers_opt(loss_segment_bound, other.loss_segment_bound)
         && covers_opt(theta_max, other.theta_max)
         && covers_opt(demand_fail_cost, other.demand_fail_cost)
         && covers_opt(demand_fail_segments, other.demand_fail_segments)
@@ -628,7 +770,16 @@ struct ModelOptions
         && covers_opt(use_line_dlr, other.use_line_dlr)
         && covers_opt(dlr_limit_mode, other.dlr_limit_mode)
         && covers_opt(overload_slack_bound, other.overload_slack_bound)
-        && covers_opt(max_overload_ratio, other.max_overload_ratio);
+        && covers_opt(max_overload_ratio, other.max_overload_ratio)
+        && covers_opt(ramp_formula, other.ramp_formula)
+        && covers_opt(ramp_wrap, other.ramp_wrap)
+        && covers_opt(uc_formulation, other.uc_formulation)
+        && covers_opt(storage_integration, other.storage_integration)
+        && covers_opt(reservoir_storage_integration,
+                      other.reservoir_storage_integration)
+        && covers_opt(battery_storage_integration,
+                      other.battery_storage_integration)
+        && covers_opt(long_transition, other.long_transition);
   }
 };
 

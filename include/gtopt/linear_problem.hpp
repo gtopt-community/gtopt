@@ -107,6 +107,10 @@ struct FlatLinearProblem
   /// `LinearInterface::add_row` path can apply the same per-row
   /// equilibration to post-build cut rows.
   LpEquilibrationMethod equilibration_method {LpEquilibrationMethod::none};
+  /// `LpMatrixOptions::pin_logic_rows` resolved at flatten() time, so
+  /// `LinearInterface::add_row` keeps post-build `SparseRow::pin_scale`
+  /// rows unnormalised like the bulk pass did.
+  bool pin_logic_rows {LpMatrixOptions::default_pin_logic_rows};
   double scale_objective {1.0};  ///< Global objective divisor applied during
                                  ///< flatten().  obj_physical = obj_LP ×
                                  ///< scale_objective.

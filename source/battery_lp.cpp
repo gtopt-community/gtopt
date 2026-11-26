@@ -133,6 +133,8 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
       // overrides it).
       .default_annual_standing_loss =
           sc.options().battery_annual_standing_loss(),
+      .integration = sc.options().storage_integration(
+          battery().storage_integration, /*reservoir=*/false),
   };
   if (!StorageBase::add_to_lp(cname,
                               ampl_name,

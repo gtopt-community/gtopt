@@ -81,10 +81,19 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 | `kirchhoff_threshold`  | number  | `0`       | kV            | Minimum bus voltage below which Kirchhoff is not applied |
 | `dc_line_reactance_threshold` | number | `1e-6` | p.u.   | `\|X/V²\|` below which a line's KVL flow term is dropped (see `tiny_reactance_mode`); `0` disables |
 | `tiny_reactance_mode`  | string  | `"tie"`   | --            | Lines with `reactance` 0 or below `dc_line_reactance_threshold`: `"tie"` = zero-impedance tie (bus angles forced equal, `θ_a − θ_b = φ`); `"dc"` = legacy free-flow DC link. Lines without `reactance` are always DC links |
+| `tiny_reactance_rel_threshold` | number | `0.01` | -- | Relative tie floor: a line is a zero-impedance tie when `\|X/V²\|` < max(`dc_line_reactance_threshold`, this × median `\|X/V²\|`); `0` = absolute floor only |
+| `tie_line_losses` | boolean | `false` | -- | `false`: zero-impedance ties are lossless (no loss rows); `true`: legacy, ties keep their loss model |
+| `loss_segment_bound` | boolean | `true` | -- | Ordered-fill upper bound `min(w_k, max(0, tmax − b_{k−1}))` on PWL loss segment columns (valid tightening cut); `false` = width-only bounds |
 | `scale_objective`      | number  | `1000`    | dimensionless | Divisor applied to all objective coefficients for numerical stability |
 | `scale_theta`          | number  | auto      | dimensionless | Voltage-angle enlargement: θ_LP = scale_theta · θ (rad); auto = 1/(3·median(X/V²)); 1 = radians; 1000 = milliradians |
 | `objective_mode`       | string  | `"cost"`  | --            | `"emissions"` minimises emissions instead of cost (see [Emissions](#325-emissions)). Emission prices and caps are set on `EmissionZone`, not here |
 | `continuous_phases`    | string  | `"none"`  | --            | Phase range where all integer/binary variables relax to continuous. Syntax: `"all"`, `"none"`, `"0"`, `"1,3:5,8:"`, `":3"` |
+| `ramp_formula`         | string  | `"backward"` | --         | Ramp discretisation: `"backward"` (default, also on point stages: the interval slope `p_k − p_{k−1} ≤ RU·h_k`, `h_k = t_k − t_{k−1}`, cyclic wrap `h_0 = t_0 + H − t_{N−1}`) or `"central2"` (opt-in, NOT recommended: a convex combination of the adjacent slopes that lets zig-zag dispatch through; see formulation C4/C5) |
+| `uc_formulation`       | string  | `"energy_block"` | --     | Unit-commitment formulation on chronological block stages: `"energy_block"` (default, block-average power) or `"power_based"` (power at the block boundaries, block energy = trapezoid, exact ramps, start-up / shut-down trajectories, ramp-capability reserves; see [Unit Commitment §4.6](unit-commitment.md#46-power-based-formulation-uc_formulation--power_based)). `Commitment.uc_formulation` overrides it per unit |
+| `ramp_wrap`            | boolean | `false`   | --            | `central2` only: wrap the end nodes cyclically over the stage period |
+| `storage_integration` | string | per type | -- | Point-sampled stages only (block stages always use `block`). Storage balance time integration: `block` (`e_b = e_{b−1} + f_b·Δt_b`), `trapezoid` / `lg4` / `lg6` (banded 2- / 4- / 6-point Lagrange rule on `Block.time`, level at the node; rows balanced so interval sums = interval lengths and column sums = block weights), `lg4_pos` / `lg6_pos` (nonnegative weights; `lg4_pos` is the recommended high-order rule — plain `lg4` / `lg6` have negative weights and are not recommended for LP); every banded rule adds charge-only / discharge-only envelope rows (`max(D_kj, 0)`). Resolution: element `storage_integration` → `reservoir_storage_integration` / `battery_storage_integration` → this value → `lg4_pos` (reservoirs) / `block` (others) |
+| `reservoir_storage_integration` | string | `"lg4_pos"` | -- | Point-stage rule of reservoirs (see `storage_integration`) |
+| `battery_storage_integration` | string | `"block"` | -- | Point-stage rule of batteries and the other energy storages (see `storage_integration`) |
 
 > **Note**: `annual_discount_rate` has moved to the `simulation`
 > section (see [Section 2](#2-simulation)).  For backward
@@ -609,6 +618,7 @@ A block is the smallest indivisible time unit. `energy [MWh] = power [MW] × dur
 | `uid`      | integer| —     | Yes      | Unique identifier |
 | `name`     | string | —     | No       | Optional name |
 | `duration` | number | h     | Yes      | Duration of the block |
+| `time` | number | h | No | Node time inside the stage period (real hours), used by `ramp_formula = central2` and point-stage storage integration. Must lie in its cell [τ_{k−1}, τ_k] (cumulative durations). Default: block midpoint |
 
 ### 2.2 Stage
 
@@ -623,6 +633,10 @@ A stage groups consecutive blocks into a planning/investment period.
 | `discount_factor`| number  | p.u.  | No       | Present-value cost multiplier for this stage |
 | `active`         | boolean | —     | No       | Whether the stage is active |
 | `chronological`  | boolean | —     | No       | Whether blocks are sequential time periods (enables unit commitment). Default: `false`. See [Unit Commitment](unit-commitment.md) |
+| `cycle_group`    | integer | —     | No       | Storage cycle group: consecutive stages of one phase with the same id form one weighted cycle for `daily_cycle` storages (Σ w·ΔSoC = 0, see formulation §5.7). Default: unset (each stage closes its own day) |
+| `cycle_weight`   | number  | —     | No       | Repetitions of the stage inside its `cycle_group` (e.g. days per typical week). Must be > 0. Default: duration / 24 |
+| `period_hours`   | number  | —     | No       | Real length (h) of the chronological period sampled by the stage (168 typical week, 24 day). Block durations become weights; real step Δt = duration · period_hours / stage duration drives `daily_cycle` storage cycles, ramps and min up/down. Default: unset |
+| `sampling`       | string  | —     | No       | `"block"` (default: a value holds constant over its block) or `"point"` (values are samples AT `Block.time`, required and increasing; durations are quadrature weights). Point stages integrate storage between nodes (`storage_integration`: `lg4_pos` for reservoirs, `block` for batteries by default), use interval-slope (`backward`) ramps scaled by `h_k = t_k − t_{k−1}`, floor commitment periods at 1 h, and count min up/down, commitment periods and `max_cycles_day` days on the quadrature cells; a periodic grid has N nodes (node N ≡ node 0 dropped, its weight added to node 0); duals ÷ duration are prices AT `t_k`; `block_time.csv` is written to the output directory |
 
 ### 2.3 Scenario
 
@@ -1228,6 +1242,7 @@ be defined manually (see §3.6 Converter).
 | `reserve_sustain_hours` | number          | h            | No       | Native BESS reserve rows: two-sided power headroom and SoC sufficiency for $T$ hours (formulation §5.9) |
 | `reserve_discharge_credit` | boolean      | —            | No       | Credit discharge in the down-reserve headroom (default false) |
 | `reserve_energy_usage_up` / `reserve_energy_usage_down` | number | MWh/MW/h | No | Expected reserve deployment energy charged to the SoC (replaces the CEN AUX `CF_*_COMP`; no bus term) |
+| `storage_integration` | string            | —            | No       | Point-stage storage integration of this battery (overrides `model_options.battery_storage_integration`; see `storage_integration`) |
 
 #### File-backed battery schedules
 
@@ -1410,6 +1425,7 @@ A water reservoir connected to a junction.  Volume units: **hm³** (1 hm³ = 10�
 | `soft_emin_cost`       | number\|array\|string| $/hm³     | No       | Penalty cost per unit of `soft_emin` slack violation |
 | `use_state_variable`   | boolean             | —           | No       | Enable stage/phase coupling of the reservoir state variable |
 | `daily_cycle`          | boolean             | —           | No       | Enforce daily cycling (initial volume equals final volume each day) |
+| `storage_integration`  | string              | —           | No       | Point-stage storage integration of this reservoir (overrides `model_options.reservoir_storage_integration`; default `lg4_pos`) |
 
 #### Terminal targets and SDDP apertures
 
@@ -1917,11 +1933,15 @@ Commitments.
 | `initial_hours` | number | hours | No | Hours in current state at t=0 |
 | `relax` | boolean | — | No | LP relaxation: u,v,w ∈ [0,1] instead of {0,1} |
 | `must_run` | boolean | — | No | Force u = 1 at all times |
-| `transition_integrality` | string | — | No | Startup / shutdown integrality for this unit: `auto` (continuous with the `v ≤ u` / `w ≤ 1 − u` rows, binary without), `continuous`, `binary`; unset = `model_options.transition_integrality` (default `auto`) |
+| `transition_integrality` | string | — | No | Startup / shutdown integrality for this unit: `auto` (binary), `continuous`, `binary`; unset = `model_options.transition_integrality` (default `auto`) |
 | `startup_tier_integrality` | string | — | No | Hot / warm / cold selector integrality: `continuous` or `integer`; unset = `model_options.startup_tier_integrality` (default `continuous`) |
-| `transition_status_rows` | boolean | — | No | Emit `v ≤ u` / `w ≤ 1 − u` for this unit; unset = `model_options.transition_status_rows` (default `true`) |
 | `fast_start` | boolean | — | No | Fast-start unit for `pricing_mode = "fast_start"` (unset = auto: min up and min down ≤ `fast_start_max_hours`) |
-| `commitment_period` | number | hours | No | Coarser binary variable resolution |
+| `commitment_period` | number \| `"auto"` | hours | No | Coarser binary variable resolution. Periods are unions of whole cells (blocks; quadrature cells on `Stage.sampling = "point"` stages): cell k joins period ⌊mid_k/P⌋, so a boundary snaps to the nearer cell end. `"auto"`: P = max(block resolution, ½·min(min_up_time, min_down_time)) |
+| `commitment_grid` | string | — | No | `"block"` (one status per block/cell) or `"overlay"` (per `commitment_period`). Default: overlay iff `commitment_period` is set. Point stages: default = uniform grid of max(`commitment_period`, 1 h) by node time; `"block"` / `"cells"` keep the previous per-node / quadrature-cell grids |
+| `ramp_allowance` | string | `"boundary"` | No | `"boundary"` (default: only ramp rows crossing a commitment-period boundary get the SU/SD ramp allowance) or `"period"` (every block of a commitment period gets the allowance of its period; older, looser form) |
+| `cycle` | string | — | No | `"none"` (default) or `"stage"`: cyclic UC over the stage (typical day/week): transitions, windows and ramps wrap, no initial state, start costs × `duration / period_hours`. See [unit-commitment](unit-commitment.md) |
+| `long_transition` | string | — | Cond. | `"on"`, `"off"` or `"no_uc"`; required for cyclic units whose min up/down time or start window exceeds the typical period (validation error otherwise) |
+| `long_transition_schedule` | string[] | — | No | Per-stage `long_transition` (by stage position) |
 | `hot_start_cost` | number | $/start | No | Startup cost for hot start |
 | `warm_start_cost` | number | $/start | No | Startup cost for warm start |
 | `cold_start_cost` | number | $/start | No | Startup cost for cold start |
