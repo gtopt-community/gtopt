@@ -507,8 +507,8 @@ with the events moved to the commitment grid):
 
 $$
 \hat p_b = \underline P_b\,\bigl(u_{k(b)} + E_b\,v_{k^+(b)}\bigr) + p_b
- + \sum_{s} f^{SU}\!\bigl(T_s - \tau_b\bigr)\,v_s
- + \sum_{d} f^{SD}\!\bigl(\tau_b - T_d\bigr)\,w_d .
+ {}+ \sum_{s} f^{SU}\!\bigl(T_s - \tau_b\bigr)\,v_s
+ {}+ \sum_{d} f^{SD}\!\bigl(\tau_b - T_d\bigr)\,w_d .
 $$
 
 Here $T_k$ is the start instant of period $k$.  $f^{SU}(\delta)$, for
@@ -549,8 +549,8 @@ and 26; TSTE 2016 [6], eqs. 13–14):
 
 $$
 p_b + \sum_i r^{+}_{i,b} \le (\overline P_b - \underline P_b)\,u_{k(b)}
- - E_b\,(\overline P_b - SD)\,w_{k^+(b)}
- + E_b\,(SU - \underline P_b)\,v_{k^+(b)},
+ {}- E_b\,(\overline P_b - SD)\,w_{k^+(b)}
+ {}+ E_b\,(SU - \underline P_b)\,v_{k^+(b)},
 \qquad
 p_b - r^{-}_{i,b} \ge 0 .
 $$
@@ -567,11 +567,11 @@ with a start-up (shut-down) trajectory uses $SU = \underline P$
 
 $$
 p_b - p_{b-1} + \sum_i r^{+}_{i,b} \le RU\,\Delta_b\,u_{k(b)}
- + E_b\,(SU - \underline P_b)\,v_{k^+(b)},
+ {}+ E_b\,(SU - \underline P_b)\,v_{k^+(b)},
 $$
 $$
 p_{b-1} - p_b + \sum_i r^{-}_{i,b} \le RD\,\Delta_b\,u_{k(b)}
- + F_b\,(SD - \underline P_b)\,w_{k(b)} .
+ {}+ F_b\,(SD - \underline P_b)\,w_{k(b)} .
 $$
 
 The power is linear between the boundaries.  Inside the up state
@@ -595,7 +595,7 @@ p_b + (SU - \underline P)\,w_k - (\overline P - \underline P)\,u_k
 $$
 $$
 p_{b-1} - (\overline P - \underline P)\,u_{k-1}
- + (\overline P - \underline P)\,w_k + (SD - \underline P)\,v_{k^+}
+ {}+ (\overline P - \underline P)\,w_k + (SD - \underline P)\,v_{k^+}
  \le SD - \underline P .
 $$
 
@@ -905,8 +905,7 @@ Every stage is a partition into cells $[\tau_{k-1}, \tau_k]$,
 $\tau_k = \sum_{j \le k} w_j$ with $w_j$ the real block durations: on
 block stages the cells are the blocks; on point-sampled stages
 (`Stage.sampling = "point"`) they are the quadrature cells around the
-node times `Block.time` (validation requires $t_k \in [\tau_{k-1},
-\tau_k]$).  A commitment period is a union of whole cells: cell k joins
+node times `Block.time` (validation requires $t_k \in [\tau_{k-1}, \tau_k]$).  A commitment period is a union of whole cells: cell k joins
 period $\lfloor m_k / P \rfloor$ with $m_k$ the cell midpoint, i.e. a
 nominal boundary $mP$ inside a cell snaps to the nearer cell end (error
 at most half that cell; a long cell spanning several boundaries leaves

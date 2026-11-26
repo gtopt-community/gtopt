@@ -53,8 +53,7 @@ On $x \in [-1, 1]$, mapped to $t = \tfrac{T}{2}(1 + x)$ with $T = 168$ h:
 - Chebyshev–Gauss (N nodes): $x_k = -\cos\frac{\pi(2k-1)}{2N}$,
   $k = 1..N$; weights = Fejér's first rule.  Exact for polynomials of
   degree $\le N - 1$.
-- Chebyshev–Gauss–Lobatto (N + 1 nodes, default): $x_k = -\cos\frac{\pi
-  k}{N}$, $k = 0..N$; weights = Clenshaw–Curtis.  Exact for degree
+- Chebyshev–Gauss–Lobatto (N + 1 nodes, default): $x_k = -\cos\frac{\pi k}{N}$, $k = 0..N$; weights = Clenshaw–Curtis.  Exact for degree
   $\le N$.
 
 Both weight sets are positive, symmetric and sum to $T$; they are
@@ -111,8 +110,7 @@ Chebyshev weeks are emitted as `Stage.sampling = "point"`
   slope $P_k - P_{k-1}$ by $R\,h_k$, $h_k = t_k - t_{k-1}$ (cyclic wrap
   at node 0).  `ramp_formula = "central2"` bounds the second-order
   non-uniform central difference
-  $P'(t_k) \approx \frac{h_-^2 P_{k+1} - h_+^2 P_{k-1} + (h_+^2 - h_-^2)
-  P_k}{h_+ h_-(h_+ + h_-)}$, exact for quadratics.  It is opt-in:
+  $P'(t_k) \approx \frac{h_-^2 P_{k+1} - h_+^2 P_{k-1} + (h_+^2 - h_-^2) P_k}{h_+ h_-(h_+ + h_-)}$, exact for quadratics.  It is opt-in:
   being a convex combination of two slopes, it lets a zig-zag dispatch
   through, and `validate_planning` warns.
 
@@ -317,7 +315,7 @@ for both, so their solve times are not comparable with the others.
 Solve times are HiGHS wall times on a shared, loaded host and only
 indicative.
 
-| Case | Blocks / stage | Storage (bat / res) | Objective [$] | Δ vs u2 | Vars / rows | Solve [s] | Built MW | Battery discharge [GWh] | Zig-zag index | Gen. ramp [GW / week] | Battery energy dual mean |
+| Case | Blocks / stage | Storage (bat / res) | Objective [\$] | Δ vs u2 | Vars / rows | Solve [s] | Built MW | Battery discharge [GWh] | Zig-zag index | Gen. ramp [GW / week] | Battery energy dual mean |
 |------|---------------:|---------------------|--------------:|--------:|------------:|----------:|---------:|------------------------:|--------------:|----------------------:|-------------------------:|
 | uniform 2 h block | 84 | block / block | 4.1078e9 | — | 1.73M / 1.22M | 1036 | 6323 | 10402 | 0.26 | 571 | 36.89 |
 | Chebyshev 24 | 24 | cc / lg4_pos | 4.0079e9 | −2.4 % | 0.50M / 0.35M | 149 | 6437 | 7406 | 0.70 | 235 | 36.37 |
@@ -349,7 +347,7 @@ than any Chebyshev week; that is resolution, not the storage rule.
 Same machine (one solve at a time, HiGHS 1.16), the same rule for
 batteries and reservoirs; error against the 1 h reference:
 
-| N | Rule | Objective [$] | vs 1 h | Rows | Nonzeros | Solve [s] | Battery discharge [GWh] | Zig-zag | Gen. ramp [GW / week] |
+| N | Rule | Objective [\$] | vs 1 h | Rows | Nonzeros | Solve [s] | Battery discharge [GWh] | Zig-zag | Gen. ramp [GW / week] |
 |--:|------|--------------:|-------:|-----:|---------:|----------:|------------------------:|--------:|----------------------:|
 | 48 | cc | 4.0686e9 | −1.19 % | 0.70M | — | 225 | 9738 | 0.38 | 435 |
 | 48 | lg4_pos | 4.0646e9 | −1.29 % | 0.86M | — | 923 | 9691 | 0.31 | 443 |

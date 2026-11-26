@@ -1120,13 +1120,11 @@ $$ 0 \;\le\; s_k \;\le\; \min\bigl(w_k,\;
    \max(0,\; \overline{F}_l^{dir} - b_{k-1})\bigr), $$
 
 the most it carries in the ordered fill at $|f| \le \overline{F}$, so
-segment $k$ books at most $c_l (b_{k-1} + b_k)\,\min(w_k,
-\overline{F} - b_{k-1})^{+}$ and the segments together at most the
+segment $k$ books at most $c_l (b_{k-1} + b_k)\,\min(w_k, \overline{F} - b_{k-1})^{+}$ and the segments together at most the
 ordered secant at $\overline{F}$ — the same value as the loss-column cap
 above, $c_l \overline{F}^2$ when $\overline{F}$ is a breakpoint (for
 `piecewise`, whose segments
-carry $f^+ + f^-$, $\overline{F} = \max(\overline{F}^{ab},
-\overline{F}^{ba})$).  It is a valid tightening bound: it removes no
+carry $f^+ + f^-$, $\overline{F} = \max(\overline{F}^{ab}, \overline{F}^{ba})$).  It is a valid tightening bound: it removes no
 physical point and only bites when the segments reach past the flow cap
 (a `loss_envelope` above $\overline{F}$, where the last segment used to
 be unbounded, or a two-direction circulation).  Like the loss cap it
@@ -1903,7 +1901,7 @@ $$
 e_{d+1}^{\text{ini}} &= e_d^{\text{ini}} + w_d\,\Delta e_d
   && \text{(chain, } d, d{+}1 \in G\text{)} \\
 e_{d_{\text{first}}}^{\text{ini}} &= e_{d_{\text{last}}}^{\text{ini}}
-  + w_{d_{\text{last}}}\,\Delta e_{d_{\text{last}}}
+  {}+ w_{d_{\text{last}}}\,\Delta e_{d_{\text{last}}}
   \;\Longleftrightarrow\; \sum_{d \in G} w_d\,\Delta e_d = 0
   && \text{(closure)} \\
 \underline{E} \le\; &e_{d,b} + (w_d - 1)\,\Delta e_d \;\le \overline{E}
@@ -1989,10 +1987,8 @@ changes:
   has its own uniform grid of $P_g$ = max(`commitment_period`, 1 h)
   cells (default 1 h) aligned to the stage start (for the converters'
   typical week: Wednesday 12:00).  Node $k$ inherits the status of cell
-  $c_g(k) = \min(\lfloor t_k / P_g \rfloor, C_g - 1)$, $C_g = \lceil
-  H / P_g \rceil$: a node exactly on a cell boundary belongs to the
-  LATER cell, the end node $t_N = H$ to the last one.  $p_k \ge
-  \underline P u_{c(k)}$, $p_k \le \overline P u_{c(k)}$; start-up /
+  $c_g(k) = \min(\lfloor t_k / P_g \rfloor, C_g - 1)$, $C_g = \lceil H / P_g \rceil$: a node exactly on a cell boundary belongs to the
+  LATER cell, the end node $t_N = H$ to the last one.  $p_k \ge \underline P u_{c(k)}$, $p_k \le \overline P u_{c(k)}$; start-up /
   shut-down $v, w$ exist only at cell boundaries, and a ramp row gets the
   SU·$v$ / SD·$w$ allowance only when its stencil crosses into a new cell
   (inside a cell the plain ramp limit $R\,h\,u$ holds) under the default
@@ -2019,8 +2015,7 @@ changes:
   dropped (periodic grids) node 0 already carries $w_0 + w_N$, so no
   end merge is needed.  Hourly prices are rebuilt CELL-CONSTANT by
   default: $\pi_k$ holds on $[\tau_{k-1}, \tau_k]$ and an hour's price
-  is the overlap-weighted mean, so $\int \pi\,g\,dt = \sum_k
-  \lambda_k u_k$ for every cell-constant quantity and a nonnegative node
+  is the overlap-weighted mean, so $\int \pi\,g\,dt = \sum_k \lambda_k u_k$ for every cell-constant quantity and a nonnegative node
   price never gives a negative hourly price.  The coefficient-space
   adjoint is an option (`price_reconstruction = adjoint`).
   Quantities are rebuilt with the interpolant of the storage rule
@@ -4029,7 +4024,7 @@ are the interval slopes, written scaled by
 $h_k = t_k - t_{k-1}$ (no $1/h$ coefficients):
 
 $$
--R^{dn}_g h_k\,u_{g,k} - \text{SD}_g\,w_{g,k}
+{}-R^{dn}_g h_k\,u_{g,k} - \text{SD}_g\,w_{g,k}
 \;\le\; P_k - P_{k-1} \;\le\;
 R^{up}_g h_k\,u_{g,k-1} + \text{SU}_g\,v_{g,k},
 $$
@@ -4060,7 +4055,7 @@ P'(t_k) \approx
 $$
 
 $$
--R_g^{\text{dn}} h_k\,u_{g,k} - \text{SD}_g^{\text{ramp}} w_{g,k}
+{}-R_g^{\text{dn}} h_k\,u_{g,k} - \text{SD}_g^{\text{ramp}} w_{g,k}
 \;\le\; h_k\,P'(t_k) \;\le\;
 R_g^{\text{up}} h_k\,u_{g,k} + \text{SU}_g^{\text{ramp}} v_{g,k}
 \;(+\,\text{SU}_g^{\text{ramp}} c_{k+1} h_k\, v_{g,k+1})
@@ -4196,21 +4191,21 @@ $\hat p_b$ (total power, output `Commitment/power`).
 $$
 \begin{aligned}
 &\hat p_b = \underline P_b\,(u_{k(b)} + E_b v_{k^+}) + p_b
-  + \textstyle\sum_s f^{SU}(T_s - \tau_b)\,v_s
-  + \sum_d f^{SD}(\tau_b - T_d)\,w_d
+  {}+ \textstyle\sum_s f^{SU}(T_s - \tau_b)\,v_s
+  {}+ \sum_d f^{SD}(\tau_b - T_d)\,w_d
   && \text{(PB1)}\\
 &g_b = \tfrac12\,(\hat p_{b-1} + \hat p_b)
   && \text{(PB2)}\\
 &p_b + \textstyle\sum_i r^{+}_{i,b} \le (\overline P_b - \underline P_b) u_{k(b)}
-  - E_b (\overline P_b - SD) w_{k^+} + E_b (SU - \underline P_b) v_{k^+}
+  {}- E_b (\overline P_b - SD) w_{k^+} + E_b (SU - \underline P_b) v_{k^+}
   && \text{(PB3)}\\
 &p_b - \textstyle\sum_i r^{-}_{i,b} \ge 0
   && \text{(PB4)}\\
 &p_b - p_{b-1} + \textstyle\sum_i r^{+}_{i,b} \le RU\,\Delta_b\,u_{k(b)}
-  + E_b (SU - \underline P_b) v_{k^+}
+  {}+ E_b (SU - \underline P_b) v_{k^+}
   && \text{(PB5)}\\
 &p_{b-1} - p_b + \textstyle\sum_i r^{-}_{i,b} \le RD\,\Delta_b\,u_{k(b)}
-  + F_b (SD - \underline P_b) w_{k(b)}
+  {}+ F_b (SD - \underline P_b) w_{k(b)}
   && \text{(PB6)}
 \end{aligned}
 $$
@@ -4224,7 +4219,7 @@ $$
 &p_b + (SU - \underline P_b)\,w_k - (\overline P_b - \underline P_b)\,u_k
   \le SU - \underline P_b && \text{(PB7a)}\\
 &p_{b-1} - (\overline P - \underline P)(u_{k-1} - w_k)
-  + (SD - \underline P)\,v_{k^+} \le SD - \underline P && \text{(PB7b)}
+  {}+ (SD - \underline P)\,v_{k^+} \le SD - \underline P && \text{(PB7b)}
 \end{aligned}
 $$
 
@@ -4242,8 +4237,7 @@ the boundaries is out of scope).  $\hat p_0$ uses $u_0$ =
 (else free within PB1 / PB3); cyclic stages identify boundary 0
 with boundary $B$.
 PB3–PB7 replace C2–C5 and the u-gated reserve headroom rows of §5.9
-(which keep only $r \le \overline P u$ and $r^- \le (\overline P -
-\underline P) u$); C1, C3, C6 and the start-cost tiers are unchanged.
+(which keep only $r \le \overline P u$ and $r^- \le (\overline P - \underline P) u$); C1, C3, C6 and the start-cost tiers are unchanged.
 Point-sampled stages and expandable generators keep the energy-block
 rows (warning).
 <!-- source: source/commitment_power_based.cpp, source/commitment_lp.cpp (add_power_based) -->
