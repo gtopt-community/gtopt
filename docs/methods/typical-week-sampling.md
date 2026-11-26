@@ -1,5 +1,10 @@
 # Typical-Week Sampling and Chebyshev Nodes (expansion planning)
 
+The methods and their validation are described in the gtopt paper,
+M. Matus et al., engrXiv 2026, DOI
+[10.31224/8872](https://doi.org/10.31224/8872); see
+[publications](../../PUBLICATIONS.md) for the related papers.
+
 Status: provisional.  This page is the reference note for the white
 paper section on time representation in expansion planning.  It
 summarises the method, where it lives in the code, and the FY28 AEMO

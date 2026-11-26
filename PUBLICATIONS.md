@@ -1,7 +1,10 @@
 # Publications
 
-Papers describing GTOpt and its predecessor FESOP, related work by the
-authors, and studies that use GTOpt.
+Papers describing GTOpt and its predecessors (PLP, FESOP), the methods
+by the authors that GTOpt implements, applications, presentations, the
+third-party references GTOpt builds on or is validated against, and studies
+that use GTOpt.  Metadata is checked on Crossref; items without a DOI come
+from the first author's ResearchGate profile.
 
 To cite the software itself, use [`CITATION.cff`](CITATION.cff) (GitHub's
 "Cite this repository" button).  If you publish work that uses GTOpt,
@@ -14,7 +17,8 @@ to Decades.**
 Marcelo Matus A., María del Pilar Buitrago Villada, Erick Sierra Baeza,
 Carlos Enrique García Bujanda, Catalina López, Marcos Falcone Salazar and
 Gonzalo Bustos Turu.
-Preprint, 2026.
+*engrXiv* preprint, 2026.
+DOI: [10.31224/8872](https://doi.org/10.31224/8872) ·
 PDF: [`docs/white_paper/main.pdf`](docs/white_paper/main.pdf) ·
 LaTeX source and build instructions: [`docs/white_paper/`](docs/white_paper/) ·
 Licence: CC BY 4.0.
@@ -37,8 +41,9 @@ Licence: CC BY 4.0.
   title        = {{GTOpt}: Open-Source Energy-System Optimization,
                   Consistent from Minutes to Decades},
   year         = {2026},
-  note         = {Preprint},
-  howpublished = {\url{https://github.com/gtopt-community/gtopt/tree/master/docs/white_paper}},
+  howpublished = {engrXiv preprint},
+  doi          = {10.31224/8872},
+  url          = {https://github.com/gtopt-community/gtopt/tree/master/docs/white_paper},
 }
 ```
 
@@ -163,16 +168,81 @@ Open access: [ResearchGate][rg-dlr],
 [rg-dlr]: https://www.researchgate.net/publication/254057820_Identification_of_Critical_Spans_for_Monitoring_Systems_in_Dynamic_Thermal_Rating
 [uchile-dlr]: https://www.cec.uchile.cl/~dsaez/wp-content/uploads/2011/09/06163401.pdf
 
-## Related work by the authors
+### Hydrothermal coordination with irrigation constraints
 
-- E. Pereira-Bonvallet, S. Puschel-Lovengreen, M. Matus and R. Moreno,
-  "Optimizing Hydrothermal Scheduling with Non-Convex Irrigation
-  Constraints: Case on the Chilean Electricity System," *Energy Procedia*,
-  vol. 87, pp. 132–138, 2016.
-  DOI: [10.1016/j.egypro.2015.12.342](https://doi.org/10.1016/j.egypro.2015.12.342)
+**Optimizing Hydrothermal Scheduling with Non-Convex Irrigation
+Constraints: Case on the Chilean Electricity System.**
+E. Pereira-Bonvallet, S. Püschel-Løvengreen, M. Matus and R. Moreno.
+*Energy Procedia*, vol. 87, pp. 132–140, 2016.
+DOI:
+[10.1016/j.egypro.2015.12.342](https://doi.org/10.1016/j.egypro.2015.12.342)
+
+> Hydrothermal coordination with the non-convex irrigation agreements of
+> Chilean reservoirs, solved inside SDDP.  Used in GTOpt's SDDP
+> hydrothermal coordination
+> ([`docs/methods/sddp.md`](docs/methods/sddp.md) §8.1) and the irrigation
+> agreements ([`docs/irrigation-agreements.md`](docs/irrigation-agreements.md)).
+
+```bibtex
+@article{pereira2016hydrothermal,
+  author  = {Pereira-Bonvallet, Eduardo and
+             P{\"u}schel-L{\o}vengreen, Sebastian and
+             Matus, Marcelo and
+             Moreno, Rodrigo},
+  title   = {Optimizing Hydrothermal Scheduling with Non-Convex Irrigation
+             Constraints: Case on the Chilean Electricity System},
+  journal = {Energy Procedia},
+  volume  = {87},
+  pages   = {132--140},
+  year    = {2016},
+  doi     = {10.1016/j.egypro.2015.12.342},
+}
+```
+
+### SDDP with binary and linear security constraints
+
+**Binary and Linear Security Constraints in SDDP: Modeling Ralco
+Reservoir Operation to Avoid Landslide Events.**
+M. Matus, C. Toro and S. Püschel-Løvengreen.
+*International Conference on Stochastic Programming (ICSP)*, 2016.
+Full text: [ResearchGate][rg-matus]
+
+> Reservoir operating rules with binary and linear security constraints
+> inside SDDP.  Used in GTOpt's SDDP reservoir operating rules
+> ([`docs/methods/sddp.md`](docs/methods/sddp.md)).
+
+### Irrigation agreements in the Laja basin
+
+**Modeling Integrated Water Resource Allocation for Agriculture and
+Economical Energy Production in the Laja Lake Basin Considering New
+Irrigation Policies.**
+M. Matus, R. Sepúlveda, E. Sierra et al.
+*4th International Conference on Energy and Environment (ICEE)*, 2019.
+Full text: [ResearchGate][rg-matus]
+
+> Joint water allocation for irrigation and hydropower under the Laja
+> agreement.  Used in GTOpt's irrigation agreements
+> ([`docs/irrigation-agreements.md`](docs/irrigation-agreements.md)).
+
+[rg-matus]: https://www.researchgate.net/profile/Marcelo-Matus-2/research
+
+## Applications by the authors
+
+- M. Matus Acuña, G. Bustos-Turu, T. Cox Oettinger, M. Zamora Zapata,
+  W. Calderón-Muñoz, M. Buitrago-Villada, C. García Bujanda,
+  L. Reyes-Chamorro, L. Vera Ortega, F. Peña-Cortés and E. Fernández Soto,
+  "Assessing Sustainable Electromobility Futures in a Multi-Model Platform
+  with Grid and Urban Planning: A Case Study in Chile," *Journal of
+  Sustainable Development of Energy, Water and Environment Systems*,
+  vol. 14, no. 3, 1140723, 2026.
+  DOI: [10.13044/j.sdewes.d14.0723](https://doi.org/10.13044/j.sdewes.d14.0723)
+- E. Sierra, C. Benavides and M. Matus, "Cost-Benefit Analysis of Small
+  Distributed Generation in the National Electric System," *IEEE CHILECON*,
+  pp. 1–6, 2019.
+  DOI: [10.1109/CHILECON47746.2019.8987678](https://doi.org/10.1109/CHILECON47746.2019.8987678)
 - C. Benavides, M. Matus, E. Sierra, R. Sepúlveda, A. M. Ruz and
   F. Gallardo, "Value contribution of solar plants to the Chilean electric
-  system," *AIP Conference Proceedings*, vol. 2126, 120008, 2019
+  system," *AIP Conference Proceedings*, vol. 2126, 170001, 2019
   (SolarPACES 2018).
   DOI: [10.1063/1.5117671](https://doi.org/10.1063/1.5117671)
 - C. Benavides, R. Alvarez, R. Torres, R. Moreno, M. Matus, D. Muñoz,
@@ -180,10 +250,41 @@ Open access: [ResearchGate][rg-dlr],
   payment allocation in hydrothermal power systems with high shares of
   renewable energies," *E3S Web of Conferences*, vol. 140, 11008, 2019.
   DOI: [10.1051/e3sconf/201914011008](https://doi.org/10.1051/e3sconf/201914011008)
+- L. Vargas, T. González, M. Gutiérrez, P. Guzmán and M. Matus, "Geothermal
+  energy in electricity markets and decarbonisation scenarios: the Chilean
+  case," *IOP Conference Series: Earth and Environmental Science*, vol. 188,
+  012035, 2018.
+  DOI: [10.1088/1755-1315/188/1/012035](https://doi.org/10.1088/1755-1315/188/1/012035)
+- M. Matus and G. Bustos-Turu, "Renewable energy integration into the
+  planning and operation of urban transport systems," *1st Workshop in
+  Strategies for Solar Energy and Basic Sciences Research*, SERC, 2014.
+- R. Rebolledo, S. Ríos, R. Trigo and M. Matus, "Stochastic modeling of
+  street lamps operation," *IEEE Transactions on Power Systems*, vol. 11,
+  no. 3, pp. 1482–1488, 1996.
+  DOI: [10.1109/59.535689](https://doi.org/10.1109/59.535689)
 
 The full reference list of the formulation, including the methods GTOpt
 builds on, is in
 [`docs/formulation/mathematical-formulation.md`](docs/formulation/mathematical-formulation.md#9-references).
+
+## Presentations
+
+Slides: [ResearchGate][rg-matus].
+
+| Date | Presentation | Topic |
+|------|--------------|-------|
+| 2022-08 | M. Matus and M. P. Buitrago Villada, "MTPES Sesión 1," MTPES | expansion planning |
+| 2019-05 | M. Matus, C. Matamala, E. Osses, …, B. Silva, "Accelerating coal displacement by scaling integrated solar districts in high solar radiation regions and boosting carbon revenues global impact," Applied Energy A+B Symposium (AEAB2019), MIT | applications |
+| 2019-05 | M. Matus, "Modeling integrated water resource allocation for agriculture and economical energy production in the Laja Lake basin considering new irrigation policies," ICEE 2019 | irrigation agreements |
+| 2018-10 | M. Matus and C. Benavides, "Value contribution of solar plants to the Chilean electric system," SolarPACES 2018 | applications |
+| 2018-05 | D. Azócar, C. Gajardo, M. Matus, …, R. Sepúlveda, "Aplicación de la formulación de Chebyshev a la coordinación hidrotérmica de corto, mediano y largo plazo: resultados caso de estudio SEN 2018–2025," Seminario Centro de Energía (closing of the project on continuous-time operation with the Chebyshev pseudo-spectral representation) | Chebyshev, hydrothermal |
+| 2018-01 | M. Matus and R. Sepúlveda, "Programación de mercados eléctricos mediante formulación en tiempo continuo en el espacio de Chebyshev," Seminario ECODIE | Chebyshev |
+| 2017-03 | M. Matus and R. Sepúlveda, "Herramientas para la planificación hidrotérmica. Modelos de corto y largo plazo, caso Colombia," Consejo Nacional de Operación, Bogotá | hydrothermal planning |
+| 2017-01 | M. Matus and R. Sepúlveda, "LNG integration in electricity market and the complementary operation with hydro energy," Curso-Seminario ECODIE | LNG, hydrothermal |
+| 2016-07 | M. Matus, "PLP v2.0: programación de largo plazo de sistemas hidroeléctricos," Seminario CIGRE | PLP / SDDP |
+| 2015-09 | M. Matus, R. Moreno, R. Palma-Behnke, …, S. Püschel-Løvengreen, "Hydrothermal coordination model with endogenous irrigation constraints: application to the Chilean Central Interconnected System," 5th Int. Workshop on Hydro Scheduling in Competitive Electricity Markets, Trondheim | hydrothermal, irrigation |
+| 2015-09 | E. Pereira-Bonvallet, S. Püschel-Løvengreen, M. Matus and R. Moreno, "Optimizing hydrothermal scheduling with non-convex irrigation constraints: case on the Chilean electricity system," same workshop | hydrothermal, irrigation |
+| 2015-09 | C. Matamala, E. Pereira-Bonvallet and M. Matus, "Operación económica y coordinación hidrotérmica del sistema SIC–SING," ECODIE | hydrothermal |
 
 ## Third-party references
 

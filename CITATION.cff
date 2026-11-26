@@ -27,6 +27,28 @@ keywords:
   - SDDP
   - unit commitment
   - linear programming
+preferred-citation:
+  type: article
+  status: preprint
+  title: "GTOpt: Open-Source Energy-System Optimization, Consistent from Minutes to Decades"
+  journal: "engrXiv"
+  year: 2026
+  doi: "10.31224/8872"
+  authors:
+    - family-names: Matus
+      given-names: Marcelo
+    - family-names: Buitrago
+      given-names: "María del Pilar"
+    - family-names: García
+      given-names: Carlos
+    - family-names: Sierra
+      given-names: Erick
+    - family-names: López
+      given-names: Catalina
+    - family-names: Falcone
+      given-names: Marcos
+    - family-names: Bustos
+      given-names: Gonzalo
 references:
   - type: conference-paper
     title: >-

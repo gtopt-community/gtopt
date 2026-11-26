@@ -1,5 +1,10 @@
 # Monolithic Solver
 
+The methods and their validation are described in the gtopt paper,
+M. Matus et al., engrXiv 2026, DOI
+[10.31224/8872](https://doi.org/10.31224/8872); see
+[publications](../../PUBLICATIONS.md) for the related papers.
+
 ## 1. Introduction
 
 The **monolithic solver** is the default solver in GTOpt.  It assembles the

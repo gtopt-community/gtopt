@@ -460,11 +460,16 @@ main entry points:
 
 ## Citing GTOpt
 
-If you use GTOpt in your work, please cite it as described in
-[`CITATION.cff`](CITATION.cff) (the "Cite this repository" button on
-GitHub). The reference paper is the GTOpt
-[white paper](docs/white_paper/main.pdf) (preprint). Papers about GTOpt
-and its predecessor FESOP are listed in
+If you use GTOpt in your work, please cite:
+
+M. Matus, M. del P. Buitrago, C. García, E. Sierra, C. López, M. Falcone
+and G. Bustos, "GTOpt: Open-Source Energy-System Optimization, Consistent
+from Minutes to Decades," *engrXiv* preprint, 2026.
+DOI: [10.31224/8872](https://doi.org/10.31224/8872)
+
+[`CITATION.cff`](CITATION.cff) has the same reference (the "Cite this
+repository" button on GitHub).  BibTeX, the papers behind each method,
+applications, presentations and the third-party references are in
 [`PUBLICATIONS.md`](PUBLICATIONS.md).
 
 ## Contributing

@@ -6029,7 +6029,7 @@ Open access: [ResearchGate](https://www.researchgate.net/publication/358423681_O
 **[5]** Pereira-Bonvallet, E., Puschel-Lovengreen, S., Matus, M., and
 Moreno, R. (2016). "Optimizing Hydrothermal Scheduling with Non-Convex
 Irrigation Constraints: Case on the Chilean Electricity System." *Energy
-Procedia*, 87, pp. 132–138.
+Procedia*, 87, pp. 132–140.
 DOI: [10.1016/j.egypro.2015.12.342](https://doi.org/10.1016/j.egypro.2015.12.342).
 
 > Presents the hydrothermal coordination approach that forms the
@@ -6040,7 +6040,7 @@ DOI: [10.1016/j.egypro.2015.12.342](https://doi.org/10.1016/j.egypro.2015.12.342
 <a id="ref6"></a>
 **[6]** Benavides, C., Matus, M., Sierra, E., Sepúlveda, R., Ruz, A.M.,
 and Gallardo, F. (2019). "Value contribution of solar plants to the
-Chilean electric system." *AIP Conference Proceedings* 2126, 120008
+Chilean electric system." *AIP Conference Proceedings* 2126, 170001
 (SolarPACES 2018).
 DOI: [10.1063/1.5117671](https://doi.org/10.1063/1.5117671).
 

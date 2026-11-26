@@ -1,5 +1,10 @@
 # Investment Master — OptGen-style Expansion Planning in GTOpt
 
+The methods and their validation are described in the gtopt paper,
+M. Matus et al., engrXiv 2026, DOI
+[10.31224/8872](https://doi.org/10.31224/8872); see
+[publications](../../PUBLICATIONS.md) for the related papers.
+
 ## 1. Introduction
 
 The **investment master** (`solve_investment_master`,

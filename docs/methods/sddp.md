@@ -1,5 +1,10 @@
 # SDDP Solver — Stochastic Dual Dynamic Programming in GTOpt
 
+The methods and their validation are described in the gtopt paper,
+M. Matus et al., engrXiv 2026, DOI
+[10.31224/8872](https://doi.org/10.31224/8872); see
+[publications](../../PUBLICATIONS.md) for the related papers.
+
 ## 1. Introduction
 
 The **SDDP solver** in GTOpt implements a **Nested Benders Decomposition**
@@ -1989,7 +1994,8 @@ mitigate this:
 ## 8. Relationship to PLP
 
 The GTOpt SDDP solver draws on concepts from the PLP hydrothermal
-scheduler [[5]](#ref5)[[6]](#ref6), the model now maintained by the
+scheduler [[5]](#ref5)[[6]](#ref6) — whose hydrothermal-coordination
+method is summarised in §8.1 — the model now maintained by the
 Chilean system operator ([CEN](https://www.coordinador.cl/operacion/documentos/modelacion-del-sen/modelos-para-la-planificacion-y-programacion-de-la-operacion/)):
 
 | PLP concept | GTOpt equivalent |
@@ -2015,7 +2021,42 @@ removed; legacy `--set sddp_options.elastic_mode=backpropagate` calls
 now silently fall back to the default mode (`chinneck`).  See §5.4
 for the currently-supported modes.
 
-### 8.1 Cut-coefficient extraction: why we removed the `row_dual` mode
+### 8.1 Hydrothermal coordination with non-convex irrigation rules
+
+The hydrothermal-coordination method behind PLP, and therefore behind the
+gtopt SDDP solver, is described in Pereira-Bonvallet, Püschel-Løvengreen,
+Matus and Moreno [[5]](#ref5).  The paper addresses the scheduling of a
+hydrothermal system whose large reservoirs also serve agriculture, with
+the prescribed water-sharing rules between the electricity and agriculture
+sectors of the Chilean Central Interconnected System (SIC).
+
+- **Problem.**  Minimise the expected electricity production cost while
+  delivering the volumes of water the agreements assign to irrigation.
+  Irrigation agreements such as Laja make the extraction rights depend on
+  the stored volume (volume zones), so the feasible set is non-convex.
+- **Method.**  A sub-optimal SDDP approach: the stochastic multi-stage
+  problem is decomposed with Benders cuts (§2) while the non-convex
+  rules are handled inside the convex SDDP framework.  The result is
+  compared against a MILP formulation that captures the non-convexity
+  exactly.
+- **Findings.**  The SDDP-based approach yields feasible, near-optimal
+  schedules whose cost is close to the MILP optimum.  The near-optimal
+  policy, however, tends to keep lower stored volumes than the MILP
+  optimum, which can reduce security of supply.
+
+How the agreements map to gtopt elements (`VolumeRight`, `FlowRight`,
+`RightBoundRule`, user constraints) is documented in the
+[irrigation agreements modelling guide](../irrigation-agreements.md).
+The paper's caveat on stored volumes is the reason to check reservoir
+trajectories, not only the cost bounds, when an SDDP run includes
+volume-dependent irrigation rules.
+
+A related study, Matus, Toro and Püschel-Løvengreen (ICSP 2016), adds
+binary and linear security constraints to SDDP to model the Ralco
+reservoir operation that avoids landslide events; see
+[publications](../../PUBLICATIONS.md).
+
+### 8.2 Cut-coefficient extraction: why we removed the `row_dual` mode
 
 **Context.** Until 2026-04, `SDDPMethod` supported two ways of extracting
 Benders-cut coefficients at the end of a backward solve:
@@ -2129,8 +2170,8 @@ DOI: [10.1007/BF01582895](https://doi.org/10.1007/BF01582895)
 <a id="ref5"></a>
 **[5]** E. Pereira-Bonvallet, S. Püschel-Løvengreen, M. Matus, and
 R. Moreno, "Optimizing hydrothermal scheduling with non-convex irrigation
-constraints: Case on the Chilean electricity system," *Energy Procedia*,
-vol. 87, pp. 132–138, 2016.
+constraints: case on the Chilean electricity system," *Energy Procedia*,
+vol. 87, pp. 132–140, 2016.
 DOI: [10.1016/j.egypro.2015.12.342](https://doi.org/10.1016/j.egypro.2015.12.342)
 
 <a id="ref6"></a>
