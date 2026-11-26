@@ -97,6 +97,13 @@ _RE_CLS_ALIAS = re.compile(
     r"constexpr\s+auto\s+(\w+)_cls\s*=\s*(\w+)::class_name\.snake_case\(\);"
 )
 _RE_REGISTER_PARAM = re.compile(r"register_ampl_param\(\s*(\w+_cls)\s*,\s*\"([^\"]+)\"")
+# Table-driven form (current registry):
+#   { using L = GeneratorLP; register_params<L>(sim, {{"pmax", ...}, ...}); }
+_RE_PARAM_TABLE = re.compile(
+    r"using\s+L\s*=\s*(\w+?)LP\s*;\s*register_params<L>\((.*?)\);",
+    re.DOTALL,
+)
+_RE_PARAM_TABLE_ATTR = re.compile(r"\{\s*\"([^\"]+)\"\s*,")
 _RE_REGISTER_ITER_CLASS = re.compile(
     r"register_ampl_iter\(\s*(\w+)::class_name\.snake_case\(\)"
 )
@@ -164,6 +171,10 @@ def parse_cpp_registry(
             continue  # unknown alias — surfaces as a separate finding
         snake = pascal_to_snake(pascal)
         params_by_class[snake].add(attr)
+
+    for pascal, body in _RE_PARAM_TABLE.findall(text):
+        snake = pascal_to_snake(pascal)
+        params_by_class[snake].update(_RE_PARAM_TABLE_ATTR.findall(body))
 
     iter_classes: set[str] = set()
     info_findings: list[Finding] = []
