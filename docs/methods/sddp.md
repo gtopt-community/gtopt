@@ -460,7 +460,8 @@ re-optimizes the previous one's basis with a few dual-simplex pivots.
 
 Measured on a 16-scene × 16-aperture hydrothermal case, the backward
 pass is several times faster under `per_scene` than under
-`per_aperture`, with the same bounds and the same peak memory.  The grouping changes only the scheduling
+`per_aperture`, with the same bounds and the same peak memory.  The grouping
+changes only the scheduling
 and the simplex path, never the cuts, so bounds agree up to solver
 tolerance.  The resolved grouping is logged at setup as
 `SDDP Aperture: chunk_mode=<name> chunk_size=<K> ...`.
@@ -2164,7 +2165,8 @@ DOI: [10.1109/TPWRS.2009.2021235](https://doi.org/10.1109/TPWRS.2009.2021235)
 
 <a id="ref11"></a>
 **[11]** R. Romero and A. Monticelli, "A hierarchical decomposition approach
-for transmission network expansion planning," *IEEE Transactions on Power Systems*, vol. 9, no. 1, pp. 373–380, 1994.
+for transmission network expansion planning," *IEEE Transactions on Power
+Systems*, vol. 9, no. 1, pp. 373–380, 1994.
 DOI: [10.1109/59.317588](https://doi.org/10.1109/59.317588)
 
 <a id="ref12"></a>

@@ -184,7 +184,8 @@ stored in `boost::container::flat_map` for cache-friendly iteration
   (direct C Callable Library), and **HiGHS**.
 
 This design means the solver can be swapped without recompiling the core
-library. Priority order if multiple plugins are present: CPLEX > HiGHS > MindOpt > CBC > CLP (Gurobi, SCIP and cuOpt are opt-in via `--solver`).
+library. Priority order if multiple plugins are present: CPLEX > HiGHS >
+MindOpt > CBC > CLP (Gurobi, SCIP and cuOpt are opt-in via `--solver`).
 
 ### 4. Solution Methods
 

@@ -3,7 +3,8 @@
 ## Today
 
 GTOpt is hosted by the **GTOpt Community** GitHub organization
-([`github.com/gtopt-community`](https://github.com/gtopt-community)) and led by its author and copyright holder,
+([`github.com/gtopt-community`](https://github.com/gtopt-community)) and led by
+its author and copyright holder,
 **Marcelo Matus**, who acts as lead maintainer:
 
 - every change goes through a pull request reviewed by a maintainer

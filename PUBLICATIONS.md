@@ -53,7 +53,9 @@ María del Pilar Buitrago Villada, Carlos Enrique García Bujanda, Erick
 Sierra Baeza and Marcelo Matus.
 *2022 IEEE Kansas Power and Energy Conference (KPEC)*, Manhattan, KS,
 USA, April 2022, pp. 1–5.
-DOI: [10.1109/KPEC54747.2022.9814781](https://doi.org/10.1109/KPEC54747.2022.9814781) ·
+DOI:
+[10.1109/KPEC54747.2022.9814781](https://doi.org/10.1109/KPEC54747.2022.9814781)
+·
 Open access: [ResearchGate](https://www.researchgate.net/publication/358423681_Optimal_Expansion_and_Reliable_Renewable_Energy_Integration_in_Long-Term_Planning_Using_FESOP)
 
 > Presents the FESOP framework on which GTOpt is based and applies it to

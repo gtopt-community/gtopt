@@ -1297,7 +1297,6 @@ Solver Plugin Exception.  It includes:
 for packaged binaries.  The changes made just before the release are
 listed below.
 
-
 ### Added
 
 - **Unit commitment (three-bin formulation)**: full implementation of the
@@ -1358,7 +1357,6 @@ listed below.
 - **CHANGELOG.md**: this file.
 
 ### Changed
-
 
 - **Batteries now self-discharge 4 %/month by default** (behaviour
   change).  A `Battery` whose `annual_loss` is absent uses

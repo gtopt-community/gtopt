@@ -53,7 +53,15 @@ GTOpt is pronounced *G-top* (/ˈdʒiː tɒp/). The command-line binary is
 <p align="center">
   <a href="docs/overview.md">
     <img src="docs/images/architecture.svg" width="860"
-         alt="GTOpt architecture: inputs (JSON and Parquet cases, converters from PLP, PLEXOS, PSR SDDP, PSS/E and pandapower, PAMPL constraints, Excel) feed the C++ core, which models electricity, water, fuels and LNG, hydrogen, ammonia and heat, assembles the LP/MIP and solves it with the monolithic, SDDP or cascade method across time scales from 15 minutes to 30 years, coupled by SDDP optimality and feasibility cuts, through open-source or commercial solver plugins; results (dispatch and prices, water values, expansion plan, emissions) feed the terminal dashboard, browser GUI, REST API and data tools.">
+         alt="GTOpt architecture: inputs (JSON and Parquet cases, converters
+         from PLP, PLEXOS, PSR SDDP, PSS/E and pandapower, PAMPL constraints,
+         Excel) feed the C++ core, which models electricity, water, fuels and
+         LNG, hydrogen, ammonia and heat, assembles the LP/MIP and solves it
+         with the monolithic, SDDP or cascade method across time scales from 15
+         minutes to 30 years, coupled by SDDP optimality and feasibility cuts,
+         through open-source or commercial solver plugins; results (dispatch and
+         prices, water values, expansion plan, emissions) feed the terminal
+         dashboard, browser GUI, REST API and data tools.">
   </a>
 </p>
 
@@ -173,8 +181,11 @@ case, shows its network and runs it on the web service.  Here, the IEEE
 the demands:
 
 <p align="center">
-  <a href="docs/interfaces.md"><img src="docs/images/screenshots/gui_topology.png" width="860"
-     alt="The GTOpt browser GUI showing the network topology of the IEEE 9-bus case: buses, lines with their ratings, generators, a solar profile and demands."></a>
+  <a href="docs/interfaces.md"><img
+       src="docs/images/screenshots/gui_topology.png" width="860"
+     alt="The GTOpt browser GUI showing the network topology of the IEEE 9-bus
+     case: buses, lines with their ratings, generators, a solar profile and
+     demands."></a>
 </p>
 
 From the terminal, [`run_gtopt`](docs/scripts-guide.md#run_gtopt) runs a
@@ -183,8 +194,11 @@ and upper bounds and gap per iteration, cut counts, resource use and the
 solver log:
 
 <p align="center">
-  <a href="docs/scripts-guide.md#run_gtopt"><img src="docs/images/screenshots/run_gtopt_tui.png" width="640"
-     alt="The run_gtopt terminal dashboard after an SDDP run solved with HiGHS: lower and upper bounds, gap per iteration, cut counts, resource use and the solver log."></a>
+  <a href="docs/scripts-guide.md#run_gtopt"><img
+       src="docs/images/screenshots/run_gtopt_tui.png" width="640"
+     alt="The run_gtopt terminal dashboard after an SDDP run solved with HiGHS:
+     lower and upper bounds, gap per iteration, cut counts, resource use and the
+     solver log."></a>
 </p>
 
 ## Install
@@ -215,7 +229,8 @@ curl -fsSL https://raw.githubusercontent.com/gtopt-community/gtopt/master/instal
 
 By default the installer also builds every commercial solver it finds
 installed (CPLEX, Gurobi, MindOpt; newest version) and, with an NVIDIA GPU,
-installs and builds cuOpt.  Run `install.sh --help` for all options. For other platforms, manual builds
+installs and builds cuOpt.  Run `install.sh --help` for all options. For other
+platforms, manual builds
 and build options, see the **[Building Guide](BUILDING.md)**.
 
 ## Solvers
@@ -290,8 +305,15 @@ explains the dispatch: it charges while the marginal cost is below that
 value and discharges when it is above.
 
 <p align="center">
-  <a href="docs/storage-and-water-values.md"><img src="docs/images/battery_arbitrage.svg" width="860"
-     alt="Battery arbitrage over 24 hours: stacked generation of solar, baseload, mid-merit and battery discharge against demand, with battery charging below zero from hour 12 to 16; the state of charge rising to 200 MWh by hour 16 and emptying by hour 22; and the marginal cost at the battery bus (0 $/MWh at midday, 40 $/MWh in the evening) against the battery's opportunity cost of stored energy (0 while charging, 38 $/MWh while discharging)."></a>
+  <a href="docs/storage-and-water-values.md"><img
+       src="docs/images/battery_arbitrage.svg" width="860"
+     alt="Battery arbitrage over 24 hours: stacked generation of solar,
+     baseload, mid-merit and battery discharge against demand, with battery
+     charging below zero from hour 12 to 16; the state of charge rising to 200
+     MWh by hour 16 and emptying by hour 22; and the marginal cost at the
+     battery bus (0 $/MWh at midday, 40 $/MWh in the evening) against the
+     battery's opportunity cost of stored energy (0 while charging, 38 $/MWh
+     while discharging)."></a>
 </p>
 
 Next steps: the **[first-solve walkthrough](docs/planning-guide.md#quickstart-your-first-solve)**

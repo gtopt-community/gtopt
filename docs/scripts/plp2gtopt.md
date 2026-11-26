@@ -973,5 +973,7 @@ and skip when it is unset.
 - [ts2gtopt](ts2gtopt.md) — project hourly time-series onto GTOpt horizons
 - PLP is maintained by the Chilean system operator; its model page,
   documentation and releases are at the
-  [CEN](https://www.coordinador.cl/operacion/documentos/modelacion-del-sen/modelos-para-la-planificacion-y-programacion-de-la-operacion/). The formats
-  documented here were derived from the PLP `lee*.f` readers.
+  [CEN][cen-plp-models]. The formats documented here were derived from
+  the PLP `lee*.f` readers.
+
+[cen-plp-models]: https://www.coordinador.cl/operacion/documentos/modelacion-del-sen/modelos-para-la-planificacion-y-programacion-de-la-operacion/

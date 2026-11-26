@@ -1,7 +1,8 @@
 # GTOpt Input Data Structure Documentation
 
 This document describes the input data structure required to define and run
-optimization cases with **GTOpt** (Generation, Transmission and storage Optimization), the
+optimization cases with **GTOpt** (Generation, Transmission and storage
+Optimization), the
 open-source solver for the optimization and analysis of power-system
 generation, transmission and storage.
 

@@ -476,4 +476,3 @@ The topology tab automatically renders when first opened.  The **smart auto
 mode** (default) selects the most appropriate aggregation and voltage
 threshold based on the case size, so the diagram is readable regardless
 of whether the case has 15 nodes or thousands.
-

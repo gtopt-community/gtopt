@@ -1337,9 +1337,14 @@ the per-scene convergence view; `s` requests a graceful stop, `q` quits.
 
 <p>
   <img src="images/screenshots/run_gtopt_tui.png" width="49%"
-       alt="run_gtopt dashboard view at the end of an SDDP run solved with HiGHS: header with lower and upper bound and gap, progress phases, solver statistics, iteration history table, CPU and memory bars and the solver log">
+       alt="run_gtopt dashboard view at the end of an SDDP run solved with
+       HiGHS: header with lower and upper bound and gap, progress phases, solver
+       statistics, iteration history table, CPU and memory bars and the solver
+       log">
   <img src="images/screenshots/run_gtopt_tui_convergence.png" width="49%"
-       alt="run_gtopt convergence view: sparklines of the lower bound, upper bound and gap, a per-scene cost heatmap by iteration and per-scene cost trends">
+       alt="run_gtopt convergence view: sparklines of the lower bound, upper
+       bound and gap, a per-scene cost heatmap by iteration and per-scene cost
+       trends">
 </p>
 
 *Frames from an 8-scenario, 24-phase SDDP hydro-cascade run (built from

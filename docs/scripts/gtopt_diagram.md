@@ -25,9 +25,12 @@ thresholds to keep diagrams readable.
 
 <p>
   <img src="../diagrams/ieee14b_topology.svg" width="49%"
-       alt="Electrical topology of the IEEE 14-bus case: 14 buses, 20 lines with their ratings, 5 generators and 11 demands">
+       alt="Electrical topology of the IEEE 14-bus case: 14 buses, 20 lines with
+       their ratings, 5 generators and 11 demands">
   <img src="../diagrams/hydro_valley_topology.svg" width="49%"
-       alt="Full topology of the hydro_valley_sddpjl case: two reservoirs in cascade with their junctions, turbines, spillways and inflows, the hydro and thermal generators, the bus and the demand">
+       alt="Full topology of the hydro_valley_sddpjl case: two reservoirs in
+       cascade with their junctions, turbines, spillways and inflows, the hydro
+       and thermal generators, the bus and the demand">
 </p>
 
 ```bash
