@@ -120,7 +120,7 @@ def fetch_real_lambda(
                 start=date_iso,
                 extra_params={"bar_transf": bar_transf},
             )
-        except Exception:  # noqa: BLE001  # pylint: disable=broad-except
+        except Exception:  # noqa: BLE001, S112  # pylint: disable=broad-except
             continue
         if df_raw.empty:
             continue

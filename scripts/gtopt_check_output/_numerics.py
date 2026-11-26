@@ -287,7 +287,7 @@ def analyze_lp_text(text: str) -> LpNumerics:
         statement.clear()
         name, tokens = _split_statement(body)
         if section == "obj":
-            for coeff, col in _terms(tokens):
+            for coeff, _col in _terms(tokens):
                 lp.objective.add(coeff)
             return
         lhs = _lhs_tokens(tokens)

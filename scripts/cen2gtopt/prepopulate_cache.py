@@ -67,6 +67,7 @@ from cen2gtopt._cen_client import (
     apply_insecure_tls_argument,
     user_keys_from_env,
 )
+from gtopt_shared import safe_xml
 
 _LOG = logging.getLogger("cen2gtopt.prepopulate_cache")
 
@@ -128,10 +129,7 @@ def _heuristic_bar_transf(plexos_name: str) -> str | None:
 
 def extract_plexos_node_names(xml_path: Path) -> list[str]:
     """Return all unique Node-class object names from a PLEXOS XML."""
-    # pylint: disable=import-outside-toplevel
-    import xml.etree.ElementTree as ET
-
-    tree = ET.parse(xml_path)
+    tree = safe_xml.parse(xml_path)
     root = tree.getroot()
     names: set[str] = set()
     for obj in root.findall(f"{NS}t_object"):

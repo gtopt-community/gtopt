@@ -375,6 +375,10 @@ ignore = [
     # External tools (gtopt, mdb-export, dot, ...) are resolved on PATH by
     # design; GTOPT_BIN and friends override.
     "S607",
+    # zip() without strict= keeps the pre-3.10 truncating semantics the
+    # code was written for (same behaviour as the >=3.8 target, where the
+    # rule does not apply).
+    "B905",
 ]
 
 [tool.ruff.lint.per-file-ignores]

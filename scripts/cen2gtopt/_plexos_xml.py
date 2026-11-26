@@ -33,6 +33,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from gtopt_shared import safe_xml
+
 _LOG = logging.getLogger("cen2gtopt.plexos_xml")
 
 #: PLEXOS MasterDataSet XML namespace.
@@ -130,7 +132,7 @@ def _load_root(xml_path: str) -> ET.Element:
     """Memoised XML parse.  ``xml_path`` is stringified for cache
     hashability."""
     _LOG.info("parsing %s", xml_path)
-    tree = ET.parse(xml_path)
+    tree = safe_xml.parse(xml_path)
     return tree.getroot()
 
 

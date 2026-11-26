@@ -83,9 +83,14 @@ from cen2gtopt._scvic_api import cv_rpt_for_date
 # locally after entry for back-compat.
 
 DATE = "2026-04-22"
-#: Default workdir for the legacy ``main()`` CLI.  Created lazily
-#: inside ``main()`` — never at import time.
-WORK_DIR = Path("/tmp/cen_emission_factor_v3")
+#: Default workdir for the legacy ``main()`` CLI (per-user cache, never a
+#: shared /tmp path).  Created lazily inside ``main()`` — never at import
+#: time.
+WORK_DIR = (
+    Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
+    / "gtopt"
+    / "cen_emission_factor_v3"
+)
 
 #: CEN consigna codes that flag a unit as price-taker (forced).
 #: Six SSCC + take-or-pay reasons combined:

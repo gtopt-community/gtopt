@@ -53,7 +53,9 @@ HttpGet = Callable[[str], bytes]
 
 def urllib_get(url: str, timeout: float = 120.0) -> bytes:
     """Plain HTTP GET with a generic User-Agent."""
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    req = urllib.request.Request(  # noqa: S310 - callers pass https URLs
+        url, headers={"User-Agent": USER_AGENT}
+    )
     with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310
         return bytes(r.read())
 
@@ -389,7 +391,7 @@ def parse_structure_rows(
     ``utm_zone``.  Rows keep the table order unless a ``Correlativo``
     column is present.
     """
-    for h, header in enumerate(rows):
+    for h, header in enumerate(rows):  # noqa: B007 - h is read after the loop
         names = [_norm(c) for c in header]
         col = {k: _match(names, c) for k, c in _HEADERS.items()}
         if col["x"] and col["y"]:
@@ -512,7 +514,11 @@ def fetch_osm(cache: PoliteCache, query: str, api: str = OVERPASS_API) -> Any:
     """Run (or reuse) an Overpass query; the cache key is the query hash."""
     import hashlib
 
-    key = "osm_" + hashlib.sha1(query.encode()).hexdigest()[:16] + ".json"
+    key = (
+        "osm_"
+        + hashlib.sha1(query.encode(), usedforsecurity=False).hexdigest()[:16]
+        + ".json"
+    )
     url = f"{api}?data={urllib.parse.quote(query)}"
     return json.loads(cache.fetch(key, url))
 

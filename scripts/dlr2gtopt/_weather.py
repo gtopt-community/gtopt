@@ -511,7 +511,11 @@ def open_meteo_weather(
         key_src = url.split("apikey=", maxsplit=1)[0]
         import hashlib
 
-        key = "open_meteo/" + hashlib.sha1(key_src.encode()).hexdigest()[:16] + ".json"
+        key = (
+            "open_meteo/"
+            + hashlib.sha1(key_src.encode(), usedforsecurity=False).hexdigest()[:16]
+            + ".json"
+        )
         t, ns = parse_open_meteo(json.loads(cache.fetch(key, url)), height, profile)
         times = t
         series += ns
