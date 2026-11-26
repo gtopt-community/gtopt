@@ -321,8 +321,8 @@ class TestFindRepoRoot:
         result = _find_repo_root(subdir)
         assert result == tmp_path
 
-    def test_returns_start_when_not_found(self, tmp_path: Path):
-        subdir = tmp_path / "deep" / "path"
+    def test_returns_start_when_not_found(self, outside_checkout_dir: Path):
+        subdir = outside_checkout_dir / "deep" / "path"
         subdir.mkdir(parents=True)
         result = _find_repo_root(subdir)
         # Returns the resolved start directory when not found

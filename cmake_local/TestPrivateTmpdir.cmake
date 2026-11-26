@@ -13,40 +13,99 @@ Usage::
   include(TestPrivateTmpdir)
 
 Include it from every project that registers tests (it is safe to include
-many times).  Option:
+many times).  Options:
 
 ``GTOPT_TEST_PRIVATE_TMPDIR`` (default ``ON``)
   ``OFF`` restores the old behaviour: tests inherit the caller's
   ``TMPDIR`` (or ``/tmp``).
+
+``GTOPT_TEST_TMP_BASE`` (default empty)
+  Parent of the per-test dirs.  Empty: ``$TMPDIR`` at configure time,
+  else ``$RUNNER_TEMP``, else ``/tmp``.
+
+Where the dirs live
+^^^^^^^^^^^^^^^^^^^
+
+``<root> = <base>/gtopt-tests-<hash8 of the build dir>``: one root per
+build dir (runs from different build dirs never share) and never inside
+the source tree.  Several tests walk up from ``$TMPDIR`` / ``tmp_path``
+looking for repo markers (``include/gtopt``, ``.git``); CI builds in
+``<checkout>/build``, so a root under the build tree would let them find
+the checkout.  A base inside the source tree is refused with a warning
+and ``/tmp`` is used instead.
 
 Effect (when ``ON``)
 ^^^^^^^^^^^^^^^^^^^^
 
 * At the end of the top-level directory (``cmake_language(DEFER)``), every
   test registered at configure time anywhere in the tree gets
-  ``TMPDIR=<build>/test_tmp/<sanitised test name>-<hash8>`` via
+  ``TMPDIR=<root>/<sanitised test name>-<hash8>`` via
   ``ENVIRONMENT_MODIFICATION``.  A test that already sets ``TMPDIR`` in its
   own ``ENVIRONMENT`` / ``ENVIRONMENT_MODIFICATION`` is left alone.
 * The directories are created at configure time and again every time
-  ctest loads a test directory (``TEST_INCLUDE_FILES`` script), so
-  ``rm -rf <build>/test_tmp`` between runs is always safe.
+  ctest loads a test directory (``TEST_INCLUDE_FILES`` script
+  ``<build>/gtopt_test_tmpdirs.cmake``), so removing ``<root>`` (or a
+  ``/tmp`` reaper doing it) between runs is always safe.
 * The doctest-discovered unit tests (registered at ctest time, not visible
   here) are isolated by ``test/source/main.cpp`` instead: it creates a
-  per-process directory under ``GTOPT_TEST_TMPDIR_BASE`` (set by
-  ``test/CMakeLists.txt``) and points ``TMPDIR`` at it.
+  per-process directory under ``GTOPT_TEST_TMPDIR_BASE`` (``<root>/gtoptTests``,
+  set by ``test/CMakeLists.txt``) and points ``TMPDIR`` at it.
 
-Cleanup: the per-test dirs under ``<build>/test_tmp`` are left in place
-(inspect them after a failure); ``rm -rf <build>/test_tmp`` reclaims the
-space.  Nothing outside ``<build>/test_tmp`` is ever removed.
+Cleanup: the per-test dirs under ``<root>`` are left in place (inspect
+them after a failure); ``rm -rf <root>`` reclaims the space (the configure
+log prints it).  Nothing outside ``<root>`` is ever removed.
 
 #]=======================================================================]
 
 include_guard(GLOBAL)
 
 option(GTOPT_TEST_PRIVATE_TMPDIR
-       "Give every CTest test its own TMPDIR under <build>/test_tmp" ON)
+       "Give every CTest test its own TMPDIR outside the source tree" ON)
+set(GTOPT_TEST_TMP_BASE "" CACHE PATH
+    "Parent of the per-test TMPDIRs (empty: $TMPDIR, $RUNNER_TEMP or /tmp)")
 
-set(GTOPT_TEST_TMP_ROOT "${CMAKE_BINARY_DIR}/test_tmp"
+# The gtopt checkout this module belongs to (cmake_local/..).
+get_filename_component(_gtopt_test_src_root "${CMAKE_CURRENT_LIST_DIR}/.."
+                       REALPATH)
+
+# TRUE when PATH is SRC_ROOT or below it.
+function(_gtopt_test_tmpdir_inside PATH SRC_ROOT OUT_VAR)
+  file(RELATIVE_PATH _rel "${SRC_ROOT}" "${PATH}")
+  if(_rel STREQUAL "" OR NOT _rel MATCHES "^\\.\\.(/|$)")
+    set(${OUT_VAR} TRUE PARENT_SCOPE)
+  else()
+    set(${OUT_VAR} FALSE PARENT_SCOPE)
+  endif()
+endfunction()
+
+# Base dir: never inside a checkout -- tests that walk up from $TMPDIR
+# looking for repo markers (include/gtopt, .git) must not find this one,
+# and CI builds in <checkout>/build.
+if(NOT GTOPT_TEST_TMP_BASE STREQUAL "")
+  set(_gtopt_test_base "${GTOPT_TEST_TMP_BASE}")
+elseif(NOT "$ENV{TMPDIR}" STREQUAL "")
+  set(_gtopt_test_base "$ENV{TMPDIR}")
+elseif(NOT "$ENV{RUNNER_TEMP}" STREQUAL "")
+  set(_gtopt_test_base "$ENV{RUNNER_TEMP}")
+else()
+  set(_gtopt_test_base "/tmp")
+endif()
+get_filename_component(_gtopt_test_base "${_gtopt_test_base}" REALPATH)
+foreach(_root "${_gtopt_test_src_root}" "${CMAKE_SOURCE_DIR}")
+  _gtopt_test_tmpdir_inside("${_gtopt_test_base}" "${_root}" _inside)
+  if(_inside)
+    message(WARNING
+      "GTOPT_TEST_PRIVATE_TMPDIR: base ${_gtopt_test_base} is inside the "
+      "source tree ${_root}; using /tmp instead")
+    set(_gtopt_test_base "/tmp")
+  endif()
+endforeach()
+
+# One root per build dir, so runs from different build dirs never share.
+string(MD5 _gtopt_test_build_hash "${CMAKE_BINARY_DIR}")
+string(SUBSTRING "${_gtopt_test_build_hash}" 0 8 _gtopt_test_build_hash)
+set(GTOPT_TEST_TMP_ROOT
+    "${_gtopt_test_base}/gtopt-tests-${_gtopt_test_build_hash}"
     CACHE INTERNAL "Root of the per-test private TMPDIRs")
 
 # Per-test directory for test name NAME -> OUT_VAR.
@@ -100,7 +159,8 @@ function(_gtopt_test_tmpdir_apply_dir DIR SCRIPT)
 endfunction()
 
 function(_gtopt_test_tmpdir_apply)
-  set(_script "${GTOPT_TEST_TMP_ROOT}/make_test_tmpdirs.cmake")
+  # The script stays in the build tree: the root may be in a reaped /tmp.
+  set(_script "${CMAKE_BINARY_DIR}/gtopt_test_tmpdirs.cmake")
   _gtopt_test_tmpdir_apply_dir("${CMAKE_SOURCE_DIR}" "${_script}")
   get_property(_dirs GLOBAL PROPERTY _GTOPT_TEST_TMPDIRS)
   set(_body "# Generated by cmake_local/TestPrivateTmpdir.cmake\n")

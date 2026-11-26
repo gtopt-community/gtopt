@@ -78,8 +78,8 @@ def test_split_top_level_handles_nesting():
     assert jc._split_top_level("a<b, c>, d(e, f), ") == ["a<b, c>", "d(e, f)"]
 
 
-def test_find_repo_root_and_snapshot_helpers(tmp_path):
-    assert jc.find_repo_root(tmp_path) is None
+def test_find_repo_root_and_snapshot_helpers(tmp_path, outside_checkout_dir):
+    assert jc.find_repo_root(outside_checkout_dir) is None
     root = _repo(tmp_path / "r")
     assert jc.find_repo_root(root / "include") == root
     assert jc.snapshot_path().name == "json_contracts.json"

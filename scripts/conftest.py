@@ -49,6 +49,7 @@ import os
 import shutil
 import site
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -169,3 +170,32 @@ def fixture_fake_home() -> Path:
 def fixture_real_home() -> Path:
     """The user's real home directory (read-only use in tests!)."""
     return _REAL_HOME
+
+
+def _inside_checkout(path: Path) -> bool:
+    """True when *path* or an ancestor looks like a gtopt checkout."""
+    for parent in [path, *path.parents]:
+        if (parent / "include" / "gtopt").is_dir() or (parent / ".git").exists():
+            return True
+    return False
+
+
+@pytest.fixture(name="outside_checkout_dir")
+def fixture_outside_checkout_dir() -> Iterator[Path]:
+    """A fresh empty directory guaranteed NOT inside any source checkout.
+
+    ``tmp_path`` follows ``$TMPDIR``, which may legitimately sit inside a
+    checkout (CI builds in ``<checkout>/build``); tests that walk up the
+    tree looking for repo markers need a start point that cannot find one.
+    """
+    candidates = [Path("/tmp"), Path("/var/tmp"), Path(tempfile.gettempdir())]
+    for base in candidates:
+        resolved = base.resolve()
+        if resolved.is_dir() and not _inside_checkout(resolved):
+            path = Path(tempfile.mkdtemp(prefix="gtopt-outside-", dir=resolved))
+            try:
+                yield path
+            finally:
+                shutil.rmtree(path, ignore_errors=True)
+            return
+    pytest.skip("no temp directory outside a source checkout")

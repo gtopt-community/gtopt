@@ -30,10 +30,10 @@ class TestFindRepoRoot:
         result = tb._find_repo_root(igtopt_dir)
         assert (result / "include" / "gtopt").is_dir()
 
-    def test_find_repo_root_fallback(self, tmp_path):
-        """From a fresh tmp_path (no include/gtopt), returns that path resolved."""
-        result = tb._find_repo_root(tmp_path)
-        assert result == tmp_path.resolve()
+    def test_find_repo_root_fallback(self, outside_checkout_dir):
+        """From a dir outside any checkout, returns that path resolved."""
+        result = tb._find_repo_root(outside_checkout_dir)
+        assert result == outside_checkout_dir.resolve()
 
     def test_find_repo_root_from_deeply_nested(self):
         """Starting from scripts/igtopt/tests/, finds the repo root."""

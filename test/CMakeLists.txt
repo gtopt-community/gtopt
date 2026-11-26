@@ -198,13 +198,15 @@ gtopt_require_solver_plugins(${PROJECT_NAME})
 enable_testing()
 include(TestParallelism)
 # Private TMPDIR per test (option GTOPT_TEST_PRIVATE_TMPDIR, default ON):
-# the configure-time tests get TMPDIR=<build>/test_tmp/<name> from the
-# module; the doctest-discovered ones get GTOPT_TEST_TMPDIR_BASE below and
-# main.cpp makes a per-process directory under it (see main.cpp).
+# the configure-time tests get TMPDIR=<root>/<name> from the module (root
+# outside the source tree, one per build dir); the doctest-discovered ones
+# get GTOPT_TEST_TMPDIR_BASE below and main.cpp makes a per-process
+# directory under it (see main.cpp).
 include(TestPrivateTmpdir)
 set(_gtopt_doctest_env)
 if(GTOPT_TEST_PRIVATE_TMPDIR)
-  target_compile_definitions(${PROJECT_NAME} PRIVATE GTOPT_TEST_PRIVATE_TMPDIR=1)
+  target_compile_definitions(${PROJECT_NAME} PRIVATE GTOPT_TEST_PRIVATE_TMPDIR=1
+    "GTOPT_TEST_SOURCE_ROOT=\"${CMAKE_CURRENT_SOURCE_DIR}/..\"")
   set(_gtopt_doctest_env
       ENVIRONMENT "GTOPT_TEST_TMPDIR_BASE=${GTOPT_TEST_TMP_ROOT}/gtoptTests")
 endif()

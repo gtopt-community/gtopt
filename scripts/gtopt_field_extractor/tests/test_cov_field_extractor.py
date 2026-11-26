@@ -82,11 +82,11 @@ def test_contract_elements_fallback():
         assert fe._contract_elements("System", ["A", "B"]) == ["A", "B"]
 
 
-def test_main_autodetects_header_dir(tmp_path, capsys):
+def test_main_autodetects_header_dir(tmp_path, capsys, outside_checkout_dir):
     root = tmp_path / "repo"
     (root / "include" / "gtopt").mkdir(parents=True)
     (root / "include" / "gtopt" / "demo.hpp").write_text(_HEADER, encoding="utf-8")
     with patch.object(fe, "_find_repo_root", return_value=root):
         assert fe.main(["-e", "Plain"]) == 0
     assert "## Plain" in capsys.readouterr().out
-    assert fe._find_repo_root(tmp_path) == tmp_path.resolve()
+    assert fe._find_repo_root(outside_checkout_dir) == outside_checkout_dir.resolve()

@@ -104,6 +104,29 @@ std::string gtopt_tmpdir_test_tag(int argc, char** argv)
   return tag.empty() ? std::string {"all"} : tag;
 }
 
+/// True when `path` is the gtopt checkout or below it.  Tests that walk up
+/// from `$TMPDIR` looking for repo markers must never find the checkout.
+bool gtopt_tmpdir_inside_source_tree(const std::filesystem::path& path)
+{
+#ifdef GTOPT_TEST_SOURCE_ROOT
+  namespace fs = std::filesystem;
+  std::error_code ec;
+  const auto root = fs::weakly_canonical(GTOPT_TEST_SOURCE_ROOT, ec);
+  if (ec) {
+    return false;
+  }
+  const auto here = fs::weakly_canonical(path, ec);
+  if (ec) {
+    return false;
+  }
+  const auto rel = here.lexically_relative(root);
+  return !rel.empty() && *rel.begin() != "..";
+#else
+  static_cast<void>(path);
+  return false;
+#endif
+}
+
 /// Create this process's private TMPDIR and export it as `$TMPDIR`.
 /// Returns the empty path (and leaves `$TMPDIR` alone) when disabled or
 /// when no directory could be created.
@@ -129,6 +152,13 @@ std::filesystem::path gtopt_make_private_tmpdir(int argc, char** argv)
     if (ec) {
       return {};
     }
+  }
+  if (gtopt_tmpdir_inside_source_tree(base)) {
+    std::println(stderr,
+                 "gtoptTests: TMPDIR base {} is inside the source tree; "
+                 "using /tmp instead",
+                 base.string());
+    base = "/tmp";
   }
   fs::create_directories(base, ec);
 

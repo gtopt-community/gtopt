@@ -69,7 +69,15 @@ TEST_CASE("private TMPDIR - temp_directory_path is process-private")  // NOLINT
   CHECK(name.starts_with("gtoptTests-"));
   CHECK(name.contains(std::format("-{}-", ::getpid())));
 
-  // Under ctest the directory sits in the build tree's test_tmp root.
+#ifdef GTOPT_TEST_SOURCE_ROOT
+  // Never inside the checkout: tests that walk up from $TMPDIR looking for
+  // repo markers (include/gtopt, .git) must not find it.
+  const auto rel = fs::weakly_canonical(priv).lexically_relative(
+      fs::weakly_canonical(GTOPT_TEST_SOURCE_ROOT));
+  CHECK((rel.empty() || *rel.begin() == ".."));
+#endif
+
+  // Under ctest the directory sits in the per-build-dir root.
   // NOLINTNEXTLINE(concurrency-mt-unsafe)
   if (const char* base = std::getenv("GTOPT_TEST_TMPDIR_BASE");
       base != nullptr && *base != '\0')
