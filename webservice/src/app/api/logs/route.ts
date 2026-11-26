@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createLogger, getLogFilePath, readLogTail } from "@/lib/logger";
+import { redactJobTokens } from "@/lib/jobsandbox";
 
 const log = createLogger("api/logs");
 
@@ -19,7 +20,8 @@ export async function GET(request: NextRequest) {
     log.info(`GET /api/logs: returning ${logLines.length} log lines from ${logFile || "(console only)"} in ${Date.now() - startTime}ms`);
     return NextResponse.json({
       log_file: logFile,
-      lines: logLines,
+      // Job tokens are capabilities: never hand them out through the log.
+      lines: logLines.map(redactJobTokens),
     });
   } catch (err) {
     log.error(`GET /api/logs error: ${err}`);

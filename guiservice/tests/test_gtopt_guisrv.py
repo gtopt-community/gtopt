@@ -102,7 +102,7 @@ def test_main_default_port_and_host(tmp_path, monkeypatch):
 
     mock_app_module = MagicMock()
     mock_app_module.app = MagicMock()
-    mock_app_module.app.run = MagicMock()
+    mock_app_module.run_server = MagicMock()
 
     with patch("sys.argv", ["gtopt_guisrv"]):
         with patch("guiservice.gtopt_guisrv.get_guiservice_dir", return_value=tmp_path):
@@ -110,7 +110,7 @@ def test_main_default_port_and_host(tmp_path, monkeypatch):
                 with patch.dict("sys.modules", {"app": mock_app_module}):
                     guisrv.main()
 
-    mock_app_module.app.run.assert_called_once_with(host="127.0.0.1", port=5001, debug=False)
+    mock_app_module.run_server.assert_called_once_with(host="127.0.0.1", port=5001, debug=False)
 
 
 def test_main_custom_port(tmp_path):
@@ -120,7 +120,7 @@ def test_main_custom_port(tmp_path):
 
     mock_app_module = MagicMock()
     mock_app_module.app = MagicMock()
-    mock_app_module.app.run = MagicMock()
+    mock_app_module.run_server = MagicMock()
 
     with patch("sys.argv", ["gtopt_guisrv", "--port", "8080"]):
         with patch("guiservice.gtopt_guisrv.get_guiservice_dir", return_value=tmp_path):
@@ -128,7 +128,7 @@ def test_main_custom_port(tmp_path):
                 with patch.dict("sys.modules", {"app": mock_app_module}):
                     guisrv.main()
 
-    mock_app_module.app.run.assert_called_once_with(host="127.0.0.1", port=8080, debug=False)
+    mock_app_module.run_server.assert_called_once_with(host="127.0.0.1", port=8080, debug=False)
 
 
 def test_main_debug_flag(tmp_path):
@@ -138,7 +138,7 @@ def test_main_debug_flag(tmp_path):
 
     mock_app_module = MagicMock()
     mock_app_module.app = MagicMock()
-    mock_app_module.app.run = MagicMock()
+    mock_app_module.run_server = MagicMock()
 
     with patch("sys.argv", ["gtopt_guisrv", "--debug"]):
         with patch("guiservice.gtopt_guisrv.get_guiservice_dir", return_value=tmp_path):
@@ -146,7 +146,7 @@ def test_main_debug_flag(tmp_path):
                 with patch.dict("sys.modules", {"app": mock_app_module}):
                     guisrv.main()
 
-    mock_app_module.app.run.assert_called_once_with(host="127.0.0.1", port=5001, debug=True)
+    mock_app_module.run_server.assert_called_once_with(host="127.0.0.1", port=5001, debug=True)
 
 
 def test_main_missing_dependencies_exits(tmp_path):
@@ -170,7 +170,7 @@ def test_main_keyboard_interrupt_exits(tmp_path):
 
     mock_app_module = MagicMock()
     mock_app_module.app = MagicMock()
-    mock_app_module.app.run = MagicMock(side_effect=KeyboardInterrupt)
+    mock_app_module.run_server = MagicMock(side_effect=KeyboardInterrupt)
 
     with patch("sys.argv", ["gtopt_guisrv"]):
         with patch("guiservice.gtopt_guisrv.get_guiservice_dir", return_value=tmp_path):
@@ -189,7 +189,7 @@ def test_main_exception_exits(tmp_path, capsys):
 
     mock_app_module = MagicMock()
     mock_app_module.app = MagicMock()
-    mock_app_module.app.run = MagicMock(side_effect=RuntimeError("boom"))
+    mock_app_module.run_server = MagicMock(side_effect=RuntimeError("boom"))
 
     with patch("sys.argv", ["gtopt_guisrv"]):
         with patch("guiservice.gtopt_guisrv.get_guiservice_dir", return_value=tmp_path):
@@ -217,7 +217,7 @@ def test_main_non_loopback_host_warns(tmp_path, monkeypatch, capsys):
     captured = capsys.readouterr()
     assert "binding to non-loopback host '0.0.0.0'" in captured.err
     assert "URL: http://localhost:5001" in captured.out
-    mock_app_module.app.run.assert_called_once_with(host="0.0.0.0", port=5001, debug=False)
+    mock_app_module.run_server.assert_called_once_with(host="0.0.0.0", port=5001, debug=False)
 
 
 def test_main_debug_refused_on_non_loopback_host(capsys):

@@ -13,6 +13,7 @@ import { createLogger } from "@/lib/logger";
 import { listDirRecursive } from "@/lib/files";
 import { resolveInside, validateSystemFile } from "@/lib/security";
 import { safeExtractZip } from "@/lib/unzip";
+import { checkCaseDir } from "@/lib/jobsandbox";
 
 const log = createLogger("api/jobs");
 
@@ -95,9 +96,7 @@ export async function POST(request: NextRequest) {
       await fs.unlink(zipPath).catch(() => {});
       log.error(`Job ${job.token}: zip extraction failed in ${inputDir}: ${err instanceof Error ? err.message : String(err)}`);
       return NextResponse.json(
-        {
-          error: `Failed to extract zip file: ${err instanceof Error ? err.message : String(err)}`,
-        },
+        { error: "Failed to extract zip file (unsafe or too large archive)" },
         { status: 400 }
       );
     }
@@ -114,6 +113,16 @@ export async function POST(request: NextRequest) {
       }
     } catch (err) {
       log.warn(`Job ${job.token}: could not list extracted files: ${err}`);
+    }
+
+    // Case options must not point outside the job directory.
+    const caseCheck = await checkCaseDir(inputDir);
+    if (!caseCheck.ok) {
+      log.warn(`Job ${job.token}: rejected case: ${caseCheck.error}`);
+      return NextResponse.json(
+        { error: `Invalid case: ${caseCheck.error}` },
+        { status: 400 }
+      );
     }
 
     // Verify the system file exists and (following symlinks) stays inside

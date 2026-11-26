@@ -323,7 +323,7 @@ class TestBindHost:
                         with pytest.raises(SystemExit) as exc:
                             guisrv.main()
         assert exc.value.code == 2
-        mock_app.app.run.assert_not_called()
+        mock_app.run_server.assert_not_called()
 
     def test_guisrv_default_host_env(self, tmp_path, monkeypatch):
         monkeypatch.setenv("GTOPT_GUI_HOST", "::1")
@@ -333,7 +333,7 @@ class TestBindHost:
                 with patch("guiservice.gtopt_guisrv.check_dependencies", return_value=True):
                     with patch.dict("sys.modules", {"app": mock_app}):
                         guisrv.main()
-        mock_app.app.run.assert_called_once_with(host="::1", port=5001, debug=False)
+        mock_app.run_server.assert_called_once_with(host="::1", port=5001, debug=False)
 
     def test_guisrv_help_mentions_loopback_default(self):
         result = subprocess.run(

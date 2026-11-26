@@ -9,6 +9,10 @@ Exports:
 * ``_parse_uploaded_zip`` — round-trip a ZIP back into the case dict.
 * ``_parse_results_zip``  — extract results parquet/csv → JSON-friendly dict.
 
+Uploads are bounded: :class:`UploadLimitError` is raised when a ZIP has
+too many members or expands (including ``.gz`` / ``.zst`` members) past
+``$GTOPT_GUI_MAX_UNCOMPRESSED_BYTES`` (default 2 GiB).
+
 Imported by :mod:`guiservice.app` and re-exported for back-compat with
 existing tests (``from guiservice.app import _build_case_json``).
 """
@@ -42,6 +46,80 @@ except ImportError:
     )
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Upload decompression limits
+# ---------------------------------------------------------------------------
+
+#: Env var: total bytes one uploaded ZIP may expand to (members plus any
+#: ``.gz`` / ``.zst`` member payloads).  Default 2 GiB.
+MAX_UNCOMPRESSED_ENV = "GTOPT_GUI_MAX_UNCOMPRESSED_BYTES"
+DEFAULT_MAX_UNCOMPRESSED = 2 * 1024**3
+#: Env var: maximum number of members of one uploaded ZIP.  Default 20000.
+MAX_MEMBERS_ENV = "GTOPT_GUI_MAX_ZIP_MEMBERS"
+DEFAULT_MAX_MEMBERS = 20_000
+
+_READ_CHUNK = 1 << 20
+
+
+class UploadLimitError(ValueError):
+    """An uploaded archive exceeds the decompression limits."""
+
+
+def _env_limit(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    try:
+        value = int(raw) if raw else default
+    except ValueError:
+        value = default
+    return value if value > 0 else default
+
+
+class _Budget:
+    """Running byte budget shared by every member of one upload."""
+
+    def __init__(self) -> None:
+        self.left = _env_limit(MAX_UNCOMPRESSED_ENV, DEFAULT_MAX_UNCOMPRESSED)
+
+    def take(self, n: int, what: str) -> None:
+        self.left -= n
+        if self.left < 0:
+            raise UploadLimitError(
+                f"upload expands beyond the limit while reading {what!r} "
+                f"(raise {MAX_UNCOMPRESSED_ENV} for trusted inputs)"
+            )
+
+
+def _open_checked_zip(zip_bytes: bytes) -> zipfile.ZipFile:
+    """Open *zip_bytes*; refuse too many members or a too large declared size."""
+    # Returned open: the caller closes it with ``with``.
+    zf = zipfile.ZipFile(io.BytesIO(zip_bytes), "r")  # pylint: disable=consider-using-with
+    infos = zf.infolist()
+    max_members = _env_limit(MAX_MEMBERS_ENV, DEFAULT_MAX_MEMBERS)
+    if len(infos) > max_members:
+        zf.close()
+        raise UploadLimitError(
+            f"upload has {len(infos)} members, above the limit of {max_members} "
+            f"(raise {MAX_MEMBERS_ENV} for trusted inputs)"
+        )
+    total = sum(i.file_size for i in infos)
+    limit = _env_limit(MAX_UNCOMPRESSED_ENV, DEFAULT_MAX_UNCOMPRESSED)
+    if total > limit:
+        zf.close()
+        raise UploadLimitError(
+            f"upload expands to {total} bytes, above the limit of {limit} "
+            f"(raise {MAX_UNCOMPRESSED_ENV} for trusted inputs)"
+        )
+    return zf
+
+
+def _read_limited(stream: Any, budget: _Budget, what: str) -> bytes:
+    """Read *stream* to the end, charging every chunk to *budget*."""
+    out = io.BytesIO()
+    while chunk := stream.read(_READ_CHUNK):
+        budget.take(len(chunk), what)
+        out.write(chunk)
+    return out.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -205,7 +283,7 @@ def _parse_uploaded_zip(zip_bytes):
         "data_files": {},
     }
 
-    with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+    with _open_checked_zip(zip_bytes) as zf:
         json_files = [n for n in zf.namelist() if n.endswith(".json")]
         if not json_files:
             return case_data
@@ -332,17 +410,22 @@ def _output_key(name: str) -> str | None:
     return None
 
 
-def _decode_csv_member(name: str, raw: bytes) -> list[list[str]] | None:
-    """Decompress (if needed) and parse a CSV member into rows."""
+def _decode_csv_member(
+    name: str, raw: bytes, budget: _Budget | None = None
+) -> list[list[str]] | None:
+    """Decompress (if needed, within *budget*) and parse a CSV member into rows."""
+    budget = budget if budget is not None else _Budget()
     if name.endswith(".csv.gz"):
-        raw = gzip.decompress(raw)
+        with gzip.GzipFile(fileobj=io.BytesIO(raw)) as gz:
+            raw = _read_limited(gz, budget, name)
     elif name.endswith(".csv.zst"):
         try:
             import zstandard  # pylint: disable=import-outside-toplevel
         except ImportError:
             logger.warning("Skipping %s: the 'zstandard' module is not installed", name)
             return None
-        raw = zstandard.ZstdDecompressor().stream_reader(io.BytesIO(raw)).read()
+        with zstandard.ZstdDecompressor().stream_reader(io.BytesIO(raw)) as zst:
+            raw = _read_limited(zst, budget, name)
     return list(csv.reader(io.StringIO(raw.decode("utf-8"))))
 
 
@@ -418,7 +501,8 @@ def _parse_results_zip(zip_bytes):
     results: dict[str, Any] = {"solution": {}, "outputs": {}, "terminal_output": ""}
     collected: dict[str, list[tuple[str, list[Any], list[list[Any]]]]] = {}
 
-    with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+    budget = _Budget()
+    with _open_checked_zip(zip_bytes) as zf:
         for name in zf.namelist():
             if name.endswith("/"):
                 continue
@@ -431,7 +515,7 @@ def _parse_results_zip(zip_bytes):
                         if results["terminal_output"]:
                             results["terminal_output"] += "\n"
                         results["terminal_output"] += content
-                except Exception:  # pylint: disable=broad-exception-caught
+                except Exception:  # pylint: disable=broad-exception-caught  # noqa: S110 - optional log
                     pass
                 continue
 
@@ -444,13 +528,15 @@ def _parse_results_zip(zip_bytes):
                     cols: list[Any] = list(df.columns)
                     data: list[list[Any]] = _df_to_rows(df)
                 else:
-                    rows = _decode_csv_member(name, zf.read(name))
+                    rows = _decode_csv_member(name, zf.read(name), budget)
                     if not rows:
                         continue
                     cols, data = rows[0], rows[1:]
                     if base in ("solution.csv", "solution.csv.gz"):
                         results["solution"] = _parse_solution_rows(rows)
                         continue
+            except UploadLimitError:
+                raise
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 logger.warning("Failed to parse results file %s: %s", name, exc)
                 continue

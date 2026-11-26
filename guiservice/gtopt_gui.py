@@ -24,9 +24,16 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import webbrowser
 from pathlib import Path
+
+
+def _is_http_url(url):
+    """True for an ``http(s)://host...`` URL (urlopen also opens ``file:``)."""
+    parts = urllib.parse.urlsplit(url)
+    return parts.scheme in ("http", "https") and bool(parts.netloc)
 
 
 def find_free_port():
@@ -182,8 +189,10 @@ def query_webservice_ping(webservice_url, timeout=5):
         dict with ping response, or None on failure.
     """
     url = f"{webservice_url}/api/ping"
+    if not _is_http_url(url):
+        return None
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as response:
+        with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310 - http(s) checked
             if response.status == 200:
                 return json.loads(response.read().decode("utf-8"))
     except (urllib.error.URLError, ConnectionRefusedError, OSError, json.JSONDecodeError):
@@ -217,8 +226,10 @@ def check_webservice_api(webservice_url, timeout=5):
         False on connection failure, timeout, or unexpected response.
     """
     url = f"{webservice_url}/api"
+    if not _is_http_url(url):
+        return False
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as response:
+        with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310 - http(s) checked
             if response.status == 200:
                 data = json.loads(response.read().decode("utf-8"))
                 return data.get("status") == "ok"

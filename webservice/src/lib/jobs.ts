@@ -5,6 +5,7 @@ import { spawn, execFile, ChildProcess } from "child_process";
 import { createLogger } from "./logger";
 import { listDirRecursive } from "./files";
 import { isValidJobToken, resolveInside, validateSystemFile } from "./security";
+import { jobEnvironment, jobForcedOptions, publicJobError } from "./jobsandbox";
 
 const log = createLogger("jobs");
 
@@ -142,6 +143,10 @@ export async function runGtopt(token: string): Promise<void> {
   const outputDir = getJobOutputDir(token);
 
   await fs.mkdir(outputDir, { recursive: true });
+  const jobDir = getJobDir(token);
+  const logDir = path.join(jobDir, "logs");
+  await fs.mkdir(logDir, { recursive: true });
+  await fs.mkdir(path.join(jobDir, "tmp"), { recursive: true });
 
   // Re-validate the system file right before it reaches the command line
   // (job.json may have been loaded from disk) and confine it — following
@@ -190,12 +195,16 @@ export async function runGtopt(token: string): Promise<void> {
   return new Promise<void>((resolve) => {
     // Arguments are passed as an array (no shell).  `systemFileArg` was
     // validated above: relative, inside inputDir, never starting with '-'.
+    // The forced options come last so they win over the case options, and
+    // the child gets a minimal environment (no webservice secrets, no
+    // user / case config file).
     const proc = spawn(
       /*turbopackIgnore: true*/ gtoptBin,
-      [systemFileArg, "--set", `output_directory=${outputDir}`, ...extraArgs],
+      [systemFileArg, ...extraArgs, ...jobForcedOptions(outputDir, logDir)],
       {
         cwd: inputDir,
-        stdio: ["ignore", "pipe", "pipe"],
+        env: jobEnvironment(jobDir) as NodeJS.ProcessEnv,
+        stdio: ["ignore", "pipe", "pipe"] as const,
       }
     );
 
@@ -223,7 +232,7 @@ export async function runGtopt(token: string): Promise<void> {
       }
     });
 
-    proc.on("close", async (code) => {
+    proc.on("close", async (code, signal) => {
       // Unregister the process when it exits
       runningProcesses.delete(token);
 
@@ -233,8 +242,10 @@ export async function runGtopt(token: string): Promise<void> {
         log.info(`Job ${token}: gtopt completed successfully (exit code 0)`);
       } else {
         job.status = "failed";
-        job.error = stderr || stdout || `Process exited with code ${code}`;
-        log.error(`Job ${token}: gtopt failed with exit code ${code}: ${job.error}`);
+        // The solver output stays in the per-job logs; the status API only
+        // reports how the process ended.
+        job.error = publicJobError(code, signal);
+        log.error(`Job ${token}: ${job.error}`);
       }
 
       // Remove the stop-request file so it does not interfere with
@@ -275,7 +286,7 @@ export async function runGtopt(token: string): Promise<void> {
     proc.on("error", async (err) => {
       runningProcesses.delete(token);
       job.status = "failed";
-      job.error = `Failed to start gtopt: ${err.message}`;
+      job.error = "Failed to start gtopt (see the webservice log)";
       log.error(`Job ${token}: failed to start gtopt: ${err.message}`);
       await updateJob(job);
       resolve();

@@ -504,15 +504,16 @@
     </div>
   </aside>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
-  <script>if (typeof Chart === "undefined") { document.write('<script src="/static/vendor/chartjs/chart.umd.min.js"><\/script>'); }</script>
+  <script src="/static/vendor/chartjs/chart.umd.min.js"></script>
   <script src="/static/vendor/chartjs/hammer.min.js"></script>
   <script src="/static/vendor/chartjs/chartjs-plugin-zoom.min.js"></script>
   <script src="/static/vendor/jsuites/jsuites.js"></script>
   <script src="/static/vendor/jspreadsheet-ce/jspreadsheet.js"></script>
-  <!-- vis.js Network for topology diagram (loaded on-demand in renderTopology) -->
-  <!-- Uses same CDN pattern as chart.js above; add SRI hash when bundling locally -->
-  <script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+  <!-- vis.js Network for the topology diagram: pinned version + SRI hash
+       (sha384 of the npm vis-network-9.1.9 standalone build). -->
+  <script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.9/standalone/umd/vis-network.min.js"
+          integrity="sha384-yxKDWWf0wwdUj/gPeuL11czrnKFQROnLgY8ll7En9NYoXibgg3C6NK/UDHNtUgWJ"
+          crossorigin="anonymous"></script>
   <script src="/static/js/app.js"></script>
 </body>
 </html>

@@ -400,3 +400,9 @@ def test_verify_webservice_api_returns_false_on_failure(tmp_path):
     with open(log_file, encoding="utf-8") as f:
         log_content = f.read()
     assert "API verification FAILED" in log_content
+
+
+def test_webservice_probes_refuse_non_http_urls():
+    """file:/ftp: URLs are never opened by the webservice probes."""
+    assert query_webservice_ping("file:///etc", timeout=1) is None
+    assert check_webservice_api("ftp://127.0.0.1", timeout=1) is False

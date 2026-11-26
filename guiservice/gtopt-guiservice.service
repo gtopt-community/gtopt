@@ -11,11 +11,21 @@ WorkingDirectory=/usr/local/share/gtopt/guiservice
 
 # Environment variables
 Environment="GTOPT_GUI_PORT=5001"
-# Loopback only (default).  The GUI has no authentication: reach it through
-# an SSH tunnel or an authenticating TLS reverse proxy.  Never set
+# Loopback only (default): reach it through an SSH tunnel or a TLS reverse
+# proxy.  On a non-loopback address an access token is required (set
+# GTOPT_GUI_AUTH_TOKEN, e.g. in an EnvironmentFile readable only by root,
+# or read the generated login link from `journalctl -u gtopt-guiservice`).
+# GTOPT_GUI_AUTH=on also requires it on loopback (shared hosts).  Never set
 # FLASK_DEBUG=1 here (the debugger allows remote code execution).
 Environment="GTOPT_GUI_HOST=127.0.0.1"
+Environment="GTOPT_GUI_AUTH=auto"
+#EnvironmentFile=-/etc/gtopt/guiservice.env
 Environment="FLASK_ENV=production"
+# Served by waitress (production WSGI server) when it is installed.
+Environment="GTOPT_GUI_SERVER=auto"
+# Log file under the systemd-managed log directory (never /tmp).
+LogsDirectory=gtopt-guiservice
+Environment="GTOPT_GUI_LOG_FILE=/var/log/gtopt-guiservice/guiservice.log"
 
 # Start the service using the installed launcher
 ExecStart=/usr/local/bin/gtopt_guisrv
@@ -27,6 +37,13 @@ RestartSec=10
 # Security settings
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
 
 # Logging
 StandardOutput=journal

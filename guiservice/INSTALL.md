@@ -133,6 +133,14 @@ The GUI service is configured through environment variables:
 | `GTOPT_WEBSERVICE_API_TOKEN` | *(unset)* | Token forwarded to the webservice as `Authorization: Bearer` |
 | `GTOPT_GUI_SHUTDOWN_TOKEN` | *(unset)* | Secret that authorises `POST /api/shutdown` from non-loopback clients |
 | `FLASK_DEBUG` | `0` | `1` enables the Werkzeug debugger — local development only, refused on non-loopback hosts |
+| `GTOPT_GUI_AUTH` | `auto` | Access-token authentication: `auto` = required on non-loopback bind addresses, `on` = always, `off` = never (only behind an authenticating proxy) |
+| `GTOPT_GUI_AUTH_TOKEN` | *(unset)* | The access token; when authentication is required and it is unset, a random token is generated and a login link is printed at start-up |
+| `GTOPT_GUI_SECRET_KEY` | *(random per process)* | Session-cookie signing key; set it when several worker processes serve the GUI |
+| `GTOPT_GUI_COOKIE_SECURE` | `0` | `1` marks the session cookie `Secure` (GUI served over HTTPS) |
+| `GTOPT_GUI_SERVER` | `auto` | `waitress` (production WSGI server; used by `auto` when installed) or `werkzeug` (development server) |
+| `GTOPT_GUI_LOG_FILE` | `$XDG_STATE_HOME/gtopt/guiservice.log` | Server log file (default `~/.local/state/gtopt/guiservice.log`) |
+| `GTOPT_GUI_MAX_UNCOMPRESSED_BYTES` | `2147483648` | Largest total size an uploaded ZIP (incl. `.gz`/`.zst` members) may expand to |
+| `GTOPT_GUI_MAX_ZIP_MEMBERS` | `20000` | Largest number of members of an uploaded ZIP |
 
 Create a configuration file for persistent settings:
 
@@ -169,19 +177,24 @@ when `GTOPT_GUI_HOST` is not a loopback address.
 
 The GUI will be available at `http://localhost:5001`.
 
-### Production mode with gunicorn
+### Production mode
 
-For production deployments, use a WSGI server like gunicorn:
+`python app.py` / `gtopt_guisrv` serve the GUI with **waitress** (a
+production WSGI server, listed in `requirements.txt`) whenever it is
+installed and debug mode is off; otherwise they fall back to the Werkzeug
+development server with a warning.  `GTOPT_GUI_SERVER=werkzeug` forces the
+development server.
+
+Another WSGI server works too; keep it on `127.0.0.1`, set
+`GTOPT_GUI_AUTH_TOKEN` (and `GTOPT_GUI_SECRET_KEY` for several worker
+processes), and put a TLS reverse proxy in front of it for remote users:
 
 ```bash
 pip install gunicorn
 cd guiservice
-gunicorn -w 4 -b 127.0.0.1:5001 app:app
+GTOPT_GUI_AUTH=on GTOPT_GUI_AUTH_TOKEN=... GTOPT_GUI_SECRET_KEY=... \
+  gunicorn -w 4 -b 127.0.0.1:5001 app:app
 ```
-
-Keep gunicorn on `127.0.0.1` and put an authenticating TLS reverse proxy in
-front of it if remote users need access — the GUI has no authentication (see
-[Security](#security)).
 
 ### Quick start (no webservice required)
 
@@ -440,8 +453,31 @@ python -m pytest guiservice/tests/test_app.py -v
 
 ## Security
 
-The GUI service has **no user authentication**; treat it as a local,
-single-user tool.
+The GUI service has a single shared **access token** (no user accounts).
+
+- **Authentication.** With `GTOPT_GUI_AUTH=auto` (default) a token is
+  required whenever the service binds a non-loopback address; a
+  loopback-only service (the default) stays open for single-user local
+  use.  `GTOPT_GUI_AUTH=on` requires it on loopback too (shared hosts),
+  `off` disables it (only behind an authenticating proxy).  Set the token
+  with `GTOPT_GUI_AUTH_TOKEN`, or let the service generate one: it prints
+  a login link `http://<host>:<port>/?token=<token>`.  Opening it sets an
+  `HttpOnly`, `SameSite=Strict` session cookie and redirects to the page
+  without the token.  Scripted clients send
+  `Authorization: Bearer <token>` (or `X-GTOpt-Auth: <token>`).
+- **Security headers.** Every response carries a Content-Security-Policy
+  (scripts only from the service itself plus the version-pinned,
+  SRI-checked vis-network file; `connect-src 'self'`; no framing),
+  `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and
+  `Referrer-Policy: no-referrer`; API responses are `no-store`.
+- **Uploads.** Case and result ZIPs are limited in member count and in the
+  total size they expand to (`GTOPT_GUI_MAX_ZIP_MEMBERS`,
+  `GTOPT_GUI_MAX_UNCOMPRESSED_BYTES`); larger uploads get `413`.
+- **Logs.** The server log lives in `$XDG_STATE_HOME/gtopt/guiservice.log`
+  (never a shared `/tmp` file); `GET /api/logs` serves recent lines with
+  tokens and keys redacted.
+- **Excel export.** Text cells starting with `=`, `+`, `-`, `@` (or a
+  tab / carriage return) are written as text, never as formulas.
 
 - **Loopback by default.** `app.py`, `gtopt_guisrv` and `gtopt_gui` bind to
   `127.0.0.1` (override with `--host` / `GTOPT_GUI_HOST`).  To use the GUI from

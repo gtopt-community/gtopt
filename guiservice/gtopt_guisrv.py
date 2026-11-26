@@ -10,7 +10,8 @@ Usage:
 
 Options:
     --port PORT          Port for the GUI service (default: 5001)
-    --host HOST          Host to bind to (default: 127.0.0.1)
+    --host HOST          Host to bind to (default: 127.0.0.1; an access
+                         token is required on non-loopback hosts)
     --debug              Run Flask in debug mode (LOCAL DEVELOPMENT ONLY;
                          refused on non-loopback hosts)
     --help               Show this help message
@@ -20,9 +21,10 @@ Environment Variables:
     GTOPT_GUI_HOST       Host to bind to (default: 127.0.0.1)
 
 Security:
-    The GUI service has no user authentication.  Keep it on 127.0.0.1;
-    to reach it from another machine use an SSH tunnel or an authenticating
-    TLS reverse proxy.  Never enable --debug outside local development: the
+    The GUI service has no user accounts.  On 127.0.0.1 it is open; on
+    another address it requires an access token (GTOPT_GUI_AUTH_TOKEN, or
+    a generated one printed at start-up).  An SSH tunnel or an
+    authenticating TLS reverse proxy remain the preferred remote access.  Never enable --debug outside local development: the
     Werkzeug debugger allows remote code execution.
 """
 
@@ -110,9 +112,9 @@ For interactive kiosk mode, use 'gtopt_gui' instead.
         "--host",
         default=os.environ.get("GTOPT_GUI_HOST", DEFAULT_HOST),
         help=(
-            "Host to bind to (default: 127.0.0.1).  The service has no "
-            "authentication: do not expose it without an authenticating "
-            "reverse proxy."
+            "Host to bind to (default: 127.0.0.1).  A non-loopback address "
+            "requires an access token (GTOPT_GUI_AUTH_TOKEN, or a generated "
+            "one printed at start-up)."
         ),
     )
 
@@ -134,9 +136,9 @@ For interactive kiosk mode, use 'gtopt_gui' instead.
         )
     if not is_loopback_host(args.host):
         print(
-            f"Warning: binding to non-loopback host '{args.host}'.  The GUI "
-            "service has no authentication; put it behind an authenticating "
-            "TLS reverse proxy.",
+            f"Warning: binding to non-loopback host '{args.host}'.  An access "
+            "token is required (GTOPT_GUI_AUTH_TOKEN, or the generated login "
+            "link printed below); prefer a TLS reverse proxy for remote use.",
             file=sys.stderr,
         )
 
@@ -155,20 +157,17 @@ For interactive kiosk mode, use 'gtopt_gui' instead.
         )
         sys.exit(1)
 
-    # Set up environment
-    env = os.environ.copy()
-    env["GTOPT_GUI_PORT"] = str(args.port)
-
-    env["GTOPT_GUI_HOST"] = args.host
-
+    # The app reads its bind address from the environment (Host allowlist).
+    os.environ["GTOPT_GUI_PORT"] = str(args.port)
+    os.environ["GTOPT_GUI_HOST"] = args.host
     if args.debug:
-        env["FLASK_DEBUG"] = "1"
+        os.environ["FLASK_DEBUG"] = "1"
 
     print(f"Starting GTOpt GUI service on {args.host}:{args.port}...")
     print("")
     print("=" * 60)
     print("GTOpt GUI service is running")
-    host_display = "localhost" if args.host in ("0.0.0.0", "::") else args.host
+    host_display = "localhost" if args.host in ("0.0.0.0", "::") else args.host  # noqa: S104 - display only
     print(f"URL: http://{host_display}:{args.port}")
     print("Press Ctrl+C to stop")
     print("=" * 60)
@@ -181,7 +180,8 @@ For interactive kiosk mode, use 'gtopt_gui' instead.
         # Import and run the Flask app
         import app  # noqa: PLC0415  # pylint: disable=import-error,import-outside-toplevel
 
-        app.app.run(host=args.host, port=args.port, debug=args.debug)
+        # Token auth, security headers and waitress (when installed).
+        app.run_server(host=args.host, port=args.port, debug=args.debug)
 
     except KeyboardInterrupt:
         print("\nShutting down...")

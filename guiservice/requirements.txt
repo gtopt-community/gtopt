@@ -7,3 +7,6 @@ pandas>=2.2.3
 # incompatible libarrow_substrait/libarrow_flight shared objects.
 # pyarrow>=23.0.1
 requests>=2.33.0
+# Production WSGI server (app.main() falls back to the Werkzeug dev server
+# when it is missing).
+waitress>=3.0.2

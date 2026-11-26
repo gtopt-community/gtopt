@@ -8,7 +8,6 @@ case management and a browser-based GUI for interactive case creation.
 
 import hmac
 import io
-import ipaddress
 import json
 import logging
 import os
@@ -17,6 +16,7 @@ import signal
 import sys
 import tempfile
 import uuid
+import zipfile
 from base64 import b64decode
 from collections import deque
 from typing import Any, cast
@@ -27,9 +27,11 @@ import requests as http_requests
 from flask import (
     Flask,
     jsonify,
+    redirect,
     render_template,
     request,
     send_file,
+    session,
 )
 
 # Optional: gtopt_diagram may not be installed; guiservice works without it
@@ -69,12 +71,14 @@ except ImportError:
 #      resolve in that mode.
 # pylint: disable=unused-import,wrong-import-position
 try:
+    from guiservice import _security as security
     from guiservice._schemas import (  # noqa: F401
         ELEMENT_SCHEMAS,
         ELEMENT_TO_ARRAY_KEY,
         OPTIONS_SCHEMA,
     )
     from guiservice._zip_helpers import (  # noqa: F401
+        UploadLimitError,
         _build_case_json,
         _build_zip,
         _df_to_rows,
@@ -85,12 +89,14 @@ try:
     )
 except ImportError:
     # Script-mode import (cwd inside guiservice/ — gtopt_gui launcher).
+    import _security as security  # type: ignore[no-redef]
     from _schemas import (  # type: ignore[no-redef]  # noqa: F401
         ELEMENT_SCHEMAS,
         ELEMENT_TO_ARRAY_KEY,
         OPTIONS_SCHEMA,
     )
     from _zip_helpers import (  # type: ignore[no-redef]  # noqa: F401
+        UploadLimitError,
         _build_case_json,
         _build_zip,
         _df_to_rows,
@@ -103,6 +109,16 @@ except ImportError:
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB
+# Session cookie only carries the "authenticated" marker (see _security).
+app.secret_key = security.secret_key()
+app.config.update(
+    SESSION_COOKIE_NAME="gtopt_gui_session",
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Strict",
+    SESSION_COOKIE_SECURE=security.cookie_secure(),
+)
+#: app.config key holding the access token resolved by main() (None = open).
+AUTH_TOKEN_CONFIG = "GTOPT_GUI_AUTH_TOKEN_RESOLVED"  # noqa: S105 - config key
 
 MAX_LOG_ENTRIES = 500
 DEFAULT_LOG_LINES = 200
@@ -121,17 +137,44 @@ class _RecentLogHandler(logging.Handler):
         saved = (record.exc_info, record.exc_text, record.stack_info)
         record.exc_info, record.exc_text, record.stack_info = None, None, None
         try:
-            _recent_logs.append(self.format(record))
+            # Served to the browser: never echo tokens / keys.
+            _recent_logs.append(security.redact(self.format(record), _configured_secrets()))
         finally:
             record.exc_info, record.exc_text, record.stack_info = saved
 
 
+def _configured_secrets() -> list[str]:
+    """Secret values that must never appear in logs served to clients."""
+    values = [
+        os.environ.get(name, "")
+        for name in (
+            security.AUTH_TOKEN_ENV,
+            "GTOPT_GUI_SHUTDOWN_TOKEN",
+            "GTOPT_WEBSERVICE_API_TOKEN",
+        )
+    ]
+    resolved = app.config.get(AUTH_TOKEN_CONFIG)
+    if resolved:
+        values.append(resolved)
+    return [v for v in values if v]
+
+
+def default_log_file() -> str:
+    """Per-user log file: ``$XDG_STATE_HOME/gtopt/guiservice.log``.
+
+    (default ``~/.local/state/gtopt/guiservice.log``; never a shared
+    ``/tmp`` path).  ``GTOPT_GUI_LOG_FILE`` overrides it.
+    """
+    base = os.environ.get("XDG_STATE_HOME") or os.path.join(
+        os.path.expanduser("~"), ".local", "state"
+    )
+    return os.path.join(base, "gtopt", "guiservice.log")
+
+
 def _configure_logging():
     """Configure guiservice logging for file + in-memory viewing."""
-    log_file = os.environ.get(
-        "GTOPT_GUI_LOG_FILE",
-        os.path.join(tempfile.gettempdir(), "gtopt_guiservice.log"),
-    )
+    log_file = os.environ.get("GTOPT_GUI_LOG_FILE") or default_log_file()
+    os.makedirs(os.path.dirname(log_file) or ".", mode=0o700, exist_ok=True)
     formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     app.logger.setLevel(logging.INFO)
 
@@ -207,7 +250,7 @@ DEFAULT_HOST = "127.0.0.1"
 ALLOWED_WEBSERVICE_HOSTS_ENV = "GTOPT_GUI_ALLOWED_WEBSERVICE_HOSTS"
 
 #: Shared secret that authorises ``POST /api/shutdown`` from any client.
-SHUTDOWN_TOKEN_ENV = "GTOPT_GUI_SHUTDOWN_TOKEN"
+SHUTDOWN_TOKEN_ENV = "GTOPT_GUI_SHUTDOWN_TOKEN"  # noqa: S105 - env var name
 
 #: Header the bundled UI sends with state-changing requests.  Browsers
 #: cannot add it cross-origin without a CORS preflight (which this service
@@ -215,7 +258,7 @@ SHUTDOWN_TOKEN_ENV = "GTOPT_GUI_SHUTDOWN_TOKEN"
 GUI_REQUEST_HEADER = "X-GTOpt-GUI"
 
 #: Token forwarded to the webservice (``Authorization: Bearer``).
-WEBSERVICE_API_TOKEN_ENV = "GTOPT_WEBSERVICE_API_TOKEN"
+WEBSERVICE_API_TOKEN_ENV = "GTOPT_WEBSERVICE_API_TOKEN"  # noqa: S105 - env var name
 
 #: Comma-separated extra values (``host`` or ``host:port``) accepted in the
 #: ``Host`` header besides loopback names (DNS-rebinding guard).
@@ -234,25 +277,13 @@ _webservice_url = os.environ.get("GTOPT_WEBSERVICE_URL", DEFAULT_WEBSERVICE_URL)
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 _LOOPBACK_NAMES = frozenset({"localhost", "127.0.0.1", "::1"})
-_WILDCARD_BIND_HOSTS = frozenset({"", "0.0.0.0", "::"})
+_WILDCARD_BIND_HOSTS = frozenset({"", "0.0.0.0", "::"})  # noqa: S104 - detection only
 
 # Job tokens are opaque path segments: never allow '/', '..', '?', '#', '%'.
 _JOB_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
 
-def is_loopback_host(host: str | None) -> bool:
-    """Return True when *host* (a hostname or IP literal) is loopback."""
-    if not host:
-        return False
-    h = host.strip().lower()
-    if h.startswith("[") and h.endswith("]"):
-        h = h[1:-1]
-    if h == "localhost":
-        return True
-    try:
-        return ipaddress.ip_address(h).is_loopback
-    except ValueError:
-        return False
+is_loopback_host = security.is_loopback_host
 
 
 def _allowed_webservice_hosts() -> set[str]:
@@ -459,6 +490,70 @@ def host_header_allowed(host_header: str | None) -> bool:
     return bool({host, netloc_host, host_port} & allowed)
 
 
+_generated_token: list[str] = []
+
+
+def current_auth_token() -> str | None:
+    """Access token in force, or ``None`` when the GUI is open.
+
+    ``main()`` resolves it from the bind host (see :mod:`_security`); under
+    another WSGI server the environment decides: ``GTOPT_GUI_AUTH_TOKEN``,
+    or a per-process random token (logged once) with ``GTOPT_GUI_AUTH=on``.
+    """
+    if AUTH_TOKEN_CONFIG in app.config:
+        return app.config[AUTH_TOKEN_CONFIG]
+    mode = security.auth_mode()
+    if mode == "off":
+        return None
+    token = os.environ.get(security.AUTH_TOKEN_ENV, "").strip()
+    if token:
+        return token
+    if mode == "on":
+        if not _generated_token:
+            _generated_token.append(security.resolve_auth_token("", {})[0] or "")
+            app.logger.warning(
+                "%s=on without %s: generated a per-process access token (see the server console)",
+                security.AUTH_MODE_ENV,
+                security.AUTH_TOKEN_ENV,
+            )
+            print(f"gtopt GUI access token: {_generated_token[0]}", file=sys.stderr)
+        return _generated_token[0]
+    return None
+
+
+def _shutdown_token_valid() -> bool:
+    expected = os.environ.get(SHUTDOWN_TOKEN_ENV, "")
+    return bool(expected) and security.token_matches(_presented_shutdown_token(), expected)
+
+
+def _request_authenticated(token: str) -> bool:
+    """Session cookie, bearer header or (for shutdown) the shutdown token."""
+    if session.get(security.SESSION_KEY) == security.token_digest(token):
+        return True
+    if security.token_matches(security.presented_bearer(request.headers), token):
+        return True
+    return request.path == "/api/shutdown" and _shutdown_token_valid()
+
+
+def _auth_guard():
+    """Require the access token (session cookie, bearer header or login link)."""
+    token = current_auth_token()
+    if not token or request.path.startswith("/static/") or _request_authenticated(token):
+        return None
+    if request.method == "GET" and security.token_matches(request.args.get("token"), token):
+        session.clear()
+        session[security.SESSION_KEY] = security.token_digest(token)
+        return redirect(security.without_token_query(request.path, request.args.items(multi=True)))
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "authentication required"}), 401
+    return (
+        "gtopt GUI: authentication required.  Open the login link printed by "
+        "the server (http://<host>:<port>/?token=...).",
+        401,
+        {"Content-Type": "text/plain; charset=utf-8"},
+    )
+
+
 @app.before_request
 def _request_guards():
     """Reject foreign ``Host`` headers and state changes without the GUI header.
@@ -478,6 +573,9 @@ def _request_guards():
                 f"{ALLOWED_HOSTS_ENV} if this is a trusted name for this service"
             }
         ), 403
+    denied = _auth_guard()
+    if denied is not None:
+        return denied
     if request.method in _SAFE_METHODS:
         return None
     if request.headers.get(GUI_REQUEST_HEADER):
@@ -485,6 +583,25 @@ def _request_guards():
     if request.path == "/api/shutdown" and _presented_shutdown_token():
         return None
     return jsonify({"error": f"missing {GUI_REQUEST_HEADER} header"}), 403
+
+
+@app.errorhandler(UploadLimitError)
+def _upload_too_large(exc: UploadLimitError):
+    """An uploaded archive expands past the configured limits."""
+    app.logger.warning("Rejected upload: %s", exc)
+    return jsonify({"error": str(exc)}), 413
+
+
+@app.errorhandler(zipfile.BadZipFile)
+def _bad_zip(_exc: zipfile.BadZipFile):
+    """The uploaded file is not a valid ZIP archive."""
+    return jsonify({"error": "The uploaded file is not a valid ZIP archive"}), 400
+
+
+@app.after_request
+def _security_headers(response):
+    """CSP, anti-framing, nosniff, no-referrer; no-store on API responses."""
+    return security.apply_security_headers(response, request.path)
 
 
 # ---------------------------------------------------------------------------
@@ -1632,8 +1749,17 @@ def api_results_export_excel():
         app.logger.exception("Excel export error")
         return jsonify({"error": "Excel export failed"}), 500
 
+    # Serve from memory so the temporary workbook never outlives the request.
+    try:
+        with open(dest, "rb") as fh:
+            payload = io.BytesIO(fh.read())
+    finally:
+        try:
+            os.unlink(dest)
+        except OSError:
+            pass
     return send_file(
-        dest,
+        payload,
         mimetype=("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
         as_attachment=True,
         download_name=f"{case_name}.xlsx",
@@ -1655,17 +1781,69 @@ def check_debug_host(host: str, debug: bool) -> str | None:
     return None
 
 
-def main():
-    """Run the guiservice development server (loopback by default)."""
-    debug = os.environ.get("FLASK_DEBUG", "0") == "1"
-    port = int(os.environ.get("GTOPT_GUI_PORT", "5001"))
-    host = os.environ.get("GTOPT_GUI_HOST", DEFAULT_HOST)
+#: ``GTOPT_GUI_SERVER``: ``auto`` (waitress when installed, else the
+#: Werkzeug development server), ``waitress`` or ``werkzeug``.
+SERVER_ENV = "GTOPT_GUI_SERVER"
+
+
+def _serve(host: str, port: int, debug: bool) -> None:
+    """Run the WSGI app: waitress (production) or the Werkzeug dev server."""
+    choice = os.environ.get(SERVER_ENV, "auto").strip().lower() or "auto"
+    if choice not in ("auto", "waitress", "werkzeug"):
+        print(f"Error: {SERVER_ENV}={choice!r} is invalid", file=sys.stderr)
+        sys.exit(2)
+    if not debug and choice in ("auto", "waitress"):
+        try:
+            # pylint: disable-next=import-outside-toplevel
+            from waitress import serve
+        except ImportError:
+            if choice == "waitress":
+                print("Error: waitress is not installed", file=sys.stderr)
+                sys.exit(2)
+        else:
+            app.logger.info("serving with waitress on %s:%s", host, port)
+            serve(app, host=host, port=port, threads=8, ident="gtopt-gui")
+            return
+    if not is_loopback_host(host):
+        app.logger.warning(
+            "serving a non-loopback address with the Werkzeug development "
+            "server; install waitress (pip install waitress) for production"
+        )
+    app.run(host=host, port=port, debug=debug)
+
+
+def run_server(host: str, port: int, debug: bool = False) -> None:
+    """Resolve the access token for *host*, print the login link and serve."""
     error = check_debug_host(host, debug)
     if error:
         print(f"Error: {error}", file=sys.stderr)
         sys.exit(2)
+    try:
+        token, generated = security.resolve_auth_token(host)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(2)
     app.config[GUI_PORT_ENV] = port
-    app.run(host=host, port=port, debug=debug)
+    app.config[AUTH_TOKEN_CONFIG] = token
+    if token:
+        how = "generated" if generated else f"from ${security.AUTH_TOKEN_ENV}"
+        print(f"Access token required ({how}).  Log in with:", file=sys.stderr)
+        print(f"    {security.login_url(host, port, token)}", file=sys.stderr)
+    elif not is_loopback_host(host):
+        print(
+            f"Warning: authentication disabled ({security.AUTH_MODE_ENV}=off) on "
+            f"non-loopback host '{host}'",
+            file=sys.stderr,
+        )
+    _serve(host, port, debug)
+
+
+def main():
+    """Run the guiservice (loopback by default; token auth off-loopback)."""
+    debug = os.environ.get("FLASK_DEBUG", "0") == "1"
+    port = int(os.environ.get("GTOPT_GUI_PORT", "5001"))
+    host = os.environ.get("GTOPT_GUI_HOST", DEFAULT_HOST)
+    run_server(host, port, debug)
 
 
 if __name__ == "__main__":

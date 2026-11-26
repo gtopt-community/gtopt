@@ -160,3 +160,34 @@ def _gui_request_header(monkeypatch):
 
     monkeypatch.setattr(app, "test_client_class", _GuiTestClient)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _isolated_server_env(monkeypatch):
+    """Isolate the bind / auth / server environment between tests.
+
+    ``gtopt_guisrv.main()`` exports ``GTOPT_GUI_HOST`` / ``GTOPT_GUI_PORT``
+    / ``FLASK_DEBUG`` and ``app.run_server()`` stores the resolved access
+    token; both are undone after every test.  Tests serve with the
+    (mocked) Werkzeug ``app.run`` unless they opt into waitress.
+    """
+    for name in (
+        "GTOPT_GUI_HOST",
+        "GTOPT_GUI_PORT",
+        "FLASK_DEBUG",
+        "GTOPT_GUI_AUTH",
+        "GTOPT_GUI_AUTH_TOKEN",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("GTOPT_GUI_SERVER", "werkzeug")
+    try:
+        from guiservice.app import (  # pylint: disable=import-outside-toplevel
+            AUTH_TOKEN_CONFIG,
+            app,
+        )
+    except ImportError:
+        yield
+        return
+    app.config.pop(AUTH_TOKEN_CONFIG, None)
+    yield
+    app.config.pop(AUTH_TOKEN_CONFIG, None)

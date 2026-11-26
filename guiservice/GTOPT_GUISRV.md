@@ -171,8 +171,8 @@ sudo systemctl stop gtopt-guiservice
 ### Remote access
 
 ```bash
-# The GUI service has no authentication: keep it on loopback and tunnel
-# through SSH from your workstation
+# Keep the GUI service on loopback (no token needed) and tunnel through
+# SSH from your workstation
 ssh -L 5001:127.0.0.1:5001 your-server
 # then open http://localhost:5001 locally
 
@@ -233,8 +233,11 @@ Common issues:
 
 ## Security
 
-The GUI service has **no user authentication**; treat it as a local,
-single-user tool.
+The GUI service has no user accounts.  On loopback it is open (local,
+single-user use); on any other bind address it requires a shared **access
+token** (`GTOPT_GUI_AUTH=auto`, the default; `GTOPT_GUI_AUTH_TOKEN`, or a
+generated one whose login link is printed at start-up).  See
+[README.md](README.md) and [INSTALL.md](INSTALL.md) for the token settings.
 
 - **Loopback by default.** `app.py`, `gtopt_guisrv` and `gtopt_gui` bind to
   `127.0.0.1` (override with `--host` / `GTOPT_GUI_HOST`).  To use the GUI from

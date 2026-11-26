@@ -16,6 +16,7 @@ dependencies = [
     "pandas>=2.2",
     "pyarrow>=23.0.1",
     "requests>=2.33.0",
+    "waitress>=3.0.2",
 ]
 
 [project.optional-dependencies]
@@ -79,8 +80,13 @@ total_min = 95.0
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "W"]
-ignore = ["E501"]
+# S = flake8-bandit (security), B = flake8-bugbear; reviewed baseline as
+# in scripts/pyproject.toml (line-level noqa carries the reason).
+select = ["E", "F", "W", "S", "B"]
+ignore = ["E501", "S101", "S603", "S607"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "B"]
 
 # ---------------------------------------------------------------------------
 # pylint (inherits root .pylintrc; these settings are additive)

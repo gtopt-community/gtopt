@@ -125,8 +125,14 @@ URLs entered in the GUI must point at a loopback host, the host of
 
 ## Security
 
-The GUI service has **no user authentication**; it is a local, single-user
-tool.
+The GUI service is protected by a single shared access token whenever it
+binds a non-loopback address (`GTOPT_GUI_AUTH=auto`, the default); a
+loopback-only service stays open for local single-user use.
+`GTOPT_GUI_AUTH=on` requires the token on loopback too, `off` disables it.
+The token comes from `GTOPT_GUI_AUTH_TOKEN`, or is generated at start-up
+(a login link `http://<host>:<port>/?token=...` is printed).  See
+[INSTALL.md](INSTALL.md#security) for the security headers, upload limits
+and log redaction.
 
 - It binds to `127.0.0.1` by default (`--host` / `GTOPT_GUI_HOST` to
   override).  For remote use, tunnel over SSH

@@ -163,6 +163,7 @@ Download job results as a zip file.
 | `PORT` | `3000` | HTTP port |
 | `GTOPT_WEBSERVICE_HOST` | `127.0.0.1` | Bind address used by `gtopt_websrv` (legacy alias `GTOPT_HOSTNAME`) |
 | `GTOPT_WEBSERVICE_API_TOKEN` | *(unset)* | Shared API token; required to bind a non-loopback address |
+| `GTOPT_JOB_ENV_PASSTHROUGH` | *(unset)* | Extra environment variables (comma-separated names) passed to gtopt jobs, e.g. a solver licence variable |
 
 ## Security
 
@@ -195,6 +196,20 @@ reachable by untrusted clients.
   no absolute paths); it is resolved with `realpath` and must stay inside the
   job's input directory.  Uploaded archives are extracted with symlinks,
   absolute paths and `..` entries rejected.  Job tokens must be UUIDs.
+- **Case options stay inside the job.** Every `.json` file of an uploaded
+  case is checked: values of path-like options (`*_directory`, `*_file`,
+  ...) and other path-like strings must not be absolute, start with `~` or
+  contain `..`; such cases are refused with `400`.  Each job runs with
+  `--set output_directory=<job>/output --set log_directory=<job>/logs
+  --set lp_debug=false`, which override the case options.
+- **Minimal job environment.** gtopt runs with a fixed `PATH`, `HOME` and
+  `TMPDIR` inside the job directory, `GTOPT_CONFIG=/dev/null` (no user or
+  case config file) and only the locale / solver variables listed in
+  `src/lib/jobsandbox.ts` plus `GTOPT_JOB_ENV_PASSTHROUGH`; the API token
+  and other secrets of the webservice are not inherited.
+- **Errors and logs.** The job status reports only how gtopt ended (exit
+  code / signal); the solver output is in the per-job logs.  `GET
+  /api/logs` shortens job tokens so the global log does not hand them out.
 
 ## Testing
 
