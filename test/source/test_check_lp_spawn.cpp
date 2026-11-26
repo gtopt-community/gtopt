@@ -26,6 +26,8 @@
 #include <gtopt/check_lp.hpp>
 #include <gtopt/solver_options.hpp>
 
+#include "config_test_helpers.hpp"
+
 using namespace gtopt;
 
 namespace
@@ -41,22 +43,12 @@ public:
                        static_cast<std::uint64_t>(std::random_device {}()))))
   {
     std::filesystem::create_directories(bin());
-    if (const char* old = std::getenv("PATH"); old != nullptr) {  // NOLINT
-      m_old_path_ = old;
-    }
-    // NOLINTNEXTLINE(concurrency-mt-unsafe)
-    ::setenv("PATH", bin().c_str(), 1);
+    m_path_.emplace("PATH", bin().string());
   }
 
   ~ClspPathSandbox()
   {
-    if (m_old_path_) {
-      // NOLINTNEXTLINE(concurrency-mt-unsafe)
-      ::setenv("PATH", m_old_path_->c_str(), 1);
-    } else {
-      // NOLINTNEXTLINE(concurrency-mt-unsafe)
-      ::unsetenv("PATH");
-    }
+    m_path_.reset();  // restore PATH before removing the sandbox
     std::error_code ec;
     std::filesystem::remove_all(m_root_, ec);
   }
@@ -99,7 +91,7 @@ public:
 
 private:
   std::filesystem::path m_root_;
-  std::optional<std::string> m_old_path_;
+  std::optional<test::config::ScopedEnv> m_path_;
 };
 
 }  // namespace

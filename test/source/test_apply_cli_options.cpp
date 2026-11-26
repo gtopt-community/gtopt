@@ -19,6 +19,8 @@
 #include <gtopt/main_options.hpp>
 #include <gtopt/planning.hpp>
 
+#include "config_test_helpers.hpp"
+
 using namespace gtopt;
 
 namespace
@@ -87,18 +89,22 @@ TEST_CASE("apply_cli_options - --lp-dump-backward pass merging")  // NOLINT
 
   SUBCASE("GTOPT_DUMP_BACKWARD_LP env var is the fallback")
   {
-    setenv("GTOPT_DUMP_BACKWARD_LP", "envdir", 1);  // NOLINT
-    const auto p = apply(MainOptions {});
-    unsetenv("GTOPT_DUMP_BACKWARD_LP");  // NOLINT
+    const auto p = [&]
+    {
+      const test::config::ScopedEnv env {"GTOPT_DUMP_BACKWARD_LP", "envdir"};
+      return apply(MainOptions {});
+    }();
     CHECK(p.options.lp_debug.value_or(false) == true);
     CHECK(p.options.log_directory.value_or("") == "envdir");
   }
 
   SUBCASE("empty env var is ignored")
   {
-    setenv("GTOPT_DUMP_BACKWARD_LP", "", 1);  // NOLINT
-    const auto p = apply(MainOptions {});
-    unsetenv("GTOPT_DUMP_BACKWARD_LP");  // NOLINT
+    const auto p = [&]
+    {
+      const test::config::ScopedEnv env {"GTOPT_DUMP_BACKWARD_LP", ""};
+      return apply(MainOptions {});
+    }();
     CHECK_FALSE(p.options.lp_debug.has_value());
     CHECK_FALSE(p.options.sddp_options.lp_debug_passes.has_value());
   }

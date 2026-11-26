@@ -62,6 +62,7 @@ CPMAddPackage(
   NAME doctest
   GITHUB_REPOSITORY doctest/doctest
   VERSION 2.5.0
+  GIT_TAG d44d4f6e66232d716af82f00a063759e9d0e50d6 # v2.5.0
   DOWNLOAD_ONLY YES
 )
 add_library(doctest::doctest INTERFACE IMPORTED)
@@ -196,12 +197,24 @@ gtopt_require_solver_plugins(${PROJECT_NAME})
 # ---- Test registration ----
 enable_testing()
 include(TestParallelism)
+# Private TMPDIR per test (option GTOPT_TEST_PRIVATE_TMPDIR, default ON):
+# the configure-time tests get TMPDIR=<build>/test_tmp/<name> from the
+# module; the doctest-discovered ones get GTOPT_TEST_TMPDIR_BASE below and
+# main.cpp makes a per-process directory under it (see main.cpp).
+include(TestPrivateTmpdir)
+set(_gtopt_doctest_env)
+if(GTOPT_TEST_PRIVATE_TMPDIR)
+  target_compile_definitions(${PROJECT_NAME} PRIVATE GTOPT_TEST_PRIVATE_TMPDIR=1)
+  set(_gtopt_doctest_env
+      ENVIRONMENT "GTOPT_TEST_TMPDIR_BASE=${GTOPT_TEST_TMP_ROOT}/gtoptTests")
+endif()
 include("${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake")
 # TIMEOUT backstop: a wedged solver call (e.g. a NaN row making CPLEX
-# iterate forever on the elastic-mode fixture) becomes a bounded failure
-# instead of holding the whole ctest run hostage.  3600 s clears the
-# slowest legitimate SDDP integration tests with margin.
-doctest_discover_tests(${PROJECT_NAME} PROPERTIES TIMEOUT 3600)
+# iterate forever — observed 2026-07-02 as a 3.7 h hang on the
+# elastic-mode fixture) becomes a bounded failure instead of holding the
+# whole ctest run hostage.  3600 s clears the slowest legitimate SDDP
+# integration tests (~2400 s under a fully loaded -j20 run) with margin.
+doctest_discover_tests(${PROJECT_NAME} PROPERTIES TIMEOUT 3600 ${_gtopt_doctest_env})
 
 # Guard: a ';' in a test-case name makes doctest_discover_tests register
 # a filter that matches nothing, so ctest reports "Passed" without running
@@ -228,6 +241,19 @@ set_tests_properties(
   PROPERTIES ENVIRONMENT "GTOPT_PLUGIN_DIR=${GTOPT_PLUGIN_DIR_CANARY}"
              TIMEOUT 120
 )
+
+# Two concurrent gtoptTests processes running a fixed-name probe must not
+# collide: proves the per-process private TMPDIR made by main.cpp.
+if(GTOPT_TEST_PRIVATE_TMPDIR)
+  add_test(
+    NAME gtoptTests.private_tmpdir_concurrent
+    COMMAND ${CMAKE_COMMAND} -DTEST_EXECUTABLE=$<TARGET_FILE:${PROJECT_NAME}>
+            "-DWORK=${CMAKE_CURRENT_BINARY_DIR}/private_tmpdir_check"
+            -P "${CMAKE_CURRENT_LIST_DIR}/check_private_tmpdir.cmake"
+  )
+  set_tests_properties(gtoptTests.private_tmpdir_concurrent
+                       PROPERTIES TIMEOUT 300)
+endif()
 
 # ---- Fake solver library: the identity check refuses it ----
 # A fake HiGHS that reports the pinned version (LD_PRELOAD interposer and a
@@ -287,6 +313,19 @@ if(TARGET gtopt_solver_highs AND TARGET gtoptStandalone AND NOT APPLE
               -P "${CMAKE_CURRENT_SOURCE_DIR}/check_fake_solver_library.cmake"
     )
     set_tests_properties(gtopt.fake_solver_library.${_mode}
+                         PROPERTIES TIMEOUT 300 LABELS plugin_integrity)
+    # Same check with ONLY the HiGHS plugin visible (a CI runner without
+    # COIN-OR): once HiGHS is refused no plugin loads at all.
+    add_test(
+      NAME gtopt.fake_solver_library.${_mode}.highs_only
+      COMMAND ${CMAKE_COMMAND} "-DGTOPT=$<TARGET_FILE:gtoptStandalone>"
+              "-DPLUGIN=$<TARGET_FILE:gtopt_solver_highs>"
+              "-DCASE=${CMAKE_CURRENT_SOURCE_DIR}/../cases/ieee_4b_ori/ieee_4b_ori.json"
+              "-DFAKE=${_fake}" "-DMODE=${_mode}" -DHIGHS_ONLY=ON
+              "-DWORK=${_fake_dir}/run_${_mode}_highs_only"
+              -P "${CMAKE_CURRENT_SOURCE_DIR}/check_fake_solver_library.cmake"
+    )
+    set_tests_properties(gtopt.fake_solver_library.${_mode}.highs_only
                          PROPERTIES TIMEOUT 300 LABELS plugin_integrity)
   endforeach()
 

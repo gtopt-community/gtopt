@@ -10,6 +10,9 @@
 #
 # Usage: cmake -DTEST_EXECUTABLE=<path> -P check_test_names.cmake
 
+# Script mode (-P) starts with default (OLD) policies: set them.
+cmake_minimum_required(VERSION 3.25)
+
 if(NOT TEST_EXECUTABLE)
   message(FATAL_ERROR "TEST_EXECUTABLE not set")
 endif()

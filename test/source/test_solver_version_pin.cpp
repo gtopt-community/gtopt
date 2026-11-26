@@ -261,6 +261,47 @@ TEST_CASE("solver_unavailable_message names the refusal")  // NOLINT
   }
 }
 
+TEST_CASE("no_solver_message: all refused vs none found")  // NOLINT
+{
+  SUBCASE("no plugin at all: the install hints")
+  {
+    const auto msg = no_solver_message({});
+    CHECK(msg.starts_with("No solver plugins found."));
+    CHECK(msg.contains("GTOPT_PLUGIN_DIR"));
+    CHECK(msg.contains("Install HiGHS"));
+    CHECK_FALSE(msg.contains("refused"));
+  }
+
+  SUBCASE("plugins that failed to load, none refused: still none found")
+  {
+    const auto msg = no_solver_message({
+        "Failed to load plugin /p/libgtopt_solver_osi.so: dlopen error",
+    });
+    CHECK(msg.starts_with("No solver plugins found."));
+  }
+
+  SUBCASE("every plugin found was refused: the refusals, not install hints")
+  {
+    const std::vector<std::string> errors {
+        "Plugin /p/libgtopt_solver_highs.so: Solver 'highs': the loaded "
+        "library /x/libhighs.so.1 is not the library the plugin was built "
+        "against ... Refused (plugin check mode 'error'; set "
+        "GTOPT_HIGHS_ALLOW_UNPINNED=1 or use --plugin-check=warning).",
+        "Failed to load plugin /p/libgtopt_solver_osi.so: dlopen error",
+    };
+    const auto msg = no_solver_message(errors);
+    CHECK_FALSE(msg.contains("No solver plugins found"));
+    CHECK_FALSE(msg.contains("Install HiGHS"));
+    CHECK(msg.contains("every one was refused"));
+    CHECK(msg.contains("not the library the plugin was built against"));
+    CHECK(msg.contains("GTOPT_HIGHS_ALLOW_UNPINNED=1"));
+    CHECK(msg.contains("dlopen error"));
+    CHECK(msg.contains("--plugin-check=warning"));
+    // Still a solver/internal error (exit code 3), not an input error.
+    CHECK(classify_error_exit_code(msg) == 3);
+  }
+}
+
 TEST_CASE("SolverRegistry - explicit unavailable solver throws")  // NOLINT
 {
   // An explicit request is never served by another solver: create() of a
@@ -292,7 +333,7 @@ TEST_CASE(  // NOLINT
   // other solver.
   CHECK((!r.has_value() || *r != 0));
   if (!r.has_value()) {
-    CHECK(r.error().contains("highs_pin_refused_xyz"));
+    CHECK(r.error().contains("Solver 'highs_pin_refused_xyz' not available."));
   }
   CHECK_FALSE(std::filesystem::exists(t.out / "solution.csv"));
 }

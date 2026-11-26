@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <type_traits>
 
 #include <doctest/doctest.h>
@@ -156,6 +157,42 @@ TEST_CASE("basis_io rejects an out-of-range status byte")  // NOLINT
     write_raw(uint64_t {0});  // nrows
     const auto bad = static_cast<char>(0xFF);
     out.write(&bad, 1);
+  }
+
+  const auto loaded = load_basis(path);
+  REQUIRE(!loaded.has_value());
+  CHECK(loaded.error().code == ErrorCode::InvalidInput);
+
+  std::filesystem::remove(path);
+}
+
+TEST_CASE("basis_io rejects header counts whose sum wraps around")  // NOLINT
+{
+  const auto path = temp_basis_path("wrap");
+  std::filesystem::remove(path);
+
+  // ncols = 2^64 - 1 and nrows = 4: their sum wraps to 3, which must not
+  // pass the body-length check.
+  {
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    const auto write_raw = [&out](const auto& value)
+    {
+      const auto bytes = std::bit_cast<
+          std::array<char, sizeof(std::remove_cvref_t<decltype(value)>)>>(
+          value);
+      out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    };
+    write_raw(std::array {
+        'G',
+        'B',
+        'A',
+        'S',
+    });
+    write_raw(uint32_t {1});
+    write_raw(std::numeric_limits<uint64_t>::max());
+    write_raw(uint64_t {4});
+    const std::array<char, 8> body {};
+    out.write(body.data(), static_cast<std::streamsize>(body.size()));
   }
 
   const auto loaded = load_basis(path);

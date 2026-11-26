@@ -24,6 +24,8 @@
 #include <gtopt/solver_cfg.hpp>
 #include <unistd.h>
 
+#include "tmp_dir_helpers.hpp"
+
 using namespace gtopt;
 
 // Unity builds concatenate test TUs: keep helpers in a file-unique
@@ -47,10 +49,7 @@ inline constexpr auto fake_enum_keys = std::to_array<SolverCfgEnumKey>({
 
 [[nodiscard]] std::filesystem::path make_scratch_dir(const std::string& tag)
 {
-  auto dir = std::filesystem::temp_directory_path() / ("gtopt_scfg_" + tag);
-  std::filesystem::remove_all(dir);
-  std::filesystem::create_directories(dir);
-  return dir;
+  return gtopt::test::unique_test_dir("scfg_" + tag);
 }
 
 void write_file(const std::filesystem::path& path, const std::string& content)

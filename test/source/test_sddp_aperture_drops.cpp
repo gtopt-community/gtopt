@@ -264,6 +264,15 @@ TEST_CASE(  // NOLINT
             " ub=",
             hard.results.back().upper_bound);
 
+    // Regression (#570): the async per-scene and aggregate LB were read
+    // after the backward pass, from a phase-0 LP that had just received a
+    // cut and was not re-solved, and came out as 0.  Sync and async must
+    // both report the real (positive) master objective.
+    CHECK(hard.results.back().lower_bound > 0.0);
+    for (const double lb : hard.results.back().scene_lower_bounds) {
+      CHECK(lb > 0.0);
+    }
+
     // The dry aperture is dropped on consecutive iterations → escalated.
     CHECK(hard.total_drops > 0);
     CHECK(hard.persistent >= 1);
@@ -317,10 +326,11 @@ TEST_CASE(  // NOLINT
           soft.total_drops,
           " persistent=",
           soft.persistent);
-  // An aperture can still be dropped transiently in an early iteration
-  // (observed: the wet aperture 4 at iteration 2, phases 8-10), but never
-  // on 3 consecutive iterations: no escalation, and the iteration that
-  // converges dropped nothing.
+  // Relatively complete recourse on both sides (soft efin + spillway):
+  // no aperture LP is ever infeasible.  Before the fixture had a spillway
+  // the wet aperture 4 was dropped at iteration 2, phases 8-10, because
+  // the forward pass had filled both reservoirs (issue #569).
+  CHECK(soft.total_drops == 0);
   CHECK(soft.persistent == 0);
   // Nothing infeasible in the final iteration.
   CHECK(soft.summary.solves > 0);
@@ -333,4 +343,39 @@ TEST_CASE(  // NOLINT
   CHECK(soft.results.back().converged);
   CHECK(soft.results.back().lower_bound
         == doctest::Approx(soft.results.back().upper_bound).epsilon(1e-3));
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod - async LB is the forward-pass master objective (#570)")
+{
+  const auto solver = pick_non_mindopt_solver();
+  if (solver.empty()) {
+    MESSAGE("Skipping — only MindOpt available (see pick_non_mindopt_solver)");
+    return;
+  }
+
+  // Feasible fixture (soft efin), async with apertures.  Before any cut
+  // the α floor makes the LB legitimately negative, so the check is the
+  // bug's signature instead: no LB is exactly 0 (an unsolved phase-0 LP),
+  // none exceeds the UB, and the first-iteration LB matches the sync run's
+  // (both read the phase-0 objective of the first forward pass).
+  const auto async_run = run_4aperture_fixture(
+      /*soft_efin=*/true,
+      solver,
+      /*max_iterations=*/15,
+      /*max_async_spread=*/2);
+  const auto sync_run = run_4aperture_fixture(
+      /*soft_efin=*/true, solver, /*max_iterations=*/1, /*max_async_spread=*/0);
+  REQUIRE_FALSE(async_run.results.empty());
+  REQUIRE_FALSE(sync_run.results.empty());
+
+  for (const auto& r : async_run.results) {
+    CHECK(r.lower_bound != 0.0);
+    CHECK(r.lower_bound <= r.upper_bound * (1.0 + 1e-6));
+    for (const double lb : r.scene_lower_bounds) {
+      CHECK(lb != 0.0);
+    }
+  }
+  CHECK(async_run.results.front().lower_bound
+        == doctest::Approx(sync_run.results.front().lower_bound).epsilon(1e-6));
 }

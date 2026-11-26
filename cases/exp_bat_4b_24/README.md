@@ -49,7 +49,14 @@ ctest --test-dir build -R '^e2e_exp_bat_4b_24_'
 
 This runs `e2e_exp_bat_4b_24_solve`, `e2e_exp_bat_4b_24_validate_solution` and one
 `e2e_exp_bat_4b_24_compare_<Element>_<file>` test per reference CSV in
-`output/` (tolerance 1e-6).  To compare a manual run by hand:
+`output/` (tolerance 1e-6).  The tests run gtopt with
+`--set solver_options.deterministic_parallel=true`: the LP is
+dual-degenerate (e.g. the converter `power_envelope_dual` at hour 17 is
+0 or -0.0011, both optimal), and CPLEX's opportunistic parallel mode
+lands on either basis depending on machine load, which changes the
+`Demand/load_cost` and `Generator/generation_cost` reduced costs.  Pass
+the same flag to reproduce `output_cplex/`.  To compare a manual run by
+hand:
 
 ```bash
 python3 tools/gtopt_compare_csv.py \

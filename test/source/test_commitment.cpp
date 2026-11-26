@@ -7,10 +7,14 @@
  *            see LICENSING.md
  */
 
+#include <algorithm>
 #include <filesystem>
+#include <string>
+#include <string_view>
 
 #include <doctest/doctest.h>
 #include <gtopt/commitment.hpp>
+#include <gtopt/commitment_lp.hpp>
 #include <gtopt/json/json_commitment.hpp>
 #include <gtopt/json/json_generator.hpp>
 #include <gtopt/json/json_model_options.hpp>
@@ -24,6 +28,8 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/solver_registry.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/transition_integrality.hpp>
+#include <gtopt/validate_planning.hpp>
 
 #include "require_value.hpp"
 #include "solver_test_helpers.hpp"
@@ -851,8 +857,9 @@ TEST_CASE("CommitmentLP min up/down time constraints")
 
     // Without min up/down (post-P0 demand-failure substitution
     // removed demand_balance):
-    // balance(6) + gen_upper(6) + gen_lower(6) + logic(6) + exclusion(6) = 30
-    CHECK(li.get_numrows() == 30);
+    // balance(6) + gen_upper(6) + gen_lower(6) + logic(6) + exclusion(6)
+    // + startup_status(6) + shutdown_status(6) = 42
+    CHECK(li.get_numrows() == 42);
 
     const auto result = li.resolve();
     REQUIRE(result.has_value());
@@ -1180,9 +1187,9 @@ TEST_CASE("Startup tiers: cold_time < hot_time is gracefully skipped")
   CHECK(li.get_numcols() == 24);
 
   // Rows: balance(4) + gen_upper(4) + gen_lower(4) + logic(4) +
-  // exclusion(4) = 20.  No tier rows (type_select, hot_window,
-  // warm_window).
-  CHECK(li.get_numrows() == 20);
+  // exclusion(4) + startup_status(4) + shutdown_status(4) = 28.  No
+  // tier rows (type_select, hot_window, warm_window).
+  CHECK(li.get_numrows() == 28);
 
   const auto result = li.resolve();
   REQUIRE(result.has_value());
@@ -1246,9 +1253,9 @@ TEST_CASE("Min up/down time: single-block coverage is correctly trivial")
 
   // Post-P0 demand-failure substitution: demand_balance rows are
   // gone.  Baseline rows: balance(4) + gen_upper(4) + gen_lower(4)
-  // + logic(4) + exclusion(4) = 20.  NO min up/down rows (all
-  // trivially satisfied).
-  CHECK(li.get_numrows() == 20);
+  // + logic(4) + exclusion(4) + startup_status(4) + shutdown_status(4)
+  // = 28.  NO min up/down rows (all trivially satisfied).
+  CHECK(li.get_numrows() == 28);
 
   const auto result = li.resolve();
   REQUIRE(result.has_value());
@@ -2187,8 +2194,9 @@ TEST_CASE("Non-uniform block durations affect min-up-time block count")
 
   // Post-P0: demand_balance gone.  Baseline:
   // balance(4) + gen_upper(4) + gen_lower(4) + logic(4) +
-  // exclusion(4) = 20.  Plus min up rows: 2.  Total: 22.
-  CHECK(li.get_numrows() == 22);
+  // exclusion(4) + startup_status(4) + shutdown_status(4) = 28.  Plus
+  // min up rows: 2.  Total: 30.
+  CHECK(li.get_numrows() == 30);
 
   const auto result = li.resolve();
   REQUIRE(result.has_value());
@@ -2937,11 +2945,11 @@ TEST_CASE("continuous_phases=none keeps integer UC binaries")  // NOLINT
   SystemLP system_lp(sys, simulation_lp);
 
   auto&& li = system_lp.linear_interface();
-  // Tight 3-binary formulation declares ONLY the status u integer;
-  // startup v and shutdown w are continuous in [0,1] (they resolve to
-  // binary via the logic + exclusion constraints).  So with 4 blocks
-  // and 1 committed generator we expect 4 integer columns (the u's),
-  // not 12.  See commitment_lp.cpp for the rationale.
+  // Without ramp rows only the status u is integer; startup v and
+  // shutdown w are continuous in [0,1] (C1 + v <= u + w <= 1 - u pin
+  // them to the transition of an integer u).  So with 4 blocks and 1
+  // committed generator we expect 4 integer columns (the u's), not 12.
+  // With ramp rows v / w are binary too: see the next test case.
   const auto ncols = li.get_numcols();
   int num_ints = 0;
   for (Index i = 0; i < ncols; ++i) {
@@ -2950,6 +2958,317 @@ TEST_CASE("continuous_phases=none keeps integer UC binaries")  // NOLINT
     }
   }
   CHECK(num_ints == 4);
+}
+
+TEST_CASE(  // NOLINT
+    "Commitment transition_integrality / transition_status_rows: every "
+    "value, global and per unit, and relax / --no-mip")
+{
+  // Integrality of (u, v, w) per block and the status-row count, for the
+  // single commitment.
+  struct Integrality
+  {
+    std::size_t blocks {0};
+    int u_int {0};
+    int v_int {0};
+    int w_int {0};
+    int total_int {0};
+    Index rows {0};
+  };
+  struct Setup
+  {
+    bool with_ramps {false};
+    bool element_relax {false};
+    std::string continuous_phases {"none"};
+    OptName global_ti {};
+    OptName unit_ti {};
+    OptBool global_rows {};
+    OptBool unit_rows {};
+  };
+
+  const auto integrality = [](const Setup& su)
+  {
+    auto tc = TestCase::make_basic(/*chronological=*/true);
+    Commitment cmt {
+        .uid = Uid {1},
+        .name = "cmt1",
+        .generator = Uid {1},
+        .startup_cost = 500.0,
+        .noload_cost = 5.0,
+        .initial_status = 0.0,
+        .relax = su.element_relax,
+        .transition_integrality = su.unit_ti,
+        .transition_status_rows = su.unit_rows,
+    };
+    if (su.with_ramps) {
+      cmt.ramp_up = 50.0;
+      cmt.ramp_down = 50.0;
+      cmt.startup_ramp = 60.0;
+      cmt.shutdown_ramp = 60.0;
+    }
+    tc.system.commitment_array = {
+        std::move(cmt),
+    };
+
+    PlanningOptions poptions;
+    poptions.model_options.demand_fail_cost = 1000.0;
+    poptions.model_options.continuous_phases = su.continuous_phases;
+    poptions.model_options.use_single_bus = true;
+    poptions.model_options.transition_integrality = su.global_ti;
+    poptions.model_options.transition_status_rows = su.global_rows;
+    poptions.lp_matrix_options.solver_name = solver_test::first_mip_solver();
+    PlanningOptionsLP options(std::move(poptions));
+
+    Simulation simulation(tc.simulation);
+    System sys(tc.system);
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(sys, simulation_lp);
+    auto&& li = system_lp.linear_interface();
+
+    const auto& cm = system_lp.elements<CommitmentLP>().front();
+    const auto& scenario = simulation_lp.scenarios().front();
+    const auto& stage = simulation_lp.stages().front();
+    const auto* ucols = cm.find_status_cols(scenario, stage);
+    const auto* vcols = cm.find_startup_cols(scenario, stage);
+    const auto* wcols = cm.find_shutdown_cols(scenario, stage);
+    REQUIRE(ucols != nullptr);
+    REQUIRE(vcols != nullptr);
+    REQUIRE(wcols != nullptr);
+    REQUIRE(vcols->size() == ucols->size());
+    REQUIRE(wcols->size() == ucols->size());
+
+    const auto count = [&](const auto& cols)
+    {
+      return static_cast<int>(std::ranges::count_if(
+          cols, [&](const auto& kv) { return li.is_integer(kv.second); }));
+    };
+    Integrality res {
+        .blocks = ucols->size(),
+        .u_int = count(*ucols),
+        .v_int = count(*vcols),
+        .w_int = count(*wcols),
+    };
+    for (Index i = 0; i < li.get_numcols(); ++i) {
+      if (li.is_integer(ColIndex {i})) {
+        ++res.total_int;
+      }
+    }
+    res.rows = li.get_numrows();
+    // Every variant must still solve (MIP or LP).
+    const auto result = li.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+    return res;
+  };
+
+  // Default "auto": continuous v / w while the status rows are on — an
+  // integral u forces them to {0, 1}, ramps or not.
+  SUBCASE("auto, MIP with ramp rows: only u binary")
+  {
+    const auto r = integrality({.with_ramps = true});
+    const auto n = static_cast<int>(r.blocks);
+    REQUIRE(n == 4);
+    CHECK(r.u_int == n);
+    CHECK(r.v_int == 0);
+    CHECK(r.w_int == 0);
+    CHECK(r.total_int == n);
+  }
+
+  SUBCASE("auto without the status rows: v / w binary (global / per unit)")
+  {
+    const auto g = integrality({.with_ramps = true, .global_rows = false});
+    const auto n = static_cast<int>(g.blocks);
+    CHECK(g.v_int == n);
+    CHECK(g.w_int == n);
+    CHECK(g.total_int == 3 * n);
+    const auto u = integrality({.with_ramps = false, .unit_rows = false});
+    CHECK(u.v_int == n);
+    CHECK(u.w_int == n);
+  }
+
+  SUBCASE("auto, MIP without ramp rows: only u binary, v / w continuous")
+  {
+    const auto r = integrality({.with_ramps = false});
+    const auto n = static_cast<int>(r.blocks);
+    CHECK(r.u_int == n);
+    CHECK(r.v_int == 0);
+    CHECK(r.w_int == 0);
+    CHECK(r.total_int == n);
+  }
+
+  SUBCASE("explicit auto (global) equals the default")
+  {
+    const auto r = integrality({.with_ramps = true, .global_ti = "auto"});
+    CHECK(r.total_int == static_cast<int>(r.blocks));
+  }
+
+  SUBCASE("continuous (global), even without the status rows: only u")
+  {
+    const auto r = integrality({
+        .with_ramps = true,
+        .global_ti = "continuous",
+        .global_rows = false,
+    });
+    const auto n = static_cast<int>(r.blocks);
+    CHECK(r.u_int == n);
+    CHECK(r.v_int == 0);
+    CHECK(r.w_int == 0);
+  }
+
+  SUBCASE("binary (global) without ramp rows: u, v, w binary")
+  {
+    const auto r = integrality({.with_ramps = false, .global_ti = "binary"});
+    const auto n = static_cast<int>(r.blocks);
+    CHECK(r.v_int == n);
+    CHECK(r.w_int == n);
+    CHECK(r.total_int == 3 * n);
+  }
+
+  SUBCASE("per-unit value wins over the global one")
+  {
+    const auto cont = integrality({
+        .with_ramps = true,
+        .global_ti = "binary",
+        .unit_ti = "continuous",
+    });
+    CHECK(cont.v_int == 0);
+    CHECK(cont.w_int == 0);
+    const auto bin = integrality({
+        .with_ramps = false,
+        .global_ti = "continuous",
+        .unit_ti = "binary",
+    });
+    CHECK(bin.v_int == static_cast<int>(bin.blocks));
+    CHECK(bin.w_int == static_cast<int>(bin.blocks));
+  }
+
+  SUBCASE("Commitment.relax: nothing integer, whatever the mode")
+  {
+    for (const auto* mode : {"auto", "continuous", "binary"}) {
+      CAPTURE(mode);
+      const auto r = integrality({
+          .with_ramps = true,
+          .element_relax = true,
+          .unit_ti = mode,
+      });
+      CHECK(r.total_int == 0);
+    }
+  }
+
+  SUBCASE("continuous_phases=all (--no-mip): nothing integer")
+  {
+    for (const auto* mode : {"auto", "continuous", "binary"}) {
+      CAPTURE(mode);
+      const auto r = integrality({
+          .with_ramps = true,
+          .continuous_phases = "all",
+          .global_ti = mode,
+      });
+      CHECK(r.total_int == 0);
+    }
+  }
+
+  SUBCASE("transition_status_rows: default on, off globally / per unit")
+  {
+    // Off drops the two rows (startup_status, shutdown_status) per block.
+    const auto on = integrality({.with_ramps = true});
+    const auto two_n = static_cast<Index>(2 * on.blocks);
+    const auto explicit_on =
+        integrality({.with_ramps = true, .global_rows = true});
+    CHECK(explicit_on.rows == on.rows);
+    const auto off_global =
+        integrality({.with_ramps = true, .global_rows = false});
+    CHECK(off_global.rows == on.rows - two_n);
+    const auto off_unit = integrality({.with_ramps = true, .unit_rows = false});
+    CHECK(off_unit.rows == on.rows - two_n);
+    const auto unit_wins = integrality({
+        .with_ramps = true,
+        .global_rows = false,
+        .unit_rows = true,
+    });
+    CHECK(unit_wins.rows == on.rows);
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "transition_integrality names validate and parse from JSON")
+{
+  CHECK(enum_from_name<TransitionIntegrality>("auto")
+        == TransitionIntegrality::automatic);
+  CHECK(enum_from_name<TransitionIntegrality>("continuous")
+        == TransitionIntegrality::continuous);
+  CHECK(enum_from_name<TransitionIntegrality>("binary")
+        == TransitionIntegrality::binary);
+  CHECK_FALSE(enum_from_name<TransitionIntegrality>("sometimes").has_value());
+
+  // (mode, status_rows)
+  CHECK_FALSE(transition_cols_binary(TransitionIntegrality::automatic, true));
+  CHECK(transition_cols_binary(TransitionIntegrality::automatic, false));
+  CHECK_FALSE(transition_cols_binary(TransitionIntegrality::continuous, false));
+  CHECK(transition_cols_binary(TransitionIntegrality::binary, true));
+  CHECK(enum_from_name<StartupTierIntegrality>("continuous")
+        == StartupTierIntegrality::continuous);
+  CHECK(enum_from_name<StartupTierIntegrality>("integer")
+        == StartupTierIntegrality::integer);
+  CHECK_FALSE(enum_from_name<StartupTierIntegrality>("binary").has_value());
+
+  const auto cm = daw::json::from_json<Commitment>(R"({
+    "uid": 1, "name": "c", "generator": 1,
+    "transition_integrality": "binary", "transition_status_rows": false
+  })");
+  CHECK(cm.transition_integrality.value_or("") == "binary");
+  CHECK(cm.transition_status_rows.value_or(true) == false);
+
+  const auto mo = daw::json::from_json<ModelOptions>(R"({
+    "transition_integrality": "continuous", "transition_status_rows": true
+  })");
+  CHECK(mo.transition_integrality.value_or("") == "continuous");
+  CHECK(mo.transition_status_rows.value_or(false) == true);
+
+  SUBCASE("validate_planning rejects unknown names, global and per unit")
+  {
+    Planning planning;
+    planning.options.model_options.transition_integrality = "sometimes";
+    planning.options.model_options.startup_tier_integrality = "sometimes";
+    planning.system.commitment_array = {
+        {
+            .uid = Uid {7},
+            .name = "c7",
+            .generator = Uid {1},
+            .transition_integrality = "always",
+            .startup_tier_integrality = "maybe",
+        },
+    };
+    const auto result = validate_planning(planning);
+    const auto has = [&](std::string_view needle)
+    {
+      return std::ranges::any_of(result.errors,
+                                 [&](const std::string& e)
+                                 { return e.contains(needle); });
+    };
+    CHECK(
+        has("model_options.transition_integrality: unknown value "
+            "'sometimes'"));
+    CHECK(has("Commitment uid=7 'c7': transition_integrality 'always'"));
+    CHECK(has("Commitment uid=7 'c7': startup_tier_integrality 'maybe'"));
+    CHECK(
+        has("model_options.startup_tier_integrality: unknown value "
+            "'sometimes'"));
+  }
+
+  SUBCASE("validate_planning accepts every known name")
+  {
+    for (const auto* name : {"auto", "continuous", "binary"}) {
+      CAPTURE(name);
+      Planning planning;
+      planning.options.model_options.transition_integrality = name;
+      const auto result = validate_planning(planning);
+      CHECK_FALSE(std::ranges::any_of(
+          result.errors,
+          [](const std::string& e)
+          { return e.contains("transition_integrality"); }));
+    }
+  }
 }
 
 TEST_CASE("CommitmentLP - add_to_output via write_out")  // NOLINT

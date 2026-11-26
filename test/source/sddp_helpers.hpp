@@ -2565,11 +2565,16 @@ inline auto make_2scene_10phase_two_reservoir_planning() -> Planning
           .fmax = 100.0,
       },
   };
+  // Spillway (`spillway_cost = 0.1`): without a spill column a full
+  // reservoir can only release through its turbine, capped by the 40 MW
+  // demand, so a wetter aperture at `emax` makes the LP infeasible
+  // (issue #569).
   const Array<Reservoir> reservoir_array = {
       {
           .uid = Uid {1},
           .name = "rsv1",
           .junction = Uid {1},
+          .spillway_cost = 0.1,
           .capacity = 200.0,
           .emin = emin_per_stage,
           .emax = 200.0,
@@ -2583,6 +2588,7 @@ inline auto make_2scene_10phase_two_reservoir_planning() -> Planning
           .uid = Uid {2},
           .name = "rsv2",
           .junction = Uid {2},
+          .spillway_cost = 0.1,
           .capacity = 200.0,
           .emin = emin_per_stage,
           .emax = 200.0,
@@ -2695,13 +2701,24 @@ inline auto make_2scene_10phase_two_reservoir_planning() -> Planning
 /// phase an explicit 4-entry aperture list (one aperture per scenario,
 /// equal weight).
 ///
-/// @param soft_efin  true → `efin_cost = 1000` on both reservoirs
-///   (relatively complete recourse: every aperture stays feasible and
-///   SDDP converges to LB = UB = 18220).  false → the base fixture's
-///   HARD `efin = 150`: the dry aperture (scenario 3) is infeasible at
-///   the low-storage trial states the forward pass picks, so it is
-///   dropped on every backward pass and the LB stalls on a rescaled
-///   distribution.
+/// @param soft_efin  true → `efin_cost = 1000` and the spillway on both
+///   reservoirs (relatively complete recourse: every aperture stays
+///   feasible and SDDP converges to LB = UB = 18220).  false → the base
+///   fixture's HARD `efin = 150`: the dry aperture (scenario 3) is infeasible
+///   at the low-storage trial states the forward pass picks, so it is dropped
+///   on every backward pass and the LB stalls on a rescaled distribution.
+///
+/// The soft variant keeps the base fixture's spillway
+/// (`spillway_cost = 0.1`).  Without it the only outlet
+/// of a reservoir is its turbine, and the bus balance caps total
+/// generation at the 40 MW demand.  With both reservoirs full
+/// (`sini = emax = 200`) the wet aperture (inflow 25 + 25 > 40) cannot
+/// evacuate its water and its LP is infeasible (issue #569: the forward
+/// pass of iteration 2 fills both reservoirs at phases 7-9, so the wet
+/// aperture was dropped at phases 8-10).  The spillway restores relatively
+/// complete recourse on the high-storage side without changing the
+/// optimum (18220).  The hard variant removes the spillway: it is the
+/// no-recourse fixture of the aperture-drop tests.
 inline auto make_4aperture_10phase_two_reservoir_planning(bool soft_efin)
     -> Planning
 {
@@ -2747,9 +2764,13 @@ inline auto make_4aperture_10phase_two_reservoir_planning(bool soft_efin)
     vec3d->push_back(make_inflow(/*base=*/25.0, /*phase0_boost=*/100.0));
   }
 
-  if (soft_efin) {
-    for (auto& rsv : planning.system.reservoir_array) {
+  for (auto& rsv : planning.system.reservoir_array) {
+    if (soft_efin) {
       rsv.efin_cost = 1000.0;
+    } else {
+      // No-recourse fixture: drop the base fixture's spillway so the hard
+      // variant keeps the original premise of the aperture-drop tests.
+      rsv.spillway_cost.reset();
     }
   }
 

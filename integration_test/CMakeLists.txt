@@ -142,6 +142,7 @@ endif()
 # ---- Testing ----
 enable_testing()
 include(TestParallelism)
+include(TestPrivateTmpdir)
 
 set(CASES_DIR "${CMAKE_CURRENT_LIST_DIR}/../cases")
 set(CMAKE_SCRIPTS_DIR "${CMAKE_CURRENT_LIST_DIR}/cmake")
@@ -418,6 +419,17 @@ foreach(_rwv spill_free spill_cost spill_cost_free_exit drain_cost
              waterway_fcost ecost spill_cost_sddp ecost_sddp)
   add_expected_values_case(rwv_${_rwv} ${_rwv}.json
     CASE_DIR reservoir_water_value LABELS "hydro")
+endforeach()
+
+# PowerModels.jl case5_asym (cases/pm_case5_asym/README.md), branch angle
+# limits widened to +-30 deg: lossless gtopt equals PowerModels'
+# DCPPowerModel objective (rtol 1e-6) and piecewise losses (8 segments)
+# with line_thermal_limit_mode = sending and the DCPLL loss side per branch
+# approach DCPLLPowerModel (objective within the README tolerance).
+# References: tools/powermodels_goldens/case5_asym_wide30.json.
+foreach(_pm case5_asym_dc case5_asym_dcpll_sending)
+  add_expected_values_case(pm_${_pm} ${_pm}.json
+    CASE_DIR pm_case5_asym LABELS "line_losses")
 endforeach()
 
 # PSR SDDP multi-system fixtures, converted to gtopt JSON by

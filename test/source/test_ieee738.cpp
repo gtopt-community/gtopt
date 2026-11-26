@@ -347,3 +347,213 @@ TEST_CASE("IEEE 738 configurable low-wind rule")  // NOLINT
   CHECK(attack_angle(0.0, 0.0, 0.8, 1.0, 30.0) == doctest::Approx(30.0));
   CHECK(attack_angle(0.0, 0.0, 1.2, 1.0, 30.0) == doctest::Approx(0.0));
 }
+
+// ── Literature benchmarks ────────────────────────────────────────────
+
+namespace
+{
+
+/// Conductor temperature [°C] at which the steady-state ampacity equals
+/// `current` (the inverse of `ampacity(T)`, monotone increasing in T
+/// above ambient), by bisection on [T_a, 400 °C].
+[[nodiscard]] double temperature_at(const ConductorParams& conductor,
+                                    double current,
+                                    const SpanWeather& weather)
+{
+  double lo = weather.ambient_temperature + 1e-6;
+  double hi = 400.0;
+  for (int it = 0; it < 200; ++it) {
+    const double mid = 0.5 * (lo + hi);
+    if (ampacity(conductor, mid, weather) < current) {
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  return 0.5 * (lo + hi);
+}
+
+}  // namespace
+
+TEST_CASE("IEEE 738-2012 Annex B numerical examples 1 and 2")  // NOLINT
+{
+  // IEEE Std 738-2012, Annex B (DOI 10.1109/IEEESTD.2013.6692858):
+  // Drake 26/7 ACSR, D = 28.14 mm, R25 = 7.283e-5 Ω/m,
+  // R75 = 8.688e-5 Ω/m, α = ε = 0.5, T_a = 40 °C, 0.61 m/s wind
+  // perpendicular to the conductor, sea level.  The worked examples give
+  // the conductor temperature for a given current:
+  //   I = 1000 A → T_s = 100.7 °C,  I = 1003 A → T_s = 101.1 °C,
+  // with q_s = 13.74 W/m and q_c(100.7 °C) = 83.06 W/m.
+  // Cross-checked in two open implementations:
+  //   * pandapower, pandapower/test/loadflow/test_tdpf.py
+  //     (https://github.com/e2nIEE/pandapower), test_IEEE_example_2
+  //     (`max_cond_temp = 100.7`, line 482) and test_IEEE_example_3
+  //     (`max_cond_temp = 101.1`, line 539);
+  //   * linerate, tests/acceptance_tests/test_ieee_ampacity_cases.py
+  //     (https://github.com/statnett/linerate), lines 59-64:
+  //     q_s = 13.738 W/m, q_c(100.7 °C) = 83.061 W/m.
+  //
+  // gtopt has no sun-geometry model: `q_s = α·S·D` with S the irradiance
+  // already projected on the conductor (`ieee738.hpp`).  The Annex
+  // computes q_s from the solar position (lat 30° N, 11:00, June 10,
+  // E–W line); S is chosen here so that α·S·D = 13.738 W/m.
+  //
+  // Tolerance ±0.5 °C: the Annex prints temperatures to 0.1 °C and
+  // derives them from rounded intermediate values (q_s, q_c, q_r to
+  // 0.01 W/m, R(T) from rounded tables); 0.5 °C is the 0.5 W/m q_c
+  // tolerance of linerate expressed in temperature (∂q_c/∂T ≈
+  // 1.4 W/(m·°C)).  gtopt lands within 0.1 °C of both values.
+  constexpr double kQs = 13.738;  // W/m, linerate line 60
+  const ConductorParams drake {
+      .diameter = 0.02814,
+      .r25 = 7.283e-5,
+      .r75 = 8.688e-5,
+      .emissivity = 0.5,
+      .absorptivity = 0.5,
+  };
+  const double sun = kQs / (drake.absorptivity * drake.diameter);
+  const auto weather = wx(40.0, 0.61, 90.0, sun);
+
+  SUBCASE("heat terms")
+  {
+    const auto hb = heat_balance(drake, 100.7, weather);
+    CHECK(hb.qs == doctest::Approx(kQs).epsilon(1e-12));
+    CHECK(hb.qc == doctest::Approx(83.061).epsilon(0.5 / 83.061));
+    // Low-Reynolds forced convection (eq. 3a) governs at 0.61 m/s.
+    CHECK(hb.qc == doctest::Approx(hb.qc1));
+    const auto hb3 = heat_balance(drake, 101.1, weather);
+    // linerate example C, line 89: q_c(101.1 °C) = 83.600 W/m.
+    CHECK(hb3.qc == doctest::Approx(83.600).epsilon(0.5 / 83.6));
+  }
+
+  SUBCASE("example 1: 1000 A -> 100.7 C")
+  {
+    const double t = temperature_at(drake, 1000.0, weather);
+    CAPTURE(t);
+    CHECK(std::abs(t - 100.7) <= 0.5);
+    // The inverse is exact: the ampacity at T(I) is I.
+    CHECK(ampacity(drake, t, weather) == doctest::Approx(1000.0));
+  }
+
+  SUBCASE("example 2: 1003 A -> 101.1 C")
+  {
+    const double t = temperature_at(drake, 1003.0, weather);
+    CAPTURE(t);
+    CHECK(std::abs(t - 101.1) <= 0.5);
+    // Monotone: more current, hotter conductor.
+    CHECK(t > temperature_at(drake, 1000.0, weather));
+  }
+}
+
+TEST_CASE("NREL OEDI 6231 static line ratings per voltage class")  // NOLINT
+{
+  // NREL, "Dynamic Line Ratings for the U.S. Transmission Network"
+  // (NREL/TP-6A40-91599, DOI 10.2172/2476805); data: OEDI submission
+  // 6231, https://data.openei.org/submissions/6231, files
+  // SLR_A-75C.h5 / SLR_A-100C.h5 (dataset `data`: one static rating per
+  // HIFLD line).  Code: https://github.com/NREL/DynamicLineRatings.
+  //
+  // Static-rating assumptions (dlr/physics.py:332-343, `ampacity`
+  // defaults): T_a = 40 °C, 0.61 m/s perpendicular wind, 1000 W/m² GHI
+  // used as the absorbed flux (q_s = α·S·D, as gtopt), α = ε = 0.8.
+  // Conductor per voltage class from data/kv_to_conductor_props.csv
+  // (lines 2-7; 345, 500 and 765 kV share one conductor, so there are
+  // four distinct ratings).  Each class's rating was reproduced from the
+  // CSV and matched to the four distinct values of the h5 files (line
+  // counts 29985 / 44025 / 7214 / 3412 for 69 / 115 / 230 / 345+ kV):
+  //
+  //   class    D [m]   R25 [Ω/m]  R75 [Ω/m]   75 °C [A]   100 °C [A]
+  //   69 kV    0.0183  1.70e-4    2.03e-4      427.5        615.0
+  //   115 kV   0.0277  7.30e-5    8.70e-5      722.3       1060.2
+  //   230 kV   0.0362  4.40e-5    5.20e-5      997.0       1485.2
+  //   345+ kV  0.0304  6.10e-5    7.30e-5      806.6       1189.7
+  //
+  // The published 100 °C ratings use R(75 °C), not R(100 °C):
+  // dlr/helpers.py:592 calls `lookup_diameter_resistance(dflines)`
+  // with its default 75 °C conductor temperature, which picks AC_R_75C
+  // (helpers.py:351-354), and the 100 °C SLR then only changes the heat
+  // balance.  The 100 °C reference is therefore reproduced with a flat
+  // R = R75; gtopt's own 100 °C rating (R extrapolated linearly to
+  // 100 °C, IEEE 738 eq. 10, = the CSV's AC_R_100C column) is lower by
+  // exactly sqrt(R75 / R100).
+  //
+  // Tolerance 0.1 %: the references are rounded to 0.1 A (≤ 0.012 % at
+  // 427.5 A) and NREL's air density is the ideal-gas law at 101325 Pa,
+  // 50 % humidity (physics.py:213) instead of IEEE 738 eq. 14a, and its
+  // radiation uses π·σ = 17.81 with 273.15 K instead of 17.8 with 273:
+  // the model differences move the ratings by at most 0.03 %.
+  struct Class
+  {
+    const char* name;
+    double diameter;
+    double r25;
+    double r75;
+    double rating75;
+    double rating100;
+  };
+  const auto classes = std::to_array<Class>({
+      {
+          .name = "69 kV",
+          .diameter = 0.0183,
+          .r25 = 0.00017,
+          .r75 = 0.000203,
+          .rating75 = 427.5,
+          .rating100 = 615.0,
+      },
+      {
+          .name = "115 kV",
+          .diameter = 0.0277,
+          .r25 = 7.3e-05,
+          .r75 = 8.7e-05,
+          .rating75 = 722.3,
+          .rating100 = 1060.2,
+      },
+      {
+          .name = "230 kV",
+          .diameter = 0.0362,
+          .r25 = 4.4e-05,
+          .r75 = 5.2e-05,
+          .rating75 = 997.0,
+          .rating100 = 1485.2,
+      },
+      {
+          .name = "345/500/765 kV",
+          .diameter = 0.0304,
+          .r25 = 6.1e-05,
+          .r75 = 7.3e-05,
+          .rating75 = 806.6,
+          .rating100 = 1189.7,
+      },
+  });
+  constexpr double kTol = 1e-3;
+  const auto weather = wx(40.0, 0.61, 90.0, 1000.0);
+  for (const auto& c : classes) {
+    CAPTURE(c.name);
+    const ConductorParams cond {
+        .diameter = c.diameter,
+        .r25 = c.r25,
+        .r75 = c.r75,
+        .emissivity = 0.8,
+        .absorptivity = 0.8,
+    };
+    const double i75 = ampacity(cond, 75.0, weather);
+    CHECK(i75 == doctest::Approx(c.rating75).epsilon(kTol));
+
+    // 100 °C as published: resistance frozen at R75.
+    const ConductorParams flat {
+        .diameter = c.diameter,
+        .r25 = c.r75,
+        .r75 = c.r75,
+        .emissivity = 0.8,
+        .absorptivity = 0.8,
+    };
+    CHECK(ampacity(flat, 100.0, weather)
+          == doctest::Approx(c.rating100).epsilon(kTol));
+
+    // gtopt's own 100 °C rating (R extrapolated to 100 °C).
+    const double r100 = resistance_at(100.0, c.r25, c.r75);
+    CHECK(ampacity(cond, 100.0, weather)
+          == doctest::Approx(c.rating100 * std::sqrt(c.r75 / r100))
+                 .epsilon(kTol));
+  }
+}

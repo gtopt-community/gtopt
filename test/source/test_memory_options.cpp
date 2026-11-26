@@ -15,7 +15,7 @@
  *  | lp_matrix_options.drop_element_collections  | true    | false: keep   |
  *  | sddp_options.release_after_alpha            | true    | false: live   |
  *  | sddp_options.free_solver_scratch            | true    | false: keep   |
- *  | sddp_options.release_backends               | false   | true: release |
+ *  | sddp_options.release_backends               | true    | false: live   |
  *
  * For each: JSON parsing, the resolved default, and both values on a real
  * build / SDDP run, with identical results either way.
@@ -152,13 +152,13 @@ TEST_CASE("memory options - JSON parsing and defaults")  // NOLINT
     const auto defaults = options_with({});
     CHECK(defaults.sddp_release_after_alpha());
     CHECK(defaults.sddp_free_solver_scratch());
-    CHECK_FALSE(defaults.sddp_release_backends());
+    CHECK(defaults.sddp_release_backends());
 
     // The SDDPOptions struct defaults match the resolved defaults.
     const SDDPOptions sddp_defaults;
     CHECK(sddp_defaults.release_after_alpha);
     CHECK(sddp_defaults.free_solver_scratch);
-    CHECK_FALSE(sddp_defaults.release_backends);
+    CHECK(sddp_defaults.release_backends);
   }
 
   SUBCASE("release_backends resolves off to an uncompressed compress")
@@ -173,6 +173,13 @@ TEST_CASE("memory options - JSON parsing and defaults")  // NOLINT
     po.sddp_options.release_backends = false;
     const auto live = options_with(po);
     CHECK(live.sddp_low_memory() == LowMemoryMode::off);
+    CHECK(live.sddp_memory_codec() == CompressionCodec::auto_select);
+
+    // Unset release_backends (default true) releases under off too.
+    po.sddp_options.release_backends.reset();
+    const auto dflt = options_with(po);
+    CHECK(dflt.sddp_low_memory() == LowMemoryMode::compress);
+    CHECK(dflt.sddp_memory_codec() == CompressionCodec::uncompressed);
 
     // An explicit compress keeps its codec.
     po.sddp_options.low_memory_mode = LowMemoryMode::compress;
@@ -235,6 +242,7 @@ TEST_CASE("memory options - drop_element_collections")  // NOLINT
         [&](PlanningOptions& o)
         {
           o.sddp_options.low_memory_mode = LowMemoryMode::off;
+          o.sddp_options.release_backends = false;  // live `off`
           o.lp_matrix_options.drop_element_collections = drop;
         },
         kNoTune,

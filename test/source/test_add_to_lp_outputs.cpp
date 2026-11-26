@@ -3,7 +3,7 @@
 // Output streams completed by the add_to_lp audit (B2, P1-5).  The LP is
 // unchanged; these columns / rows were built but never written:
 //   * StorageLP `efin_slack` (soft end-of-horizon target, `efin_cost`);
-//   * VolumeRight `extraction`, `saving`, `fail` and the `demand` /
+//   * VolumeRight `extraction`, `saving`, `forfeit`, `fail` and the `demand` /
 //     `reset_debit` duals;
 //   * Waterway soft-`fmin` shortfall `fmin_unserved` and the `fmin_soft`
 //     dual;
@@ -152,6 +152,25 @@ TEST_CASE("VolumeRight writes extraction, fail and the demand dual")  // NOLINT
       b2_field_values(oc, "VolumeRight", VolumeRightLP::DemandName, "dual");
   REQUIRE(dual.size() == 1);
   CHECK(std::abs(dual.front()) == doctest::Approx(1000.0));
+}
+
+TEST_CASE("VolumeRight writes its forfeit (free disposal)")  // NOLINT
+{
+  // The right starts with 10 hm³ but may hold only 5 and cannot be
+  // extracted (fmax 0): the excess leaves through the zero-cost forfeit
+  // column, which must be written so the ledger balance closes from the
+  // output (issue #573).
+  constexpr std::string_view json = R"({
+   "name":"vr_forfeit","bus_array":[{"uid":1,"name":"b1"}],
+   "volume_right_array":[{"uid":1,"name":"vr1","emin":0,"emax":5,
+     "eini":10,"fmax":0,"forfeit":true}]})";
+  B2Solved s(json);
+  auto oc = s.output();
+  REQUIRE(s.system_lp.elements<VolumeRightLP>().front().add_to_output(oc));
+  const auto forfeit =
+      b2_field_values(oc, "VolumeRight", VolumeRightLP::ForfeitName, "sol");
+  REQUIRE(forfeit.size() == 1);
+  CHECK(forfeit.front() > 0.0);
 }
 
 TEST_CASE("Reservoir soft efin writes its slack")  // NOLINT

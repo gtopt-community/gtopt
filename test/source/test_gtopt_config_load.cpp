@@ -18,6 +18,8 @@
 #include <doctest/doctest.h>
 #include <gtopt/main_options.hpp>
 
+#include "config_test_helpers.hpp"
+
 using namespace gtopt;
 
 namespace
@@ -257,9 +259,11 @@ TEST_CASE("load_gtopt_config_from - [solver.<name>] sections")  // NOLINT
 TEST_CASE("load_gtopt_config - delegates to the discovered file")  // NOLINT
 {
   const auto path = write_conf("env", "[gtopt]\nthreads = 3\n");
-  setenv("GTOPT_CONFIG", path.c_str(), 1);  // NOLINT(concurrency-mt-unsafe)
-  const auto o = load_gtopt_config();
-  unsetenv("GTOPT_CONFIG");  // NOLINT(concurrency-mt-unsafe)
+  const auto o = [&]
+  {
+    const test::config::ScopedEnv env {"GTOPT_CONFIG", path.string()};
+    return load_gtopt_config();
+  }();
   CHECK(o.threads.value_or(0) == 3);
   std::filesystem::remove(path);
 }

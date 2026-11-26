@@ -360,14 +360,43 @@ TEST_CASE("resolve_log_directory — precedence")  // NOLINT
     CHECK(resolve_log_directory(opts) == case_dir / "res" / "logs");
   }
 
-  SUBCASE("--set output_directory overrides JSON output_directory")
+  SUBCASE("--set output_directory overrides JSON, relative to the CWD")
   {
+    // Same resolution as `-d other` (issue: `--set output_directory=.`
+    // landed inside the case directory while `-d .` used the CWD).
     write_file(json_path, R"({"options": {"output_directory": "res"}})");
     const MainOptions opts {
         .planning_files = {json_path.string()},
         .set_options = {"output_directory=other"},
     };
-    CHECK(resolve_log_directory(opts) == case_dir / "other" / "logs");
+    CHECK(resolve_log_directory(opts)
+          == std::filesystem::path("other") / "logs");
+  }
+
+  SUBCASE("directory argument honours JSON output_directory")
+  {
+    // Regression: `gtopt dir/` forced `dir/results` as a CLI-level value,
+    // overriding the case's options.output_directory.
+    write_file(json_path, R"({"options": {"output_directory": "res"}})");
+    const auto resolved = resolve_planning_args(MainOptions {
+        .planning_files = {case_dir.string()},
+    });
+    REQUIRE(resolved.has_value());
+    CHECK_FALSE(resolved->output_directory.has_value());
+    CHECK(resolve_log_directory(*resolved) == case_dir / "res" / "logs");
+  }
+
+  SUBCASE("directory argument keeps --set output_directory")
+  {
+    write_file(json_path, R"({"options": {}})");
+    const auto resolved = resolve_planning_args(MainOptions {
+        .planning_files = {case_dir.string()},
+        .set_options = {"output_directory=other"},
+    });
+    REQUIRE(resolved.has_value());
+    CHECK_FALSE(resolved->output_directory.has_value());
+    CHECK(resolve_log_directory(*resolved)
+          == std::filesystem::path("other") / "logs");
   }
 
   SUBCASE("JSON log_directory is honoured")

@@ -6,14 +6,18 @@
  *            see LICENSING.md
  */
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <barrier>
 #include <cerrno>
 #include <chrono>
 #include <csignal>
+#include <exception>
 #include <filesystem>
+#include <format>
 #include <fstream>
+#include <string>
 #include <thread>
 #include <tuple>
 #include <vector>
@@ -502,12 +506,25 @@ TEST_CASE(
   auto& reg = SolverRegistry::instance();
   reg.load_all_plugins();
 
-  // Pick any available solver — CI may have clp/cbc/highs/cplex.  The
-  // point is to exercise the parallel `create()` path; the identity
-  // of the backend doesn't matter.
+  // The point is to exercise the parallel `create()` path; the identity
+  // of the backend doesn't matter.  Prefer a license-free solver: a
+  // licensed backend (MindOpt, Gurobi, ...) can refuse `create()` with a
+  // license error under parallel load (nightly 2026-11-25: MindOpt
+  // `MDOstartenv rc=-10` for 53 of 64 creates while the rest of ctest
+  // ran at -j16), which says nothing about the registry's locking.
   const auto solvers = reg.available_solvers();
   REQUIRE_FALSE(solvers.empty());
-  const auto& solver_name = solvers.front();
+  const auto pick = [&]() -> std::string
+  {
+    for (const auto* name : {"clp", "highs", "cbc", "scip"}) {
+      if (std::ranges::contains(solvers, std::string {name})) {
+        return name;
+      }
+    }
+    return solvers.front();
+  };
+  const auto solver_name = pick();
+  CAPTURE(solver_name);
 
   constexpr int num_threads = 16;
   constexpr int creates_per_thread = 4;
@@ -517,6 +534,7 @@ TEST_CASE(
   std::atomic<int> success_count {0};
   std::atomic<int> null_count {0};
   std::atomic<int> exception_count {0};
+  std::atomic<int> license_count {0};
 
   workers.reserve(num_threads);
   for (int i = 0; i < num_threads; ++i) {
@@ -537,6 +555,15 @@ TEST_CASE(
               } else {
                 null_count.fetch_add(1, std::memory_order_relaxed);
               }
+            } catch (const std::exception& e) {
+              // Only a licensed fallback backend (no open-source solver
+              // loaded) can hit this; a vendor license refusal is
+              // environmental, any other exception is a registry bug.
+              if (gtopt::solver_test::is_license_failure(e)) {
+                license_count.fetch_add(1, std::memory_order_relaxed);
+              } else {
+                exception_count.fetch_add(1, std::memory_order_relaxed);
+              }
             } catch (...) {
               exception_count.fetch_add(1, std::memory_order_relaxed);
             }
@@ -547,9 +574,56 @@ TEST_CASE(
     w.join();
   }
 
-  // Every single create() call must succeed — no exceptions, no
-  // null backends, no deadlocks (join would hang).
-  CHECK(success_count.load() == num_threads * creates_per_thread);
+  if (license_count.load() > 0) {
+    MESSAGE("'" << solver_name << "' license unavailable for "
+                << license_count.load() << " create() call(s) — skipped");
+  }
+
+  // Every create() call must succeed (or be a license skip) — no other
+  // exceptions, no null backends, no deadlocks (join would hang).
+  CHECK(success_count.load() + license_count.load()
+        == num_threads * creates_per_thread);
   CHECK(null_count.load() == 0);
   CHECK(exception_count.load() == 0);
+}
+
+TEST_CASE(  // NOLINT
+    "insecure_plugin_location refuses world-writable plugins")
+{
+  using namespace gtopt;
+  namespace fs = std::filesystem;
+
+  const auto root = fs::temp_directory_path()
+      / std::format("gtopt_plugin_perm_{}", ::getpid());
+  fs::remove_all(root);
+  fs::create_directories(root / "dir");
+  fs::permissions(root, fs::perms::owner_all, fs::perm_options::replace);
+  fs::permissions(
+      root / "dir", fs::perms::owner_all, fs::perm_options::replace);
+  const auto so = root / "dir" / "libgtopt_solver_fake.so";
+  {
+    std::ofstream ofs(so);
+    ofs << "x";
+  }
+  fs::permissions(so,
+                  fs::perms::owner_read | fs::perms::owner_write,
+                  fs::perm_options::replace);
+
+  CHECK(insecure_plugin_location(so).empty());
+  CHECK(insecure_plugin_location(root / "dir" / "missing.so").empty());
+
+  fs::permissions(so, fs::perms::others_write, fs::perm_options::add);
+  CHECK(insecure_plugin_location(so).find("file") != std::string::npos);
+
+  auto& reg = SolverRegistry::instance();
+  const auto errors_before = reg.load_errors().size();
+  CHECK_FALSE(reg.load_plugin(so));
+  REQUIRE(reg.load_errors().size() > errors_before);
+  CHECK(reg.load_errors().back().find("world-writable") != std::string::npos);
+
+  fs::permissions(so, fs::perms::others_write, fs::perm_options::remove);
+  fs::permissions(root / "dir", fs::perms::others_all, fs::perm_options::add);
+  CHECK(insecure_plugin_location(so).find("directory") != std::string::npos);
+
+  fs::remove_all(root);
 }

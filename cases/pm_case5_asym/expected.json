@@ -1,0 +1,23 @@
+{
+  "case5_asym_dc": {
+    "description": "lossless DC OPF = PowerModels DCPPowerModel (HiGHS), angles +-30 deg",
+    "objective": 17479.896925381032,
+    "rtol": 1e-6,
+    "atol": 1e-6,
+    "checks": [
+      {"file": "Generator/generation_sol", "uid": 3, "stage": 1, "value": 323.49484626905144},
+      {"file": "Generator/generation_sol", "uid": 5, "stage": 1, "value": 466.50515373094885},
+      {"file": "Line/flow_sol", "uid": 6, "stage": 1, "value": -240.0}
+    ]
+  },
+  "case5_asym_dcpll_sending": {
+    "description": "piecewise losses (8 segments), line_thermal_limit_mode = sending, DCPLL loss side per branch -> PowerModels DCPLLPowerModel (Ipopt); measured gap 1.1e-4, tolerance 2e-4",
+    "objective": 17693.807403882074,
+    "rtol": 2e-4,
+    "atol": 1e-6,
+    "checks": [
+      {"file": "Line/flow_sol", "uid": 6, "stage": 1, "value": -238.3132},
+      {"file": "Line/flow_sol", "uid": 1, "stage": 1, "value": 246.7763}
+    ]
+  }
+}

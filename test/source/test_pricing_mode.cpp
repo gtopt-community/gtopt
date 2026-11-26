@@ -553,6 +553,58 @@ TEST_CASE("pricing modes on the 2-bus UC toy")  // NOLINT
   }
 }
 
+TEST_CASE(  // NOLINT
+    "fast_start pricing relaxes startup-tier selectors with the status")
+{
+  // g_fast starts from 10 h offline → a COLD start (hot < 1 h, cold
+  // >= 5 h) costing 1000, the same as the toy's flat startup cost, so the
+  // fast-start price must stay the toy's 50 + 1000 / 100 = 60 $/MWh in
+  // hour 1.  Tier selectors pinned at the incumbent (the former bug for
+  // integer tiers: they were not registered for relaxation) pin
+  // v = Σ y = 1 and, through v <= u, u = 1 — the peaker's start cost
+  // then drops out of the price.
+  const auto solvers = pricing_solvers();
+  if (solvers.empty()) {
+    MESSAGE("No suitable MIP solver available — skipping");
+    return;
+  }
+  constexpr std::string_view tiers =
+      R"("hot_start_cost": 200, "warm_start_cost": 500,
+         "cold_start_cost": 1000, "hot_start_time": 1,
+         "cold_start_time": 5,)";
+
+  for (const auto& solver : solvers) {
+    CAPTURE(solver);
+    for (const auto* tier_mode : {"continuous", "integer"}) {
+      CAPTURE(tier_mode);
+      const auto body = [&]
+      {
+        PlanningLP planning_lp(toy_planning(
+            ToyArgs {
+                .model = mode_member("fast_start")
+                    + std::format(R"("startup_tier_integrality": "{}",)",
+                                  tier_mode),
+                .fast_fast = std::string {tiers},
+            },
+            solver));
+        const auto& system = planning_lp.system(SceneIndex {0}, PhaseIndex {0});
+        // Integer tiers are registered with u: 2 periods x (u + 3 tiers).
+        const auto integer = std::string_view {tier_mode} == "integer";
+        CHECK(system.linear_interface().fast_start_cols().size()
+              == (integer ? 8U : 2U));
+        const auto r = solve_toy(planning_lp);
+        check_mip_dispatch(r);
+        check_prices(r, 60.0, 10.0);
+        CHECK(r.pricing.applied == PricingMode::fast_start);
+        CHECK(r.pricing.relaxed_columns == (integer ? 8 : 2));
+      };
+      if (!solver_test::run_or_skip_license(body)) {
+        MESSAGE("skipped " << solver << " (license)");
+      }
+    }
+  }
+}
+
 TEST_CASE("solve_pricing_lp leaves the source LP untouched")  // NOLINT
 {
   const auto solvers = pricing_solvers();

@@ -125,6 +125,9 @@ TEST_CASE("off-mode collection drop: only SDDP / cascade opt in")  // NOLINT
     auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
     planning.options.method = method;
     planning.options.sddp_options.low_memory_mode = LowMemoryMode::off;
+    // Live backends (release_backends defaults to true, which resolves
+    // SDDP / cascade `off` to an uncompressed `compress`).
+    planning.options.sddp_options.release_backends = false;
     const PlanningLP planning_lp(std::move(planning));
     const auto& sys =
         planning_lp.system(first_scene_index(), first_phase_index());

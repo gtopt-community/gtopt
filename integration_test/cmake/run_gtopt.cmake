@@ -38,11 +38,18 @@ message(STATUS "  CWD:    ${WORKING_DIR}")
 # (file-existence check) and compare_csv.cmake both consume.  Forcing
 # `all` here is the minimal, integration-test-only change; the default
 # for end users and unit tests remains `solution | dual`.
+#
+# `deterministic_parallel=true`: the goldens pin one optimal vertex, and
+# on a degenerate LP a multi-threaded opportunistic solve (CPLEX's gtopt
+# default) picks a load-dependent one — exp_bat_4b_24's load_cost /
+# generation_cost reduced costs flipped in loaded `ctest -j20` runs.
+# Deterministic mode makes the solve independent of machine load.
 execute_process(
   COMMAND "${GTOPT_BINARY}"
     "${INPUT_FILE}"
     --output-directory "${OUTPUT_DIR}"
     --write-out all
+    --set solver_options.deterministic_parallel=true
     --quiet
   WORKING_DIRECTORY "${WORKING_DIR}"
   RESULT_VARIABLE exit_code

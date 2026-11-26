@@ -23,7 +23,9 @@
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <set>
+#include <string>
 
 #include <arrow/api.h>
 #include <doctest/doctest.h>
@@ -241,6 +243,34 @@ TEST_CASE(
   CHECK(static_cast<double>(val_col->Value(0)) == doctest::Approx(100.0));
 
   std::filesystem::remove_all(tmpdir);
+
+  // The CSV writer shares the int32 key table: no 16-bit wrap either.
+  const auto csvdir =
+      std::filesystem::temp_directory_path() / "gtopt_lf_big_uid_csv";
+  std::filesystem::remove_all(csvdir);
+  std::filesystem::create_directories(csvdir);
+  PlanningOptions csv_opts = opts;
+  csv_opts.output_directory = csvdir.string();
+  csv_opts.output_format = DataFormat::csv;
+  csv_opts.output_compression = CompressionCodec::uncompressed;
+
+  const PlanningOptionsLP csv_options(csv_opts);
+  SimulationLP csv_simulation_lp(simulation, csv_options);
+  SystemLP csv_system_lp(system, csv_simulation_lp);
+  REQUIRE(csv_system_lp.linear_interface().resolve().has_value());
+  csv_system_lp.write_out();
+
+  const auto csv_file = csvdir / "Generator" / "generation_sol_s0_p0.csv";
+  REQUIRE(std::filesystem::exists(csv_file));
+  std::ifstream in(csv_file);
+  std::string header;
+  std::string row;
+  REQUIRE(std::getline(in, header));
+  REQUIRE(std::getline(in, row));
+  CHECK(header.find("uid") != std::string::npos);
+  CHECK(row.starts_with("65537,66000,70000,101333,"));
+
+  std::filesystem::remove_all(csvdir);
 }
 
 TEST_CASE("output long-form: value column is float32 when 1 <= d <= 7")

@@ -298,6 +298,17 @@ TEST_CASE(  // NOLINT
     checkpoint->levels[1].status = CascadeLevelStatus::in_progress;
     REQUIRE(save_cascade_progress(*checkpoint, progress_path).has_value());
   }
+  // The done level's persisted cuts file is what the resumed level
+  // inherits.  It is a user-visible output, not a gtopt temp file, so
+  // the resume must read it without deleting it.
+  std::string inherited_cuts_file;
+  {
+    auto checkpoint = load_cascade_progress(progress_path);
+    REQUIRE(checkpoint.has_value());
+    inherited_cuts_file = checkpoint->levels[0].cuts_file;
+  }
+  REQUIRE_FALSE(inherited_cuts_file.empty());
+  REQUIRE(std::filesystem::exists(inherited_cuts_file));
   {
     auto planning = make_3phase_2bus_hydro_planning();
     PlanningLP plp(std::move(planning));
@@ -312,6 +323,11 @@ TEST_CASE(  // NOLINT
     {
       REQUIRE(third.level_stats().size() == 1);
       CHECK(third.level_stats()[0].name == "full_network");
+    }
+
+    SUBCASE("resume keeps the inherited (user-visible) cuts file")
+    {
+      CHECK(std::filesystem::exists(inherited_cuts_file));
     }
   }
 }

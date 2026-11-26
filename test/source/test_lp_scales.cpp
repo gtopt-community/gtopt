@@ -23,6 +23,7 @@
 #include <gtopt/planning_lp.hpp>
 
 #include "sddp_helpers.hpp"
+#include "tmp_dir_helpers.hpp"
 
 using namespace gtopt;
 
@@ -42,10 +43,7 @@ auto read_scales(const std::filesystem::path& p) -> LpScales
 
 auto make_tmp_dir(const std::string& name) -> std::filesystem::path
 {
-  const auto dir = std::filesystem::temp_directory_path() / name;
-  std::filesystem::remove_all(dir);
-  std::filesystem::create_directories(dir);
-  return dir;
+  return gtopt::test::unique_test_dir(name);
 }
 
 auto named_options()

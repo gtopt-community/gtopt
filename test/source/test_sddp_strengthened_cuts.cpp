@@ -41,6 +41,7 @@
 #include <cmath>
 #include <cstddef>
 #include <filesystem>
+#include <limits>
 #include <map>
 #include <optional>
 #include <set>
@@ -62,6 +63,7 @@
 #include <gtopt/sddp_options.hpp>
 #include <gtopt/sddp_types.hpp>
 #include <gtopt/simple_commitment.hpp>
+#include <gtopt/solver_registry.hpp>
 #include <gtopt/sparse_col.hpp>
 #include <gtopt/utils.hpp>
 
@@ -798,48 +800,98 @@ TEST_CASE(  // NOLINT
     "SDDP strengthened cuts — identical scenes converge toward the "
     "extensive MIP optimum")
 {
-  const auto mip_solver = solver_test::first_mip_solver();
-  if (mip_solver.empty()) {
+  // Every exact MIP solver that is loaded, not only the first one: the
+  // forward pass's choice among tied stage optima is solver-specific (see
+  // the UB note below), and CI runners often have HiGHS only.
+  std::vector<std::string> mip_solvers;
+  for (const auto* name : {"cplex", "highs"}) {
+    if (SolverRegistry::instance().supports_mip(name)) {
+      mip_solvers.emplace_back(name);
+    }
+  }
+  if (mip_solvers.empty()) {
+    if (auto first = solver_test::first_mip_solver(); !first.empty()) {
+      mip_solvers.push_back(std::move(first));
+    }
+  }
+  if (mip_solvers.empty()) {
     MESSAGE("no exact MIP solver loaded — skipping convergence tier");
     return;
   }
 
-  const bool ran = solver_test::run_or_skip_license(
-      [&]
-      {
-        auto planning = make_commitment_planning(0.5, 0.5, mip_solver);
-        PlanningLP plp(std::move(planning));
+  for (const auto& mip_solver : mip_solvers) {
+    CAPTURE(mip_solver);
+    const bool ran = solver_test::run_or_skip_license(
+        [&]
+        {
+          auto planning = make_commitment_planning(0.5, 0.5, mip_solver);
+          PlanningLP plp(std::move(planning));
 
-        auto opts = sddp_opts(IntegerCutsMode::strengthened,
-                              /*max_iterations=*/25,
-                              /*convergence_tol=*/1.0e-6);
-        SDDPMethod sddp(plp, opts);
-        auto results = sddp.solve();
-        REQUIRE(results.has_value());
-        REQUIRE_FALSE(results->empty());
+          auto opts = sddp_opts(IntegerCutsMode::strengthened,
+                                /*max_iterations=*/25,
+                                /*convergence_tol=*/1.0e-6);
+          SDDPMethod sddp(plp, opts);
+          auto results = sddp.solve();
+          REQUIRE(results.has_value());
+          REQUIRE_FALSE(results->empty());
 
-        // Both scenes identical (p = 0.5 each): Σ_s V_s = V_full.
-        const double v_full = tail_value(kNumPhases,
-                                         1.0,
-                                         kBaseInflow,
-                                         kEini,
-                                         mip_solver,
-                                         /*demand=*/80.0,
-                                         /*relax=*/false);
-        REQUIRE(v_full > 0.0);
+          // Both scenes identical (p = 0.5 each): Σ_s V_s = V_full.
+          const double v_full = tail_value(kNumPhases,
+                                           1.0,
+                                           kBaseInflow,
+                                           kEini,
+                                           mip_solver,
+                                           /*demand=*/80.0,
+                                           /*relax=*/false);
+          REQUIRE(v_full > 0.0);
 
-        const auto& last = results->back();
-        const double tol = 2.0 * mip_oracle_tol(std::abs(v_full));
-        // Valid brackets: LB below, UB above the extensive optimum.
-        CHECK(last.lower_bound <= v_full + tol);
-        CHECK(last.upper_bound >= v_full - tol);
-        // Demonstrative closeness (the fixture's V_MIP = V_LP + const
-        // makes strengthened cuts exact supports).
-        CHECK(last.lower_bound == doctest::Approx(v_full).epsilon(2e-2));
-        CHECK(last.upper_bound == doctest::Approx(v_full).epsilon(2e-2));
-      });
-  if (!ran) {
-    MESSAGE("MIP solver license unavailable — convergence tier skipped");
+          const auto& last = results->back();
+          const double tol = 2.0 * mip_oracle_tol(std::abs(v_full));
+          // Valid brackets: LB below, UB above the extensive optimum, on
+          // every iteration.
+          for (const auto& ir : *results) {
+            INFO("iter=",
+                 static_cast<int>(ir.iteration_index),
+                 " LB=",
+                 ir.lower_bound,
+                 " UB=",
+                 ir.upper_bound);
+            CHECK(ir.lower_bound <= v_full + tol);
+            CHECK(ir.upper_bound >= v_full - tol);
+          }
+          // Demonstrative closeness of the LB (the fixture's V_MIP =
+          // V_LP along the optimal path makes the strengthened cuts exact
+          // supports there).
+          CHECK(last.lower_bound == doctest::Approx(v_full).epsilon(2e-2));
+
+          // UB: the scenes are fixed (no sampling), so each forward pass's
+          // UB is the exact cost of a feasible policy and the best one is
+          // a valid upper bound; with the LB above the bracket closes.
+          //
+          // The LAST UB need not close.  From iteration 2 on, the phase-1
+          // MIP (with the cuts) has two optimal solutions of equal model
+          // objective (opex 5.03K + α 14.56K = 8.00K + α 11.59K): the
+          // cut slope equals the cost trade-off, a degenerate tie.  CPLEX
+          // returns the one on the optimal path; HiGHS (1.16, any thread
+          // count, deterministic) returns the other, which moves the
+          // trajectory to states where pmin binds and V_MIP > V_LP.
+          // There the strengthened cut (LP-dual slope + Lagrangian
+          // intercept, minimised over the whole state box) is valid but
+          // not tight (phase-3 α 3.59K vs the true 4.40K), so the forward
+          // pass revisits the same tie every iteration and UB stays at
+          // 40.8K vs V = 39.18K (+4 %).  Strengthened Benders cuts carry
+          // no finite-convergence guarantee (only Lagrangian cuts on
+          // binary states do, SDDiP), so a closing last UB is a property
+          // of the MIP solver's tie-breaking, not of the method.
+          double best_ub = std::numeric_limits<double>::infinity();
+          for (const auto& ir : *results) {
+            best_ub = std::min(best_ub, ir.upper_bound);
+          }
+          CHECK(best_ub == doctest::Approx(v_full).epsilon(2e-2));
+        });
+    if (!ran) {
+      MESSAGE("MIP solver license unavailable — convergence tier skipped");
+    }
   }
 }
 

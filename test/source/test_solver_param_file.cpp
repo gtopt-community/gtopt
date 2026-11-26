@@ -19,6 +19,8 @@
 #include <doctest/doctest.h>
 #include <gtopt/solver_param_file.hpp>
 
+#include "tmp_dir_helpers.hpp"
+
 using namespace gtopt;
 
 namespace solver_param_file_test
@@ -28,8 +30,7 @@ namespace
 
 [[nodiscard]] std::filesystem::path make_case_dir(const std::string& tag)
 {
-  auto dir = std::filesystem::temp_directory_path() / ("gtopt_prm_" + tag);
-  std::filesystem::remove_all(dir);
+  auto dir = gtopt::test::unique_test_dir("prm_" + tag);
   std::filesystem::create_directories(dir / "solvers");
   std::ofstream {dir / "solvers" / "cplex.prm"} << "CPLEX Parameter File\n";
   return dir;

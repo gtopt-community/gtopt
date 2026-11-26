@@ -27,6 +27,7 @@
 #include <gtopt/solver_registry.hpp>
 
 #include "sddp_helpers.hpp"
+#include "tmp_dir_helpers.hpp"
 
 using namespace gtopt;
 
@@ -112,10 +113,7 @@ auto lacks_format(std::string_view solver, LpFileFormat format) -> bool
 
 auto scratch_dir(const std::string& tag) -> std::filesystem::path
 {
-  auto dir = std::filesystem::temp_directory_path() / ("gtopt_mps_" + tag);
-  std::filesystem::remove_all(dir);
-  std::filesystem::create_directories(dir);
-  return dir;
+  return gtopt::test::unique_test_dir("mps_" + tag);
 }
 
 /// Column and row names found in a model file.

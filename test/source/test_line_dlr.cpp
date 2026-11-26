@@ -26,12 +26,16 @@
 #include <cmath>
 #include <cstddef>
 #include <functional>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include <doctest/doctest.h>
+#include <gtopt/bus_lp.hpp>
+#include <gtopt/demand_lp.hpp>
+#include <gtopt/generator_lp.hpp>
 #include <gtopt/json/json_line.hpp>
 #include <gtopt/line_dlr_lp.hpp>
 #include <gtopt/line_lp.hpp>
@@ -119,6 +123,19 @@ struct Case
   OptReal slack_ratio {};  ///< Line.max_overload_ratio
   OptName global_slack_bound {};  ///< model_options.overload_slack_bound
   OptReal global_ratio {};  ///< model_options.max_overload_ratio
+  /// Line drawn b2→b1 (bus_a = b2), so the physical flow runs B→A.
+  bool reverse {false};
+  /// model_options.line_thermal_limit_mode; empty → unset.
+  std::string_view global_limit {};
+  /// Line.dlr.limit_mode; empty → unset.
+  std::string_view dlr_limit {};
+  /// model_options.dlr_limit_mode; empty → unset.
+  std::string_view global_dlr_limit {};
+  /// Per-block static tmax_ab / tmax_ba (overrides `tmax`).
+  std::vector<double> tmax_blocks {};
+  /// Extra Line settings (PLEXOS limit fields, classification, …),
+  /// applied last.
+  std::function<void(Line&)> line_fn {};
 };
 
 struct Fixture
@@ -151,8 +168,8 @@ struct Fixture
     Line ln {
         .uid = Uid {1},
         .name = "l1",
-        .bus_a = Uid {1},
-        .bus_b = Uid {2},
+        .bus_a = Uid {c.reverse ? 2 : 1},
+        .bus_b = Uid {c.reverse ? 1 : 2},
         .voltage = kV,
         .line_losses_mode = OptName {std::string(c.loss_mode)},
         .loss_segments = c.segments,
@@ -163,6 +180,11 @@ struct Fixture
     if (c.tmax) {
       ln.tmax_ab = *c.tmax;
       ln.tmax_ba = *c.tmax;
+    }
+    if (!c.tmax_blocks.empty()) {
+      const std::vector<std::vector<double>> tb {c.tmax_blocks};
+      ln.tmax_ab = tb;
+      ln.tmax_ba = tb;
     }
     if (!c.limit.empty()) {
       ln.line_thermal_limit_mode = std::string(c.limit);
@@ -180,6 +202,12 @@ struct Fixture
     ln.overload_slack_bound = c.slack_bound;
     ln.max_overload_ratio = c.slack_ratio;
     ln.dlr = c.dlr;
+    if (!c.dlr_limit.empty()) {
+      ln.dlr->limit_mode = std::string(c.dlr_limit);
+    }
+    if (c.line_fn) {
+      c.line_fn(ln);
+    }
     return {
         .name = "Dlr2Bus",
         .bus_array =
@@ -257,6 +285,12 @@ struct Fixture
     opts.model_options.use_line_dlr = c.use_line_dlr;
     opts.model_options.overload_slack_bound = c.global_slack_bound;
     opts.model_options.max_overload_ratio = c.global_ratio;
+    if (!c.global_dlr_limit.empty()) {
+      opts.model_options.dlr_limit_mode = std::string(c.global_dlr_limit);
+    }
+    if (!c.global_limit.empty()) {
+      opts.model_options.line_thermal_limit_mode = std::string(c.global_limit);
+    }
     opts.lp_matrix_options.col_with_names = true;
     opts.lp_matrix_options.row_with_names = true;
     opts.lp_matrix_options.col_with_name_map = true;
@@ -288,6 +322,18 @@ struct Solved
   std::vector<std::vector<double>> critical;
   /// [scenario][block] dlr rating.
   std::vector<std::vector<double>> rating;
+  /// [scenario][block] line loss = Σ generation − Σ served load (the
+  /// fixture's only lossy element is the line), whatever the loss mode.
+  std::vector<std::vector<double>> loss;
+  /// [scenario][block] bus-balance duals (LMP) of b1 / b2.
+  std::vector<std::vector<double>> lmp1;
+  std::vector<std::vector<double>> lmp2;
+  /// [scenario][block] binding limit part (`LineLP::LimitPart` as int,
+  /// −1 = none reported) and its dual ∂obj/∂L, A→B / B→A.
+  std::vector<std::vector<int>> part_p;
+  std::vector<std::vector<int>> part_n;
+  std::vector<std::vector<double>> lim_p;
+  std::vector<std::vector<double>> lim_n;
 };
 
 [[nodiscard]] Solved solve(Fixture& fx)
@@ -311,6 +357,18 @@ struct Solved
     auto& dd = out.duals.emplace_back();
     auto& cr = out.critical.emplace_back();
     auto& ra = out.rating.emplace_back();
+    auto& lo = out.loss.emplace_back();
+    auto& l1 = out.lmp1.emplace_back();
+    auto& l2 = out.lmp2.emplace_back();
+    const auto& limp = line.limitp_refs_at(scen, stage);
+    const auto& limn = line.limitn_refs_at(scen, stage);
+    auto& pp = out.part_p.emplace_back();
+    auto& pn = out.part_n.emplace_back();
+    auto& dp = out.lim_p.emplace_back();
+    auto& dn = out.lim_n.emplace_back();
+    const auto& gens = fx.sys_lp.elements<GeneratorLP>();
+    const auto& dems = fx.sys_lp.elements<DemandLP>();
+    const auto& buses = fx.sys_lp.elements<BusLP>();
     const auto sd = line.span_duals(
         {scen.uid(), stage.uid()},
         [&](ColIndex c) { return sol[c]; },
@@ -354,6 +412,41 @@ struct Solved
       cr.push_back(cs.contains(b) ? cs.at(b) : -99.0);
       const auto& rt = line.dlr_rating_at(scen, stage);
       ra.push_back(rt.contains(b) ? rt.at(b) : -99.0);
+      double gl = 0.0;
+      for (const auto& g : gens) {
+        gl += sol[g.generation_cols_at(scen, stage).at(b)];
+      }
+      for (const auto& d : dems) {
+        gl -= sol[d.load_cols_at(scen, stage).at(b)];
+      }
+      lo.push_back(gl);
+      double span = 0.0;
+      if (const auto it = sd.find(b); it != sd.end()) {
+        for (const double x : it->second) {
+          span += x;
+        }
+      }
+      const auto push_part = [&](const auto& refs, auto& parts, auto& duals)
+      {
+        if (const auto it = refs.find(b); it != refs.end()) {
+          parts.push_back(static_cast<int>(it->second.part));
+          duals.push_back(LineLP::limit_dual(
+              it->second,
+              span,
+              [&](ColIndex c) { return sol[c]; },
+              [&](ColIndex c) { return rc[c]; },
+              [&](RowIndex rr) { return dual[rr]; }));
+        } else {
+          parts.push_back(-1);
+          duals.push_back(0.0);
+        }
+      };
+      push_part(limp, pp, dp);
+      push_part(limn, pn, dn);
+      for (const auto& bus : buses) {
+        const double lmp = dual[bus.balance_rows_at(scen, stage).at(b)];
+        (bus.uid() == Uid {1} ? l1 : l2).push_back(lmp);
+      }
     }
   }
   return out;
@@ -531,6 +624,7 @@ TEST_CASE("DLR rows mode drops dominated rows")  // NOLINT
     Fixture fx2({
         .dlr = dlr,
         .tmax = 80.0,
+        .dlr_limit = "min",
     });
     CHECK(count_rows(fx2.lp(), "span_thermal") == 0);
     const auto r2 = solve(fx2);
@@ -740,13 +834,14 @@ TEST_CASE("DLR emergency tier drives the overload band")  // NOLINT
   }
 }
 
-TEST_CASE("DLR: static tmax still caps the flow")  // NOLINT
+TEST_CASE("DLR limit_mode min: static tmax still caps the flow")  // NOLINT
 {
   for (const std::string mode : {"min", "rows"}) {
     CAPTURE(mode);
     Fixture fx({
         .dlr = three_span_dlr(mode),
         .tmax = 110.0,
+        .dlr_limit = "min",
     });
     const auto res = solve(fx);
     CHECK(res.flow[0][0] == doctest::Approx(90.0));  // span s3
@@ -1553,6 +1648,982 @@ TEST_CASE("Overload slack bound modes: DLR emergency tier")  // NOLINT
     CHECK(has_error(res, "unknown overload_slack_bound 'bogus'"));
     CHECK(has_error(res, "model_options: max_overload_ratio"));
     CHECK(has_error(res, "Line 'l1': max_overload_ratio"));
+  }
+}
+
+// ── DLR × line_thermal_limit_mode ─────────────────────────────────────
+//
+// The DLR rating T is a thermal limit like the static ``tmax``: it caps
+// the same loaded quantity ``|f| + a·ℓ`` with ``a`` from
+// ``line_thermal_limit_mode`` (flow → 0, sending → the loss share booked
+// at the sending bus, full → 1).  The fixture is always congested (cheap
+// generation upstream, dear downstream), so the rating binds:
+// ``|f| + a·ℓ = T`` exactly, the span duals are negative and the bus
+// LMPs are the two marginal costs.
+
+namespace
+{
+
+/// Expected loss share ``a`` of the thermal limit (mirrors
+/// ``line_losses::thermal_loss_share``).
+[[nodiscard]] double expected_share(std::string_view loss,
+                                    std::string_view limit,
+                                    std::string_view allocation)
+{
+  if (limit == "full") {
+    return 1.0;
+  }
+  if (limit == "sending") {
+    if (loss == "tangent_signed_flow") {
+      return 0.5;
+    }
+    if (allocation == "sender") {
+      return 1.0;
+    }
+    if (allocation == "split") {
+      return 0.5;
+    }
+  }
+  return 0.0;
+}
+
+}  // namespace
+
+TEST_CASE("DLR rating follows line_thermal_limit_mode")  // NOLINT
+{
+  struct Limit
+  {
+    std::string_view limit;
+    std::string_view allocation;
+  };
+  const auto limits = std::to_array<Limit>({
+      {
+          .limit = "flow",
+          .allocation = "split",
+      },
+      {
+          .limit = "sending",
+          .allocation = "split",
+      },
+      {
+          .limit = "sending",
+          .allocation = "sender",
+      },
+      {
+          .limit = "sending",
+          .allocation = "receiver",
+      },
+      {
+          .limit = "full",
+          .allocation = "split",
+      },
+  });
+  const auto loss_modes = std::to_array<std::string_view>({
+      "piecewise",
+      "bidirectional",
+      "linear",
+      "tangent_signed_flow",
+      "piecewise_direct",
+  });
+  const std::array ratings {90.0, 120.0, 300.0};
+
+  for (const auto loss : loss_modes) {
+    for (const auto& lm : limits) {
+      for (const std::string span_mode : {"min", "rows"}) {
+        for (const bool reverse : {false, true}) {
+          for (const bool global : {false, true}) {
+            CAPTURE(loss);
+            CAPTURE(lm.limit);
+            CAPTURE(lm.allocation);
+            CAPTURE(span_mode);
+            CAPTURE(reverse);
+            CAPTURE(global);
+            Fixture fx(Case {
+                .dlr = three_span_dlr(span_mode),
+                .loss_mode = loss,
+                .limit = global ? std::string_view {} : lm.limit,
+                .allocation = lm.allocation,
+                .resistance = 20.0,
+                .reverse = reverse,
+                .global_limit = global ? lm.limit : std::string_view {},
+            });
+            const auto res = solve(fx);
+            const double a = expected_share(loss, lm.limit, lm.allocation);
+            for (std::size_t b = 0; b < ratings.size(); ++b) {
+              CAPTURE(b);
+              const double f = res.flow[0][b];
+              const double l = res.loss[0][b];
+              // Physical flow b1 → b2: A→B, or B→A on the reversed line.
+              CHECK((reverse ? -f : f) > 0.0);
+              // Lossy enough to tell the modes apart (the
+              // ``tangent_signed_flow`` lower envelope is 0 well below
+              // the 2000 MW chord anchor: only the 300 MW block).
+              if (loss != "tangent_signed_flow" || b == 2) {
+                CHECK(l > 1.0);
+              }
+              // The rating binds on |f| + a·ℓ.
+              CHECK(std::abs(f) + (a * l)
+                    == doctest::Approx(ratings[b]).epsilon(1e-7));
+              CHECK(res.rating[0][b] == doctest::Approx(ratings[b]));
+              // Dual / CMg sanity: ∂obj/∂T < 0, LMPs = marginal costs.
+              CHECK(res.dual_sum[0][b] < -1.0);
+              CHECK(res.lmp1[0][b] == doctest::Approx(kCheap));
+              CHECK(res.lmp2[0][b] == doctest::Approx(kDear));
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+TEST_CASE(
+    "DLR min mode adds no rows beyond the static thermal limit")  // NOLINT
+{
+  // flow: the DLR tightens the flow-column bound — no row at all.
+  // sending / full: the DLR lowers the RHS of the existing thermal row
+  // (one per block and direction) — no extra row.
+  for (const std::string_view loss : {"piecewise", "bidirectional"}) {
+    CAPTURE(loss);
+    Fixture flow(Case {
+        .dlr = three_span_dlr("min"),
+        .loss_mode = loss,
+        .limit = "flow",
+        .resistance = 20.0,
+    });
+    CHECK(count_rows(flow.lp(), "thermal") == 0);
+    Fixture full(Case {
+        .dlr = three_span_dlr("min"),
+        .loss_mode = loss,
+        .limit = "full",
+        .resistance = 20.0,
+    });
+    CHECK(count_rows(full.lp(), "thermalp") == 3);
+    CHECK(count_rows(full.lp(), "thermaln") == 3);
+    CHECK(count_rows(full.lp(), "span_thermal") == 0);
+  }
+}
+
+TEST_CASE("DLR emergency tier follows line_thermal_limit_mode")  // NOLINT
+{
+  // Normal min 100 / 90 / 100, emergency min 140 / 150 / 140; a cheap
+  // overload penalty pushes the loaded quantity to the emergency rating.
+  const std::array emergency {140.0, 150.0, 140.0};
+  for (const std::string_view limit : {"flow", "sending", "full"}) {
+    for (const std::string span_mode : {"min", "rows"}) {
+      for (const bool reverse : {false, true}) {
+        CAPTURE(limit);
+        CAPTURE(span_mode);
+        CAPTURE(reverse);
+        LineDlr dlr {
+            .span_mode = span_mode,
+        };
+        dlr.critical_spans = {
+            rated_span(1,
+                       "a",
+                       per_block({100.0, 100.0, 100.0}),
+                       per_block({150.0, 150.0, 150.0})),
+            rated_span(2,
+                       "b",
+                       per_block({120.0, 90.0, 120.0}),
+                       per_block({140.0, 160.0, 140.0})),
+        };
+        Fixture fx(Case {
+            .dlr = dlr,
+            .loss_mode = "piecewise",
+            .allocation = "split",
+            .resistance = 20.0,
+            .overload_penalty = 20.0,
+            .reverse = reverse,
+            .global_limit = limit,
+        });
+        const auto res = solve(fx);
+        const double a = expected_share("piecewise", limit, "split");
+        for (std::size_t b = 0; b < emergency.size(); ++b) {
+          CAPTURE(b);
+          const double f = std::abs(res.flow[0][b]);
+          const double l = res.loss[0][b];
+          CHECK(l > 1.0);
+          CHECK(f + (a * l) == doctest::Approx(emergency[b]).epsilon(1e-7));
+          CHECK(res.dual_sum[0][b] < -1.0);
+          CHECK(res.lmp2[0][b] == doctest::Approx(kDear));
+        }
+      }
+    }
+  }
+}
+
+TEST_CASE("DLR full mode regression: B→A flow, |f| + loss = rating")  // NOLINT
+{
+  // Reproduces the CEN PCP report (piecewise losses, 3 segments, flow
+  // B→A, ``model_options.line_thermal_limit_mode = full``, span_mode
+  // min).  The binding quantity is |f| + ℓ (full), NOT |f| + ℓ/2.  The
+  // B→A loss lives in ``lossn`` only: ``Line/loss_sol`` (= lossp +
+  // lossn) already holds it, so adding ``Line/lossn_sol`` on top counts
+  // the reverse-direction loss twice.
+  Fixture fx(Case {
+      .dlr = three_span_dlr("min"),
+      .loss_mode = "piecewise",
+      .segments = 3,
+      .allocation = "split",
+      .resistance = 20.0,
+      .reverse = true,
+      .global_limit = "full",
+  });
+  const auto res = solve(fx);
+  const auto sol = fx.lp().get_col_sol();
+  const auto& line = fx.line();
+  const auto& scen = fx.sim_lp.scenarios().front();
+  const auto& stage = fx.sim_lp.stages().front();
+  const auto& lp_cols = line.lossp_cols_at(scen, stage);
+  const auto& ln_cols = line.lossn_cols_at(scen, stage);
+  const std::array ratings {90.0, 120.0, 300.0};
+  for (std::size_t b = 0; b < ratings.size(); ++b) {
+    CAPTURE(b);
+    const auto buid = fx.sim_lp.stages().front().blocks()[b].uid();
+    const double f = res.flow[0][b];
+    const double l = res.loss[0][b];
+    CHECK(f < 0.0);
+    CHECK(std::abs(f) + l == doctest::Approx(ratings[b]).epsilon(1e-7));
+    CHECK(std::abs(f) + (0.5 * l) < ratings[b] - (0.25 * l));
+    const double lossp = lp_cols.contains(buid) ? sol[lp_cols.at(buid)] : 0.0;
+    const double lossn = ln_cols.contains(buid) ? sol[ln_cols.at(buid)] : 0.0;
+    CHECK(lossp == doctest::Approx(0.0));
+    CHECK(lossn == doctest::Approx(l).epsilon(1e-7));
+  }
+}
+
+// ── PLEXOS line limits, limit classification and DLR limit_mode ──────
+//
+// Every limit field is optional: unset (or a NaN cell) = no limit from
+// that field.  The effective limit per direction and block is the min
+// over the SET fields; one bound / row carries it and its dual is
+// attributed to the binding part.  Ratings of ``three_span_dlr``:
+// 90 / 120 / 300.  Without any limit the line carries the whole 1000 MW
+// demand.
+
+namespace
+{
+
+using Part = LineLP::LimitPart;
+using TB = std::vector<std::vector<double>>;
+
+[[nodiscard]] TB tb(std::vector<double> v)
+{
+  return TB {std::move(v)};
+}
+
+[[nodiscard]] int pi(Part p)
+{
+  return static_cast<int>(p);
+}
+
+constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
+constexpr double kSpread = kDear - kCheap;
+
+/// Lossless, no-DLR fixture with only `fn` limits (no static tmax).
+[[nodiscard]] Case limits_case(std::function<void(Line&)> fn,
+                               bool reverse = false)
+{
+  return Case {
+      .tmax = std::nullopt,
+      .use_line_dlr = false,
+      .reverse = reverse,
+      .line_fn = std::move(fn),
+  };
+}
+
+}  // namespace
+
+TEST_CASE("Line limits: each field alone")  // NOLINT
+{
+  struct One
+  {
+    std::string_view name;
+    std::function<void(Line&)> fn;
+    bool reverse;
+    double flow;  ///< |flow| in every block
+    int part;  ///< reported part (−1: none)
+  };
+  const auto ones = std::to_array<One>({
+      {
+          .name = "max_flow",
+          .fn = [](Line& l) { l.max_flow = 100.0; },
+          .reverse = false,
+          .flow = 100.0,
+          .part = -1,
+      },
+      {
+          .name = "min_flow (signed)",
+          .fn = [](Line& l) { l.min_flow = -100.0; },
+          .reverse = true,
+          .flow = 100.0,
+          .part = -1,
+      },
+      {
+          .name = "max_rating",
+          .fn = [](Line& l) { l.max_rating = 100.0; },
+          .reverse = false,
+          .flow = 100.0,
+          .part = pi(Part::rating),
+      },
+      {
+          .name = "min_rating (signed)",
+          .fn = [](Line& l) { l.min_rating = -100.0; },
+          .reverse = true,
+          .flow = 100.0,
+          .part = pi(Part::rating),
+      },
+      {
+          .name = "outage_max_rating with units_out",
+          .fn =
+              [](Line& l)
+          {
+            l.outage_max_rating = 100.0;
+            l.units_out = 1.0;
+          },
+          .reverse = false,
+          .flow = 100.0,
+          .part = pi(Part::outage),
+      },
+      {
+          .name = "outage_max_rating without units out: no derate",
+          .fn = [](Line& l) { l.outage_max_rating = 100.0; },
+          .reverse = false,
+          .flow = 1000.0,
+          .part = -1,
+      },
+      {
+          .name = "overload_max_rating without a penalty: unused",
+          .fn = [](Line& l) { l.overload_max_rating = 100.0; },
+          .reverse = false,
+          .flow = 1000.0,
+          .part = -1,
+      },
+      {
+          .name = "conductor_rating_ab",
+          .fn = [](Line& l) { l.conductor_rating_ab = 100.0; },
+          .reverse = false,
+          .flow = 100.0,
+          .part = pi(Part::conductor),
+      },
+      {
+          .name = "equipment_rating_ab",
+          .fn = [](Line& l) { l.equipment_rating_ab = 100.0; },
+          .reverse = false,
+          .flow = 100.0,
+          .part = pi(Part::equipment),
+      },
+      {
+          .name = "security_limit_ab",
+          .fn = [](Line& l) { l.security_limit_ab = 100.0; },
+          .reverse = false,
+          .flow = 100.0,
+          .part = pi(Part::security),
+      },
+      {
+          .name = "security_limit_ba",
+          .fn = [](Line& l) { l.security_limit_ba = 100.0; },
+          .reverse = true,
+          .flow = 100.0,
+          .part = pi(Part::security),
+      },
+      // One direction only: the other side is NOT mirrored.
+      {
+          .name = "max_rating does not limit B→A",
+          .fn = [](Line& l) { l.max_rating = 100.0; },
+          .reverse = true,
+          .flow = 1000.0,
+          .part = -1,
+      },
+      {
+          .name = "security_limit_ab does not limit B→A",
+          .fn = [](Line& l) { l.security_limit_ab = 100.0; },
+          .reverse = true,
+          .flow = 1000.0,
+          .part = -1,
+      },
+  });
+  for (const auto& o : ones) {
+    CAPTURE(o.name);
+    Fixture fx(limits_case(o.fn, o.reverse));
+    const auto res = solve(fx);
+    const auto& part = o.reverse ? res.part_n : res.part_p;
+    const auto& lim = o.reverse ? res.lim_n : res.lim_p;
+    for (std::size_t b = 0; b < 3; ++b) {
+      CAPTURE(b);
+      CHECK(std::abs(res.flow[0][b]) == doctest::Approx(o.flow));
+      CHECK(part[0][b] == o.part);
+      if (o.part >= 0) {
+        CHECK(lim[0][b] == doctest::Approx(-kSpread));
+      }
+    }
+  }
+}
+
+TEST_CASE("Line limits: every combination of set and unset")  // NOLINT
+{
+  // Distinct values so the binding part is unique.
+  struct F
+  {
+    Part part;
+    double value;
+    std::function<void(Line&, double)> set;
+  };
+  const std::array<F, 6> fields {{
+      {
+          .part = Part::flowlimit,
+          .value = 260.0,
+          .set = [](Line& l, double v) { l.max_flow = v; },
+      },
+      {
+          .part = Part::rating,
+          .value = 240.0,
+          .set = [](Line& l, double v) { l.max_rating = v; },
+      },
+      {
+          .part = Part::outage,
+          .value = 220.0,
+          .set =
+              [](Line& l, double v)
+          {
+            l.outage_max_rating = v;
+            l.units_out = 2.0;
+          },
+      },
+      {
+          .part = Part::conductor,
+          .value = 200.0,
+          .set = [](Line& l, double v) { l.conductor_rating_ab = v; },
+      },
+      {
+          .part = Part::equipment,
+          .value = 180.0,
+          .set = [](Line& l, double v) { l.equipment_rating_ab = v; },
+      },
+      {
+          .part = Part::security,
+          .value = 160.0,
+          .set = [](Line& l, double v) { l.security_limit_ab = v; },
+      },
+  }};
+  for (unsigned mask = 0; mask < (1U << fields.size()); ++mask) {
+    CAPTURE(mask);
+    double expected = 1000.0;  // demand: no limit set
+    int part = -1;
+    bool rating_line = false;
+    for (const auto& [k, f] : enumerate(fields)) {
+      if ((mask & (1U << k)) != 0U) {
+        if (f.value < expected) {
+          expected = f.value;
+          part = pi(f.part);
+        }
+        rating_line = rating_line || f.part != Part::flowlimit;
+      }
+    }
+    Fixture fx(limits_case(
+        [&](Line& l)
+        {
+          for (const auto& [k, f] : enumerate(fields)) {
+            if ((mask & (1U << k)) != 0U) {
+              f.set(l, f.value);
+            }
+          }
+        }));
+    const auto res = solve(fx);
+    for (std::size_t b = 0; b < 3; ++b) {
+      CHECK(res.flow[0][b] == doctest::Approx(expected));
+      CHECK(res.flow[0][b] > 1.0);  // an unset field never limits to 0
+      CHECK(res.part_p[0][b] == (rating_line ? part : -1));
+      if (rating_line && part >= 0) {
+        CHECK(res.lim_p[0][b] == doctest::Approx(-kSpread));
+      }
+    }
+  }
+}
+
+TEST_CASE("Line limits: NaN / missing cell vs explicit 0")  // NOLINT
+{
+  SUBCASE("max_rating {NaN, 0, 100}")
+  {
+    Fixture fx(
+        limits_case([](Line& l) { l.max_rating = tb({kNaN, 0.0, 100.0}); }));
+    const auto res = solve(fx);
+    CHECK(res.flow[0][0] == doctest::Approx(1000.0));  // NaN: no limit
+    CHECK(res.flow[0][1] == doctest::Approx(0.0));  // explicit 0
+    CHECK(res.flow[0][2] == doctest::Approx(100.0));
+    CHECK(res.part_p[0][0] == -1);
+    CHECK(res.part_p[0][1] == pi(Part::rating));
+  }
+  SUBCASE("tmax {NaN, 50, 0} and security_limit_ab {NaN, NaN, 70}")
+  {
+    Fixture fx(limits_case(
+        [](Line& l)
+        {
+          l.tmax_ab = tb({kNaN, 50.0, 0.0});
+          l.security_limit_ab = tb({kNaN, kNaN, 70.0});
+        }));
+    const auto res = solve(fx);
+    CHECK(res.flow[0][0] == doctest::Approx(1000.0));
+    CHECK(res.flow[0][1] == doctest::Approx(50.0));
+    CHECK(res.flow[0][2] == doctest::Approx(0.0));
+    CHECK(res.part_p[0][1] == pi(Part::flowlimit));
+    CHECK(res.part_p[0][2] == pi(Part::flowlimit));
+  }
+  SUBCASE("units_out {0, NaN, 1}: outage only where units are out")
+  {
+    Fixture fx(limits_case(
+        [](Line& l)
+        {
+          l.max_rating = 300.0;
+          l.outage_max_rating = 120.0;
+          l.units_out = tb({0.0, kNaN, 1.0});
+        }));
+    const auto res = solve(fx);
+    CHECK(res.flow[0][0] == doctest::Approx(300.0));
+    CHECK(res.flow[0][1] == doctest::Approx(300.0));
+    CHECK(res.flow[0][2] == doctest::Approx(120.0));
+    CHECK(res.part_p[0][2] == pi(Part::outage));
+  }
+}
+
+TEST_CASE("Line limits: overload rating and limit_penalty")  // NOLINT
+{
+  const auto run = [](double penalty)
+  {
+    Fixture fx(Case {
+        .tmax = std::nullopt,
+        .use_line_dlr = false,
+        .line_fn =
+            [penalty](Line& l)
+        {
+          l.max_rating = 100.0;
+          l.overload_max_rating = 150.0;
+          if (penalty > 0.0) {
+            l.limit_penalty = penalty;
+          }
+        },
+    });
+    return solve(fx);
+  };
+  SUBCASE("priced band: up to the overload rating")
+  {
+    const auto res = run(20.0);
+    double expected = 0.0;
+    for (std::size_t b = 0; b < 3; ++b) {
+      CHECK(res.flow[0][b] == doctest::Approx(150.0));
+      CHECK(res.part_p[0][b] == pi(Part::rating));
+      expected += (kCheap * 150.0) + (kDear * 850.0) + (20.0 * 50.0);
+    }
+    CHECK(res.obj == doctest::Approx(expected));
+  }
+  SUBCASE("no penalty: the normal rating is the hard cap")
+  {
+    const auto res = run(0.0);
+    CHECK(res.flow[0][0] == doctest::Approx(100.0));
+  }
+}
+
+TEST_CASE("DLR limit_mode: defaults and targets")  // NOLINT
+{
+  for (const std::string mode : {"min", "rows"}) {
+    CAPTURE(mode);
+    SUBCASE("plain tmax: min (historical), replace has no target")
+    {
+      for (const std::string_view lim : {"", "replace"}) {
+        CAPTURE(lim);
+        Fixture fx({
+            .dlr = three_span_dlr(mode),
+            .tmax = 110.0,
+            .dlr_limit = lim,
+        });
+        const auto res = solve(fx);
+        CHECK(res.flow[0][0] == doctest::Approx(90.0));
+        CHECK(res.flow[0][1] == doctest::Approx(110.0));
+        CHECK(res.flow[0][2] == doctest::Approx(110.0));
+      }
+    }
+    SUBCASE("conductor rating: replace by default")
+    {
+      Fixture fx({
+          .dlr = three_span_dlr(mode),
+          .tmax = std::nullopt,
+          .line_fn =
+              [](Line& l)
+          {
+            l.conductor_rating_ab = 110.0;
+            l.conductor_rating_ba = 110.0;
+          },
+      });
+      const auto res = solve(fx);
+      CHECK(res.flow[0][0] == doctest::Approx(90.0));
+      CHECK(res.flow[0][1] == doctest::Approx(120.0));
+      CHECK(res.flow[0][2] == doctest::Approx(300.0));
+      for (std::size_t b = 0; b < 3; ++b) {
+        CHECK(res.part_p[0][b] == pi(Part::conductor));
+        CHECK(res.lim_p[0][b] == doctest::Approx(-kSpread));
+        CHECK(res.dual_sum[0][b] == doctest::Approx(-kSpread));
+      }
+    }
+    SUBCASE("conductor rating with explicit min (per line or global)")
+    {
+      for (const bool global : {false, true}) {
+        CAPTURE(global);
+        Fixture fx(Case {
+            .dlr = three_span_dlr(mode),
+            .tmax = std::nullopt,
+            .dlr_limit = global ? std::string_view {} : "min",
+            .global_dlr_limit = global ? "min" : std::string_view {},
+            .line_fn = [](Line& l) { l.conductor_rating_ab = 110.0; },
+        });
+        const auto res = solve(fx);
+        CHECK(res.flow[0][1] == doctest::Approx(110.0));
+        CHECK(res.flow[0][2] == doctest::Approx(110.0));
+        // Static conductor binds: conductor part, not a span dual.
+        CHECK(res.part_p[0][2] == pi(Part::conductor));
+        CHECK(res.lim_p[0][2] == doctest::Approx(-kSpread));
+        CHECK(res.dual_sum[0][2] == doctest::Approx(0.0));
+      }
+    }
+    SUBCASE("per-line replace overrides a global min")
+    {
+      Fixture fx({
+          .dlr = three_span_dlr(mode),
+          .tmax = std::nullopt,
+          .dlr_limit = "replace",
+          .global_dlr_limit = "min",
+          .line_fn = [](Line& l) { l.conductor_rating_ab = 110.0; },
+      });
+      CHECK(solve(fx).flow[0][2] == doctest::Approx(300.0));
+    }
+    SUBCASE("no conductor: explicit replace acts on max_rating")
+    {
+      for (const std::string_view lim : {"", "replace"}) {
+        CAPTURE(lim);
+        Fixture fx({
+            .dlr = three_span_dlr(mode),
+            .tmax = std::nullopt,
+            .dlr_limit = lim,
+            .line_fn = [](Line& l) { l.max_rating = 110.0; },
+        });
+        const auto res = solve(fx);
+        CHECK(res.flow[0][2] == doctest::Approx(lim.empty() ? 110.0 : 300.0));
+        CHECK(res.part_p[0][2]
+              == pi(lim.empty() ? Part::rating : Part::conductor));
+      }
+    }
+    SUBCASE("max_flow is never replaced")
+    {
+      Fixture fx({
+          .dlr = three_span_dlr(mode),
+          .tmax = std::nullopt,
+          .line_fn =
+              [](Line& l)
+          {
+            l.conductor_rating_ab = 110.0;
+            l.max_flow = 250.0;
+          },
+      });
+      const auto res = solve(fx);
+      CHECK(res.flow[0][2] == doctest::Approx(250.0));
+      CHECK(res.part_p[0][2] == pi(Part::flowlimit));
+    }
+  }
+}
+
+TEST_CASE("DLR replace with a binding security limit")  // NOLINT
+{
+  // Conductor 110 replaced; security 1000 / 100 / 250: limit 90 / 100 /
+  // 250 — conductor (DLR) in block 1, security in blocks 2-3.
+  for (const std::string mode : {"min", "rows"}) {
+    CAPTURE(mode);
+    Fixture fx({
+        .dlr = three_span_dlr(mode),
+        .tmax = std::nullopt,
+        .line_fn =
+            [](Line& l)
+        {
+          l.conductor_rating_ab = 110.0;
+          l.security_limit_ab = tb({1000.0, 100.0, 250.0});
+        },
+    });
+    const auto res = solve(fx);
+    CHECK(res.flow[0][0] == doctest::Approx(90.0));
+    CHECK(res.flow[0][1] == doctest::Approx(100.0));
+    CHECK(res.flow[0][2] == doctest::Approx(250.0));
+    CHECK(res.part_p[0][0] == pi(Part::conductor));
+    CHECK(res.part_p[0][1] == pi(Part::security));
+    CHECK(res.part_p[0][2] == pi(Part::security));
+    for (std::size_t b = 0; b < 3; ++b) {
+      CHECK(res.lim_p[0][b] == doctest::Approx(-kSpread));
+    }
+    // Separate duals: the span duals carry only the DLR block.
+    CHECK(res.dual_sum[0][0] == doctest::Approx(-kSpread));
+    CHECK(res.dual_sum[0][1] == doctest::Approx(0.0));
+    CHECK(res.critical[0][1] == doctest::Approx(-1.0));
+    // flow mode: no row for any part (``rows`` adds only span rows).
+    if (mode == "min") {
+      CHECK(count_rows(fx.lp(), "thermal") == 0);
+    }
+    CHECK(count_rows(fx.lp(), "security") == 0);
+  }
+}
+
+TEST_CASE("DLR replace: outage rating is the maintenance derate")  // NOLINT
+{
+  for (const std::string mode : {"min", "rows"}) {
+    CAPTURE(mode);
+    Fixture fx({
+        .dlr = three_span_dlr(mode),
+        .tmax = std::nullopt,
+        .line_fn =
+            [](Line& l)
+        {
+          l.conductor_rating_ab = 110.0;
+          l.outage_max_rating = 100.0;
+          l.units_out = tb({0.0, 1.0, 0.0});
+        },
+    });
+    const auto res = solve(fx);
+    CHECK(res.flow[0][0] == doctest::Approx(90.0));
+    CHECK(res.flow[0][1] == doctest::Approx(100.0));  // derate
+    CHECK(res.flow[0][2] == doctest::Approx(300.0));  // DLR
+    CHECK(res.part_p[0][1] == pi(Part::outage));
+    CHECK(res.critical[0][1] == doctest::Approx(-1.0));
+  }
+}
+
+TEST_CASE("DLR replace + security with each thermal-limit mode")  // NOLINT
+{
+  // Limit 90 (DLR) / 100 (security) / 250 (security) on |f| + a·ℓ.
+  const std::array limit_b {90.0, 100.0, 250.0};
+  for (const std::string_view loss :
+       {"piecewise", "tangent_signed_flow", "linear", "bidirectional"})
+  {
+    for (const std::string_view limit : {"flow", "sending", "full"}) {
+      for (const std::string mode : {"min", "rows"}) {
+        for (const bool reverse : {false, true}) {
+          CAPTURE(loss);
+          CAPTURE(limit);
+          CAPTURE(mode);
+          CAPTURE(reverse);
+          Fixture fx(Case {
+              .dlr = three_span_dlr(mode),
+              .loss_mode = loss,
+              .allocation = "split",
+              .resistance = 20.0,
+              .tmax = std::nullopt,
+              .reverse = reverse,
+              .global_limit = limit,
+              .line_fn =
+                  [](Line& l)
+              {
+                for (auto* f :
+                     {&l.conductor_rating_ab, &l.conductor_rating_ba}) {
+                  *f = 110.0;
+                }
+                l.security_limit_ab = tb({1000.0, 100.0, 250.0});
+                l.security_limit_ba = tb({1000.0, 100.0, 250.0});
+              },
+          });
+          const auto res = solve(fx);
+          const double a = expected_share(loss, limit, "split");
+          const auto& part = reverse ? res.part_n : res.part_p;
+          const auto& lim = reverse ? res.lim_n : res.lim_p;
+          for (std::size_t b = 0; b < limit_b.size(); ++b) {
+            CAPTURE(b);
+            const double l = res.loss[0][b];
+            // ``tangent_signed_flow``: the loss lower envelope is 0 far
+            // below the chord anchor (the 1000 MW security envelope).
+            if (loss != "tangent_signed_flow") {
+              CHECK(l > 0.5);
+            }
+            CHECK(std::abs(res.flow[0][b]) + (a * l)
+                  == doctest::Approx(limit_b[b]).epsilon(1e-7));
+            CHECK(res.lmp1[0][b] == doctest::Approx(kCheap));
+            CHECK(res.lmp2[0][b] == doctest::Approx(kDear));
+            CHECK(part[0][b] == pi(b == 0 ? Part::conductor : Part::security));
+            CHECK(lim[0][b] < -1.0);
+            if (b > 0) {
+              CHECK(res.dual_sum[0][b] == doctest::Approx(0.0));
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+TEST_CASE("Line limits: full mode keeps one row per direction")  // NOLINT
+{
+  Fixture fx({
+      .dlr = three_span_dlr("min"),
+      .loss_mode = "piecewise",
+      .limit = "full",
+      .resistance = 20.0,
+      .tmax = std::nullopt,
+      .line_fn =
+          [](Line& l)
+      {
+        l.conductor_rating_ab = 110.0;
+        l.equipment_rating_ab = 95.0;
+        l.security_limit_ab = tb({1000.0, 100.0, 250.0});
+      },
+  });
+  // One thermal row per block and direction (A→B: equipment/security
+  // RHS; B→A: the DLR envelope) and no part rows.
+  CHECK(count_rows(fx.lp(), "thermalp") == 3);
+  CHECK(count_rows(fx.lp(), "equipment") == 0);
+  CHECK(count_rows(fx.lp(), "security") == 0);
+  const auto res = solve(fx);
+  CHECK(res.part_p[0][0] == pi(Part::conductor));  // DLR 90 < 95
+  CHECK(res.part_p[0][1] == pi(Part::equipment));  // 95
+  CHECK(res.part_p[0][2] == pi(Part::equipment));
+  CHECK(res.lim_p[0][1] < -1.0);
+}
+
+TEST_CASE("DLR replace: emergency tier above the static conductor")  // NOLINT
+{
+  // Normal min 100 / 90 / 100, emergency min 140 / 150 / 140, static
+  // conductor 120 and tmax_normal 50 (both replaced).
+  for (const std::string mode : {"min", "rows"}) {
+    for (const std::string_view lim : {"replace", "min"}) {
+      CAPTURE(mode);
+      CAPTURE(lim);
+      LineDlr dlr {
+          .span_mode = mode,
+      };
+      dlr.critical_spans = {
+          rated_span(1,
+                     "a",
+                     per_block({100.0, 100.0, 100.0}),
+                     per_block({150.0, 150.0, 150.0})),
+          rated_span(2,
+                     "b",
+                     per_block({120.0, 90.0, 120.0}),
+                     per_block({140.0, 160.0, 140.0})),
+      };
+      Fixture fx(Case {
+          .dlr = dlr,
+          .tmax = std::nullopt,
+          .overload_penalty = 20.0,
+          .tmax_normal = 50.0,
+          .dlr_limit = lim,
+          .line_fn = [](Line& l) { l.conductor_rating_ab = 120.0; },
+      });
+      const auto res = solve(fx);
+      if (lim == "replace") {
+        CHECK(res.flow[0][0] == doctest::Approx(140.0));
+        CHECK(res.flow[0][1] == doctest::Approx(150.0));
+        double expected = 0.0;
+        const std::array fl {140.0, 150.0, 140.0};
+        const std::array nm {100.0, 90.0, 100.0};
+        for (std::size_t b = 0; b < 3; ++b) {
+          expected += (kCheap * fl[b]) + (kDear * (1000.0 - fl[b]))
+              + (20.0 * (fl[b] - nm[b]));
+        }
+        CHECK(res.obj == doctest::Approx(expected));
+      } else {
+        CHECK(res.flow[0][0] == doctest::Approx(120.0));
+        CHECK(res.flow[0][1] == doctest::Approx(120.0));
+      }
+    }
+  }
+}
+
+TEST_CASE("Line limits: validation and JSON")  // NOLINT
+{
+  SUBCASE("aliases and signs")
+  {
+    auto p = planning_with(three_span_dlr("min"));
+    auto& ln = p.system.line_array.front();
+    ln.max_flow = 100.0;  // tmax_ab is also set (2000)
+    ln.min_flow = 50.0;  // positive: wrong sign, and tmax_ba is set
+    ln.limit_penalty = 10.0;
+    ln.overload_penalty = 10.0;
+    ln.max_rating = tb({kNaN, -1.0});
+    ln.min_rating = tb({kNaN, -1.0});  // NaN ok, -1 ok
+    const auto r = validate_planning(p);
+    CHECK(has_error(r, "tmax_ab and max_flow are aliases"));
+    CHECK(has_error(r, "tmax_ba and min_flow"));
+    CHECK(has_error(r, "overload_penalty and limit_penalty"));
+    CHECK(has_error(r, "min_flow"));
+    CHECK(has_error(r, "max_rating"));
+    CHECK_FALSE(has_error(r, "min_rating"));
+  }
+  SUBCASE("unknown limit modes")
+  {
+    auto dlr = three_span_dlr("min");
+    dlr.limit_mode = "maximum";
+    auto p = planning_with(dlr);
+    p.options.model_options.dlr_limit_mode = "bogus";
+    const auto r = validate_planning(p);
+    CHECK(has_error(r, "unknown limit_mode 'maximum'"));
+    CHECK(has_error(r, "unknown dlr_limit_mode 'bogus'"));
+  }
+  SUBCASE("option default")
+  {
+    CHECK_FALSE(
+        PlanningOptionsLP(PlanningOptions {}).dlr_limit_mode().has_value());
+    PlanningOptions po;
+    po.model_options.dlr_limit_mode = "replace";
+    CHECK(PlanningOptionsLP(po).dlr_limit_mode().value_or(LineDlrLimitMode::min)
+          == LineDlrLimitMode::replace);
+  }
+  SUBCASE("JSON round trip")
+  {
+    constexpr std::string_view json = R"({
+      "uid": 1, "name": "l1", "bus_a": 1, "bus_b": 2,
+      "max_flow": 1500, "min_flow": -1500,
+      "max_rating": [[490, 480]], "min_rating": -490,
+      "overload_max_rating": 600, "overload_min_rating": -600,
+      "outage_max_rating": 300, "outage_min_rating": -300,
+      "units_out": [[0, 1]], "limit_penalty": 50,
+      "conductor_rating_ab": "cond_ab", "conductor_rating_ba": 700,
+      "equipment_rating_ab": 650, "equipment_rating_ba": 650,
+      "security_limit_ab": 520, "security_limit_ba": 510,
+      "dlr": {"limit_mode": "min",
+              "critical_spans": [{"uid": 7, "rating": 100}]}
+    })";
+    const auto line = daw::json::from_json<Line>(json);
+    CHECK(line.has_rating_limits());
+    CHECK(line.max_flow.has_value());
+    CHECK(line.min_flow.has_value());
+    CHECK(line.units_out.has_value());
+    CHECK(line.limit_penalty.has_value());
+    REQUIRE(line.conductor_rating_ab.has_value());
+    CHECK(std::holds_alternative<FileSched>(
+        line.conductor_rating_ab.value_or(OptTBRealFieldSched::value_type {})));
+    CHECK(line.dlr.value_or(LineDlr {}).limit_mode.value_or("") == "min");
+    const auto out = daw::json::to_json(line);
+    const auto back = daw::json::from_json<Line>(out);
+    CHECK(daw::json::to_json(back) == out);
+    CHECK(back.security_limit_ba.has_value());
+    CHECK(back.outage_min_rating.has_value());
+    // Plain lines have no rating limits.
+    CHECK_FALSE(Line {}.has_rating_limits());
+  }
+  SUBCASE("PAMPL parameter accessors")
+  {
+    Fixture fx(limits_case(
+        [](Line& l)
+        {
+          l.min_flow = -400.0;
+          l.max_rating = 300.0;
+          l.min_rating = -250.0;
+          l.security_limit_ba = 200.0;
+        }));
+    const auto& line = fx.line();
+    const auto s = make_uid<Stage>(1);
+    const auto b = make_uid<Block>(1);
+    CHECK(line.param_tmax_ba(s, b).value_or(-1.0) == doctest::Approx(400.0));
+    CHECK(line.param_min_flow(s, b).value_or(0.0) == doctest::Approx(-400.0));
+    CHECK_FALSE(line.param_tmax_ab(s, b).has_value());
+    CHECK(line.param_max_rating(s, b).value_or(-1.0) == doctest::Approx(300.0));
+    CHECK(line.param_min_rating(s, b).value_or(0.0) == doctest::Approx(-250.0));
+    CHECK(line.param_security_limit_ba(s, b).value_or(-1.0)
+          == doctest::Approx(200.0));
+    CHECK_FALSE(line.param_conductor_rating_ab(s, b).has_value());
   }
 }
 

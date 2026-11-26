@@ -74,6 +74,14 @@ struct Case
   double overload_penalty {0.0};
   /// When set, write the solution (parquet, long form) here.
   std::string output_dir {};
+  /// Static thermal limit `tmax_ab` / `tmax_ba` (and `capacity`) [MW].
+  double tmax {kTmax};
+  /// Reverse the congested direction: cheap unit at b2, demand and
+  /// dear unit at b1, so the line is loaded B→A.
+  bool reverse {false};
+  /// Precomputed DLR rating [MW] of one critical span (`Line.dlr`);
+  /// 0 → no DLR.
+  double dlr_rating {0.0};
 };
 
 struct Fixture
@@ -131,10 +139,23 @@ private:
         .resistance = kR,
         .line_losses_mode = OptName {std::string(c.mode)},
         .loss_segments = c.segments,
-        .tmax_ba = kTmax,
-        .tmax_ab = kTmax,
-        .capacity = kTmax,
+        .tmax_ba = c.tmax,
+        .tmax_ab = c.tmax,
+        .capacity = c.tmax,
     };
+    if (c.dlr_rating > 0.0) {
+      LineDlr dlr {
+          .span_mode = "min",
+      };
+      dlr.critical_spans = {
+          CriticalSpan {
+              .uid = Uid {11},
+              .name = "s1",
+              .rating = OptSTBRealFieldSched {c.dlr_rating},
+          },
+      };
+      ln.dlr = std::move(dlr);
+    }
     if (!c.layout.empty()) {
       ln.loss_pwl_layout = std::string(c.layout);
     }
@@ -198,6 +219,10 @@ private:
           .line_array = {ln},
       };
     }
+    // Congested direction: A→B (cheap g1 at b1, demand at b2) or, with
+    // `reverse`, B→A (cheap g1 at b2, demand and dear g2 at b1).
+    const Uid load_bus {c.reverse ? 1 : 2};
+    const Uid cheap_bus {c.reverse ? 2 : 1};
     return {
         .name = "ThermalLimit2Bus",
         .bus_array =
@@ -216,7 +241,7 @@ private:
                 {
                     .uid = Uid {1},
                     .name = "d2",
-                    .bus = Uid {2},
+                    .bus = load_bus,
                     .capacity = kDemand,
                 },
             },
@@ -225,14 +250,14 @@ private:
                 {
                     .uid = Uid {1},
                     .name = "g1",
-                    .bus = Uid {1},
+                    .bus = cheap_bus,
                     .gcost = kCheap,
                     .capacity = 500.0,
                 },
                 {
                     .uid = Uid {2},
                     .name = "g2",
-                    .bus = Uid {2},
+                    .bus = load_bus,
                     .gcost = kDear,
                     .capacity = 500.0,
                 },
@@ -762,6 +787,226 @@ TEST_CASE("line_thermal_limit duals are written to the Line output")  // NOLINT
     CHECK(v.value_or(0.0) == doctest::Approx(raw).epsilon(1e-9));
   }
   std::filesystem::remove_all(dir);
+}
+
+// ── Literature benchmark: the sending-end limit (PowerModels DCPLL) ──
+//
+// PowerModels' DC-with-line-losses model (DCPLL; Coffrin, Bent, Sundar,
+// Ng, Lubin, PSCC 2018, DOI 10.23919/PSCC.2018.8442948; formulation
+// from Coffrin, Van Hentenryck, Bent, PESGM 2012, DOI
+// 10.1109/PESGM.2012.6345342) carries one power variable per END of a
+// branch, `p_fr` and `p_to`, and bounds EACH of them by the rating
+// (`variable_branch_power_real`, src/core/variable.jl, flow bounds from
+// `ref_calc_branch_flow_bounds`; loss relation `p_fr + p_to ≥ r·p_fr²`
+// in `constraint_ohms_yt_to`, src/form/dcp.jl).  The loss makes the
+// sending end the larger of the two, so the sending-end bound is the one
+// that binds — gtopt's `line_thermal_limit_mode = sending`:
+//
+//     f_dir + a·ℓ_dir ≤ T_dir,   a = share of ℓ booked at the sender
+//                                    (receiver 0, split ½, sender 1).
+//
+// This test runs the congested 2-bus line in both directions under the
+// full matrix {flow, sending, full} × {receiver, split, sender} and
+// pins the relations between the three limits.
+
+namespace
+{
+
+constexpr int kLitSegments = 16;
+constexpr double kLitDelta = 0.01;  // MW, finite-difference step
+
+[[nodiscard]] double sender_share(std::string_view allocation)
+{
+  if (allocation == "split") {
+    return 0.5;
+  }
+  if (allocation == "sender") {
+    return 1.0;
+  }
+  return 0.0;
+}
+
+/// Flow and loss of the loaded direction.
+struct Loaded
+{
+  double f;
+  double loss;
+  double obj;
+};
+
+[[nodiscard]] Loaded loaded(const Result& r, bool reverse)
+{
+  return reverse ? Loaded {.f = r.fn, .loss = r.lossn, .obj = r.obj}
+                 : Loaded {.f = r.fp, .loss = r.lossp, .obj = r.obj};
+}
+
+[[nodiscard]] Case lit_case(std::string_view allocation,
+                            std::string_view limit,
+                            bool reverse,
+                            double tmax = kTmax,
+                            double dlr_rating = 0.0)
+{
+  return Case {
+      .mode = "piecewise",
+      .segments = kLitSegments,
+      .allocation = allocation,
+      .line_limit = limit,
+      // Fixed PWL range, so a perturbed tmax (finite differences) keeps
+      // the same segments.
+      .envelope = kTmax,
+      .tmax = tmax,
+      .reverse = reverse,
+      .dlr_rating = dlr_rating,
+  };
+}
+
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "line_thermal_limit literature: sending-end limit, all modes, both "
+    "directions")
+{
+  for (const bool reverse : {false, true}) {
+    for (const std::string_view alloc : {"receiver", "split", "sender"}) {
+      CAPTURE(reverse);
+      CAPTURE(alloc);
+      const double a = sender_share(alloc);
+      const std::string_view dir_row =
+          reverse ? "line_thermaln_" : "line_thermalp_";
+
+      Fixture flow_fx(lit_case(alloc, "flow", reverse));
+      Fixture send_fx(lit_case(alloc, "sending", reverse));
+      Fixture full_fx(lit_case(alloc, "full", reverse));
+      const auto flow = loaded(solve(flow_fx), reverse);
+      const auto send = loaded(solve(send_fx), reverse);
+      const auto full = loaded(solve(full_fx), reverse);
+
+      // The line is congested and carries a real loss in every case.
+      CHECK(flow.loss > 1.0);
+      CHECK(send.loss > 1.0);
+      CHECK(full.loss > 1.0);
+
+      // `flow`: the flow variable itself sits at the limit.
+      CHECK(flow.f == doctest::Approx(kTmax).epsilon(1e-9));
+
+      // (1) `sending`: the sending-end power f + a·ℓ equals tmax.
+      CHECK(send.f + (a * send.loss) == doctest::Approx(kTmax).epsilon(1e-9));
+
+      // (2) Under `receiver` allocation the flow variable already IS the
+      // sending-end power: `flow` and `sending` are the same LP optimum.
+      if (alloc == "receiver") {
+        CHECK(count_rows(send_fx.lp(), "thermal") == 0);
+        CHECK(send.f == doctest::Approx(flow.f).epsilon(1e-9));
+        CHECK(send.obj == doctest::Approx(flow.obj).epsilon(1e-9));
+      }
+
+      // (3) `full`: f + ℓ = tmax.  The flow is below `sending` by
+      // ℓ_full − a·ℓ_send (≈ (1 − a)·ℓ), equal under `sender`.
+      CHECK(full.f + full.loss == doctest::Approx(kTmax).epsilon(1e-9));
+      CHECK(send.f - full.f
+            == doctest::Approx(full.loss - (a * send.loss)).epsilon(1e-9));
+      // Since ℓ_send ≥ ℓ_full (more flow), the gap is at most
+      // (1 − a)·ℓ_full.
+      if (a < 1.0) {
+        CHECK(full.f < send.f - (0.5 * (1.0 - a) * full.loss));
+        CHECK(send.f - full.f <= ((1.0 - a) * full.loss) + 1e-9);
+        CHECK(send.loss >= full.loss - 1e-9);
+      } else {
+        CHECK(full.f == doctest::Approx(send.f).epsilon(1e-9));
+        CHECK(full.obj == doctest::Approx(send.obj).epsilon(1e-9));
+      }
+
+      // (4) Objective ordering: tighter limit, dearer dispatch.
+      CHECK(full.obj >= send.obj - 1e-7);
+      CHECK(send.obj >= flow.obj - 1e-7);
+      if (a < 1.0) {
+        CHECK(full.obj > send.obj + 1.0);
+      }
+      if (a > 0.0) {
+        CHECK(send.obj > flow.obj + 1.0);
+      }
+
+      // (5) Duals: the thermal-row dual of the loaded direction is the
+      // objective sensitivity ∂z/∂tmax (finite difference on a lowered
+      // tmax, same PWL segments); the idle direction's row is slack.
+      for (const std::string_view limit : {"sending", "full"}) {
+        if (limit == "sending" && a == 0.0) {
+          continue;  // no row (receiver: sending == flow)
+        }
+        CAPTURE(limit);
+        Fixture base(lit_case(alloc, limit, reverse));
+        Fixture low(lit_case(alloc, limit, reverse, kTmax - kLitDelta));
+        const auto rb = solve(base);
+        const auto rl = solve(low);
+        const double dual = row_dual(base.lp(), dir_row);
+        const double fd = (rb.obj - rl.obj) / kLitDelta;
+        CAPTURE(dual);
+        CAPTURE(fd);
+        CHECK(dual < -1.0);
+        CHECK(dual == doctest::Approx(fd).epsilon(1e-6));
+        CHECK(row_dual(base.lp(), reverse ? "line_thermalp_" : "line_thermaln_")
+              == doctest::Approx(0.0));
+      }
+    }
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "line_thermal_limit literature: DLR rating follows the sending-end "
+    "limit")
+{
+  // Same matrix with a precomputed DLR rating (80 MW, one critical span,
+  // `span_mode = min`) below the static 100 MW: the DLR rating caps the
+  // same loaded quantity as tmax, f + a·ℓ ≤ T_dlr.
+  constexpr double kRating = 80.0;
+  for (const bool reverse : {false, true}) {
+    for (const std::string_view alloc : {"receiver", "split", "sender"}) {
+      CAPTURE(reverse);
+      CAPTURE(alloc);
+      const double a = sender_share(alloc);
+      Fixture flow_fx(lit_case(alloc, "flow", reverse, kTmax, kRating));
+      Fixture send_fx(lit_case(alloc, "sending", reverse, kTmax, kRating));
+      const auto flow = loaded(solve(flow_fx), reverse);
+      const auto send = loaded(solve(send_fx), reverse);
+      CHECK(flow.f == doctest::Approx(kRating).epsilon(1e-9));
+      CHECK(send.f + (a * send.loss) == doctest::Approx(kRating).epsilon(1e-9));
+      CHECK(send.obj >= flow.obj - 1e-7);
+    }
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "line_thermal_limit literature: DLR rating under full mode")
+{
+  // `full` with a DLR rating: f + ℓ = T_dlr in both directions under
+  // every allocation (the CEN PCP report: piecewise, B→A, split).
+  constexpr double kRating = 80.0;
+  for (const bool reverse : {false, true}) {
+    for (const std::string_view alloc : {"receiver", "split", "sender"}) {
+      CAPTURE(reverse);
+      CAPTURE(alloc);
+      Fixture send_fx(lit_case(alloc, "sending", reverse, kTmax, kRating));
+      Fixture full_fx(lit_case(alloc, "full", reverse, kTmax, kRating));
+      const auto send = loaded(solve(send_fx), reverse);
+      const auto full = loaded(solve(full_fx), reverse);
+      CHECK(full.f + full.loss == doctest::Approx(kRating).epsilon(1e-9));
+      CHECK(full.f <= send.f + 1e-7);
+      CHECK(full.obj >= send.obj - 1e-7);
+      CHECK(
+          row_dual(full_fx.lp(), reverse ? "line_thermaln_" : "line_thermalp_")
+          < -1.0);
+
+      // The reported configuration: 3 segments and the mode set
+      // globally (`model_options.line_thermal_limit_mode = full`).
+      auto cen = lit_case(alloc, "", reverse, kTmax, kRating);
+      cen.segments = 3;
+      cen.global_limit = "full";
+      Fixture cen_fx(cen);
+      const auto rc = loaded(solve(cen_fx), reverse);
+      CHECK(rc.f + rc.loss == doctest::Approx(kRating).epsilon(1e-9));
+      CHECK(rc.f + (0.5 * rc.loss) < kRating - (0.25 * rc.loss));
+    }
+  }
 }
 
 }  // namespace test_line_thermal_limit_ns

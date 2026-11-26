@@ -7,6 +7,8 @@
 #include <gtopt/lp_context.hpp>
 #include <gtopt/lp_name_spill.hpp>
 
+#include "tmp_dir_helpers.hpp"
+
 using namespace gtopt;
 
 namespace test_lp_name_spill_ns
@@ -16,11 +18,7 @@ namespace
 {
 [[nodiscard]] std::filesystem::path scratch_dir(const char* tag)
 {
-  auto d = std::filesystem::temp_directory_path()
-      / (std::string("gtopt_lp_name_spill_") + tag);
-  std::error_code ec;
-  std::filesystem::remove_all(d, ec);
-  return d;
+  return gtopt::test::unique_test_path(std::string("lp_name_spill_") + tag);
 }
 
 [[nodiscard]] SparseColLabel col_label(std::string_view cls,

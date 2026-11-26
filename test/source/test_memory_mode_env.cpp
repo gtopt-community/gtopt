@@ -58,6 +58,9 @@ private:
 {
   PlanningOptions p;
   p.sddp_options.low_memory_mode = mode;
+  // Live `off` (release_backends defaults to true, which resolves `off` to
+  // an uncompressed `compress`; see test_memory_options.cpp).
+  p.sddp_options.release_backends = false;
   return PlanningOptionsLP {p};
 }
 
@@ -135,9 +138,18 @@ TEST_CASE("effective_low_memory is off for monolithic runs")  // NOLINT
     PlanningOptions p;
     p.sddp_options.low_memory_mode = mode;
 
+    // Default release_backends (true): monolithic stays off; SDDP resolves
+    // `off` to an uncompressed `compress`.
     p.method = MethodType::monolithic;
     CHECK(PlanningOptionsLP {p}.effective_low_memory() == LowMemoryMode::off);
+    p.method = MethodType::sddp;
+    CHECK(PlanningOptionsLP {p}.effective_low_memory()
+          == LowMemoryMode::compress);
 
+    // release_backends = false: live `off` under SDDP.
+    p.sddp_options.release_backends = false;
+    p.method = MethodType::monolithic;
+    CHECK(PlanningOptionsLP {p}.effective_low_memory() == LowMemoryMode::off);
     p.method = MethodType::sddp;
     CHECK(PlanningOptionsLP {p}.effective_low_memory() == mode);
   }

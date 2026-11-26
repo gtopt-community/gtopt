@@ -15,6 +15,9 @@
 # $ORIGIN) and the tampered libhighs.so.1 next to it, so the plugin's own
 # RUNPATH resolves to the tampered file: no LD_LIBRARY_PATH, no RUNPATH
 # shadowing, the right version and pin -- identity alone may refuse it.
+
+# Script mode (-P) starts with default (OLD) policies: set them.
+cmake_minimum_required(VERSION 3.25)
 foreach(_v GTOPT PLUGIN CASE OBJCOPY READELF WORK)
   if(NOT ${_v})
     message(FATAL_ERROR "check_tampered_solver_library: ${_v} is required")

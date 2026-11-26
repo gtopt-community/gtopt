@@ -24,7 +24,9 @@
 //
 // Skipped (Solve subset) when no MIP solver is loaded.
 
+#include <array>
 #include <cstddef>
+#include <format>
 #include <string>
 #include <string_view>
 
@@ -39,6 +41,8 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/solver_registry.hpp>
 #include <gtopt/validate_planning.hpp>
+
+#include "solver_test_helpers.hpp"
 
 using namespace gtopt;
 
@@ -1529,4 +1533,72 @@ TEST_CASE(
   const auto obj =
       planning_lp.systems().front().front().linear_interface().get_obj_value();
   CHECK(obj == doctest::Approx(3030.0).epsilon(1e-3));
+}
+
+namespace
+{
+
+/// 3-block OTS case with a per-block load at b2 (only l1_2 can serve
+/// it), an integer LineCommitment initially open for `initial_hours`
+/// and tiers hot 30 / warm 60 / cold 120 with hot_start_time 1 and
+/// cold_start_time 4 h.  `close_at` (0 or 2) pins the status to
+/// open-then-closed so the only close happens there.  The objective is
+/// 10 $/MWh × energy + the cost of that close.
+[[nodiscard]] double line_tier_obj(const std::array<double, 3>& load,
+                                   double initial_hours,
+                                   int close_at)
+{
+  auto json = make_3block_tier_json(/*hot_cost=*/30.0,
+                                    /*warm_cost=*/60.0,
+                                    /*cold_cost=*/120.0,
+                                    /*hot_time=*/1.0,
+                                    /*cold_time=*/4.0,
+                                    initial_hours);
+  const auto replace = [&json](std::string_view from, const std::string& to)
+  {
+    const auto pos = json.find(from);
+    REQUIRE(pos != std::string::npos);
+    json.replace(pos, from.size(), to);
+  };
+  replace(R"("lmax": [[100.0, 100.0, 100.0]])",
+          std::format(R"("lmax": [[{}, {}, {}]])", load[0], load[1], load[2]));
+  replace(R"("relax": true)",
+          std::format(R"("relax": false, "fixed_status": [[{}, {}, 1]])",
+                      close_at == 0 ? 1 : 0,
+                      close_at == 0 ? 1 : 0));
+  Planning planning;
+  planning.merge(parse_planning_json(json));
+  PlanningLP planning_lp(solver_test::with_mip_solver(std::move(planning)));
+  REQUIRE(planning_lp.resolve().has_value());
+  return planning_lp.systems()
+      .front()
+      .front()
+      .linear_interface()
+      .get_obj_value();
+}
+
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "LineCommitmentLP tiers: strict thresholds and the initial outage at "
+    "every block, as CommitmentLP")
+{
+  if (!mip_available()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+  // First close at t = 0 after exactly hot_start_time (1 h) open: warm
+  // (60), not hot — offline == hot_start_time is warm, as for a unit.
+  CHECK(line_tier_obj({100.0, 100.0, 100.0}, 1.0, 0)
+        == doctest::Approx(3060.0).epsilon(1e-6));
+  CHECK(line_tier_obj({100.0, 100.0, 100.0}, 0.5, 0)
+        == doctest::Approx(3030.0).epsilon(1e-6));
+  // First close at t = 2 after 0.5 h open before the horizon: offline
+  // 2.5 h, warm (60).  The initial outage used to count at t = 0 only,
+  // so any later first close was priced cold (120).
+  CHECK(line_tier_obj({0.0, 0.0, 100.0}, 0.5, 2)
+        == doctest::Approx(1060.0).epsilon(1e-6));
+  // ... and offline exactly cold_start_time (2 + 2 h) is cold.
+  CHECK(line_tier_obj({0.0, 0.0, 100.0}, 2.0, 2)
+        == doctest::Approx(1120.0).epsilon(1e-6));
 }

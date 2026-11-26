@@ -360,6 +360,54 @@ TEST_CASE("HiGHS apply_options survives a load_problem call")  // NOLINT
   CHECK(backend->obj_value() == doctest::Approx(2.0));
 }
 
+TEST_CASE(
+    "HiGHS load_problem keeps the live HiGHS options (issue 572)")  // NOLINT
+{
+  // Regression: load_problem() calls Highs::clear(), which resets EVERY
+  // HiGHS option to its default.  A direct backend user running
+  // apply_options -> load_problem -> solve silently solved with HiGHS
+  // defaults (the cached scalar accessors above still looked right).
+  // Observable: barrier without crossover leaves no basis, so
+  // get_kappa() is nullopt; with the options lost HiGHS picks simplex
+  // and a kappa is available.  The log file must survive the reload too.
+  auto backend = make_highs_or_skip();
+  if (!backend) {
+    return;
+  }
+
+  namespace fs = std::filesystem;
+  const auto base = highs_scratch_log_base("survives_load");
+  const auto file = fs::path {base.string() + ".log"};
+  fs::remove(file);
+
+  SolverOptions opts;
+  opts.algorithm = LPAlgo::barrier;
+  opts.crossover = CrossoverMode::none;
+  opts.threads = 1;
+  backend->apply_options(opts);
+  backend->set_log_filename(base.string(), 1);
+
+  HighsTrivialLP2 lp {backend->infinity()};
+  lp.load_into(*backend);
+  backend->initial_solve();
+  REQUIRE(backend->is_proven_optimal());
+  CHECK(backend->obj_value() == doctest::Approx(2.0));
+  CHECK_FALSE(backend->get_kappa().has_value());
+
+  // The solve output went to the requested log file.
+  REQUIRE(fs::exists(file));
+  CHECK(fs::file_size(file) > 0);
+
+  // A second load keeps the options as well.
+  lp.load_into(*backend);
+  backend->initial_solve();
+  REQUIRE(backend->is_proven_optimal());
+  CHECK_FALSE(backend->get_kappa().has_value());
+
+  backend->clear_log_filename();
+  fs::remove(file);
+}
+
 // ---------------------------------------------------------------------------
 // C. Clone independence
 // ---------------------------------------------------------------------------

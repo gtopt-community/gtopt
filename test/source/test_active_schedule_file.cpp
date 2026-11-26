@@ -26,6 +26,8 @@
 #include <gtopt/system_lp.hpp>
 #include <parquet/arrow/writer.h>
 
+#include "tmp_dir_helpers.hpp"
+
 using namespace gtopt;
 
 namespace
@@ -196,9 +198,7 @@ void asf_write_stage_table(const std::filesystem::path& input_dir,
 
 [[nodiscard]] auto asf_tmp(std::string_view name) -> std::filesystem::path
 {
-  auto root = std::filesystem::temp_directory_path() / name;
-  std::filesystem::remove_all(root);
-  return root;
+  return gtopt::test::unique_test_path(name);
 }
 
 }  // namespace

@@ -29,6 +29,8 @@
 #include <gtopt/solver_registry.hpp>
 #include <spdlog/spdlog.h>
 
+#include "tmp_dir_helpers.hpp"
+
 using namespace gtopt;
 
 namespace
@@ -69,10 +71,7 @@ CliRun run_cli(const std::vector<std::string>& args)
 /// Fresh, empty per-test scratch directory.
 std::filesystem::path scratch_dir(const std::string& name)
 {
-  auto dir = std::filesystem::temp_directory_path() / ("gtopt_cli_" + name);
-  std::filesystem::remove_all(dir);
-  std::filesystem::create_directories(dir);
-  return dir;
+  return gtopt::test::unique_test_dir("cli_" + name);
 }
 
 // One bus, one 10 $/MWh generator, one 50 MW demand, one 1 h block:

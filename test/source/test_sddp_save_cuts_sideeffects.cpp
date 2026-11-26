@@ -26,6 +26,7 @@
 #include <gtopt/sddp_types.hpp>
 
 #include "sddp_helpers.hpp"
+#include "tmp_dir_helpers.hpp"
 
 using namespace gtopt;
 
@@ -37,12 +38,7 @@ namespace
 /// race on shared filenames.
 [[nodiscard]] std::filesystem::path make_tmp_subdir(std::string_view stem)
 {
-  const auto path = std::filesystem::temp_directory_path()
-      / std::format("gtopt_test_save_cuts_{}", stem);
-  std::error_code ec;
-  std::filesystem::remove_all(path, ec);
-  std::filesystem::create_directories(path, ec);
-  return path;
+  return gtopt::test::unique_test_dir(std::format("test_save_cuts_{}", stem));
 }
 
 }  // namespace
