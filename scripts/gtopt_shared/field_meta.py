@@ -24,12 +24,22 @@ _J_NUM = "number"
 _J_BOOL = "boolean (true/false)"
 _J_ID = "integer or string (uid or name)"
 _J_SCHED = "number | array | filename"
+_J_ISCHED = "integer | array | filename"
+_J_ARR = "JSON array"
+_J_INT_OR_STR = "integer or string"
+_J_BIT = "integer (0/1)"
 
 # Each entry: (json_type, required, description, example_value_or_None)
 _COMMON_ID_FIELDS: list[tuple[str, str, bool, str, Any]] = [
     ("uid", _J_INT, True, "Unique numeric identifier", 1),
     ("name", _J_STR, True, "Human-readable element name", "elem1"),
-    ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+    (
+        "active",
+        _J_ISCHED,
+        False,
+        "1 = active, 0 = inactive (default: 1); per-stage array or filename",
+        None,
+    ),
 ]
 
 #: Per-array field metadata.
@@ -70,7 +80,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "stage_array": [
         ("uid", _J_INT, True, "Unique stage identifier", 1),
         ("name", _J_STR, False, "Optional stage label", "s1"),
-        ("active", _J_BOOL, False, "1 = active stage (default: 1)", None),
+        ("active", _J_BIT, False, "1 = active stage (default: 1)", None),
         (
             "first_block",
             _J_INT,
@@ -152,7 +162,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "scenario_array": [
         ("uid", _J_INT, True, "Unique scenario identifier", 1),
         ("name", _J_STR, False, "Optional scenario label", "sc1"),
-        ("active", _J_BOOL, False, "1 = active scenario (default: 1)", None),
+        ("active", _J_BIT, False, "1 = active scenario (default: 1)", None),
         (
             "probability_factor",
             _J_NUM,
@@ -172,7 +182,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "phase_array": [
         ("uid", _J_INT, True, "Unique phase identifier (SDDP)", 1),
         ("name", _J_STR, False, "Optional phase label", "ph1"),
-        ("active", _J_BOOL, False, "1 = active (default: 1)", None),
+        ("active", _J_BIT, False, "1 = active (default: 1)", None),
         (
             "first_stage",
             _J_INT,
@@ -183,9 +193,9 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("count_stage", _J_INT, True, "Number of stages in this phase", 1),
         (
             "apertures",
-            _J_STR,
+            _J_ARR,
             False,
-            "Comma-separated aperture UIDs for this phase (empty = use all global apertures)",
+            "JSON array of aperture UIDs for this phase (empty = all global apertures)",
             None,
         ),
         (
@@ -211,7 +221,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "scene_array": [
         ("uid", _J_INT, True, "Unique scene identifier (SDDP)", 1),
         ("name", _J_STR, False, "Optional scene label", "sc1"),
-        ("active", _J_BOOL, False, "1 = active (default: 1)", None),
+        ("active", _J_BIT, False, "1 = active (default: 1)", None),
         (
             "first_scenario",
             _J_INT,
@@ -233,7 +243,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "bus_array": [
         ("uid", _J_INT, True, "Unique bus identifier", 1),
         ("name", _J_STR, True, "Bus name (used to reference this bus)", "b1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "type",
             _J_STR,
@@ -261,7 +271,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "line_array": [
         ("uid", _J_INT, True, "Unique line identifier", 1),
         ("name", _J_STR, True, "Line name", "l1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "bus_a",
             _J_ID,
@@ -656,7 +666,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Generator name (used in profile and output files)",
             "g1",
         ),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "description",
             _J_STR,
@@ -808,7 +818,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "generator_profile_array": [
         ("uid", _J_INT, True, "Unique generator-profile identifier", 1),
         ("name", _J_STR, True, "Profile name", "gp1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "generator",
             _J_ID,
@@ -839,7 +849,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "capacity_profile_array": [
         ("uid", _J_INT, True, "Unique capacity-profile identifier", 1),
         ("name", _J_STR, True, "Profile name", "cp1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "owner_kind",
             _J_STR,
@@ -876,7 +886,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "fuel_array": [
         ("uid", _J_INT, True, "Unique fuel identifier", 1),
         ("name", _J_STR, True, "Fuel name (e.g. 'natgas', 'diesel')", "natgas"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "price",
             _J_SCHED,
@@ -973,11 +983,11 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "commitment_array": [
         ("uid", _J_INT, True, "Unique commitment identifier", 1),
         ("name", _J_STR, True, "Commitment name (e.g. 'thermal1_uc')", "uc1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         ("generator", _J_ID, True, "Generator uid or name", "g1"),
         (
             "pmin",
-            _J_NUM,
+            _J_SCHED,
             False,
             "Minimum output when committed [MW]. When set, the LP enforces "
             "generation >= pmin × u; otherwise the linked Generator's `pmin` "
@@ -1016,28 +1026,10 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
         ("min_up_time", _J_NUM, False, "Minimum up time [h].", None),
         ("min_down_time", _J_NUM, False, "Minimum down time [h].", None),
-        ("ramp_up", _J_NUM, False, "Ramp-up limit while online [MW/h].", None),
-        (
-            "ramp_down",
-            _J_NUM,
-            False,
-            "Ramp-down limit while online [MW/h].",
-            None,
-        ),
-        (
-            "startup_ramp",
-            _J_NUM,
-            False,
-            "Max output in startup block [MW].",
-            None,
-        ),
-        (
-            "shutdown_ramp",
-            _J_NUM,
-            False,
-            "Max output in shutdown block [MW].",
-            None,
-        ),
+        ("ramp_up", _J_SCHED, False, "Ramp-up limit while online [MW/h].", None),
+        ("ramp_down", _J_SCHED, False, "Ramp-down limit while online [MW/h].", None),
+        ("startup_ramp", _J_SCHED, False, "Max output in startup block [MW].", None),
+        ("shutdown_ramp", _J_SCHED, False, "Max output in shutdown block [MW].", None),
         (
             "initial_status",
             _J_NUM,
@@ -1089,7 +1081,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
         (
             "transition_status_rows",
-            _J_STR,
+            _J_INT_OR_STR,
             False,
             "REMOVED 2026-11-26 (the rows v <= u, w <= 1 - u no longer "
             "exist): still parsed so old inputs load, ignored with a "
@@ -1106,7 +1098,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
         (
             "commitment_period",
-            _J_STR,
+            _J_INT_OR_STR,
             False,
             "Binary variable period [h] (number) or ``auto`` (max(block "
             "resolution, 0.5*min(min_up_time, min_down_time))). When set, "
@@ -1157,7 +1149,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
         (
             "long_transition_schedule",
-            "array of strings",
+            _J_ARR,
             False,
             "Per-stage long_transition values (by stage position).",
             None,
@@ -1225,7 +1217,13 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         ("min_starts", _J_NUM, False, "Min starts", None),
-        ("starts_scope", _J_STR, False, "Window-scope for ``max_starts``.", None),
+        (
+            "starts_scope",
+            _J_INT_OR_STR,
+            False,
+            "Window-scope for ``max_starts``.",
+            None,
+        ),
         (
             "uc_formulation",
             _J_STR,
@@ -1236,7 +1234,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
         (
             "startup_trajectory",
-            "array of numbers",
+            _J_ARR,
             False,
             "Power-based UC: start-up power trajectory [MW] at successive "
             "``trajectory_step`` instants before pmin is reached.",
@@ -1244,7 +1242,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
         (
             "shutdown_trajectory",
-            "array of numbers",
+            _J_ARR,
             False,
             "Power-based UC: shut-down power trajectory [MW] at successive "
             "``trajectory_step`` instants after leaving pmin.",
@@ -1271,7 +1269,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             1,
         ),
         ("name", _J_STR, True, "SimpleCommitment name", "sc1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         ("generator", _J_ID, True, "Generator uid or name", "g1"),
         (
             "dispatch_pmin",
@@ -1296,7 +1294,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "demand_array": [
         ("uid", _J_INT, True, "Unique demand identifier", 1),
         ("name", _J_STR, True, "Demand name (used in profile and output files)", "d1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "type",
             _J_STR,
@@ -1410,7 +1408,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "demand_profile_array": [
         ("uid", _J_INT, True, "Unique demand-profile identifier", 1),
         ("name", _J_STR, True, "Profile name", "dp1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "demand",
             _J_ID,
@@ -1439,7 +1437,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "battery_array": [
         ("uid", _J_INT, True, "Unique battery identifier", 1),
         ("name", _J_STR, True, "Battery name", "bat1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "type",
             _J_STR,
@@ -1711,7 +1709,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "converter_array": [
         ("uid", _J_INT, True, "Unique converter identifier", 1),
         ("name", _J_STR, True, "Converter name", "conv1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "battery",
             _J_ID,
@@ -1808,7 +1806,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "lng_terminal_array": [
         ("uid", _J_INT, True, "Unique LNG terminal identifier", 1),
         ("name", _J_STR, True, "Terminal name", "gnl1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         ("emin", _J_SCHED, False, "Minimum tank level [m³]", 0),
         ("emax", _J_SCHED, False, "Maximum tank level [m³]", 150000),
         ("eini", _J_NUM, False, "Initial tank level [m³]", 80000),
@@ -1834,7 +1832,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("delivery", _J_SCHED, False, "Scheduled LNG delivery [m³/stage]", None),
         ("spillway_cost", _J_NUM, False, "Venting penalty cost [$/m³]", 100),
         ("spillway_capacity", _J_NUM, False, "Max venting rate [m³/h]", None),
-        ("use_state_variable", _J_INT, False, "SDDP state (1=yes, 0=no)", 1),
+        ("use_state_variable", _J_BOOL, False, "SDDP state (1=yes, 0=no)", 1),
         (
             "mean_production_factor",
             _J_NUM,
@@ -1854,10 +1852,10 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
         (
             "generators",
-            _J_STR,
+            _J_ARR,
             False,
-            "JSON array of {generator, heat_rate} links "
-            '(e.g. [{"generator": 10, "heat_rate": 0.18}])',
+            'JSON array of {generator, heat_rate} links (e.g. [{"generator": 10, "heat_rate": '
+            "0.18}])",
             None,
         ),
     ],
@@ -1867,7 +1865,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "gas_node_array": [
         ("uid", _J_INT, True, "Unique gas-node identifier", 1),
         ("name", _J_STR, True, "Gas-node name", "santiago"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         ("type", _J_STR, False, "Optional element type/category tag", None),
         ("pmin", _J_SCHED, False, "Minimum pressure [bar abs]", 30),
         ("pmax", _J_SCHED, False, "Maximum pressure [bar abs]", 70),
@@ -1885,7 +1883,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "gas_supply_array": [
         ("uid", _J_INT, True, "Unique gas-supply identifier", 1),
         ("name", _J_STR, True, "Supply name", "lng_regas"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         ("type", _J_STR, False, "Tag, e.g. lng_regas / pipeline_import", None),
         ("gas_node", _J_ID, True, "FK into gas_node_array", "quintero"),
         ("fmin", _J_SCHED, False, "Minimum injection [km³/h]", None),
@@ -1902,7 +1900,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "gas_demand_array": [
         ("uid", _J_INT, True, "Unique gas-demand identifier", 1),
         ("name", _J_STR, True, "Demand name", "city"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         ("type", _J_STR, False, "Optional element type/category tag", None),
         ("gas_node", _J_ID, True, "FK into gas_node_array", "santiago"),
         ("load", _J_SCHED, False, "Gas load [km³/h]", 60),
@@ -1917,7 +1915,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "gas_pipe_array": [
         ("uid", _J_INT, True, "Unique gas-pipe identifier", 1),
         ("name", _J_STR, True, "Pipe name", "qtr_qll"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         ("type", _J_STR, False, "Optional element type/category tag", None),
         ("gas_node_a", _J_ID, True, "Inlet gas node (flow a → b)", "quintero"),
         ("gas_node_b", _J_ID, True, "Outlet gas node", "quillota"),
@@ -1985,7 +1983,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "gas_compressor_array": [
         ("uid", _J_INT, True, "Unique compressor identifier", 1),
         ("name", _J_STR, True, "Station name", "quillota_cs"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         ("type", _J_STR, False, "Tag, e.g. fuel_gas_booster", None),
         ("gas_node_in", _J_ID, True, "Suction gas node", "quillota"),
         ("gas_node_out", _J_ID, True, "Discharge gas node", "quillota_d"),
@@ -2004,7 +2002,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("efficiency", _J_NUM, False, "Isentropic efficiency (0.80)", None),
         ("driver_efficiency", _J_NUM, False, "Driver efficiency (0.33)", None),
         ("op_flow", _J_NUM, False, "Taylor operating flow [km³/h]", None),
-        ("op_ratio", _J_STR, False, "JSON array of operating ratios", None),
+        ("op_ratio", _J_ARR, False, "JSON array of operating compression ratios", None),
         ("op_suction_pressure", _J_NUM, False, "Operating suction [bar]", None),
         ("allow_bypass", _J_BOOL, False, "Allow p_out < p_in (regulator)", None),
         (
@@ -2022,7 +2020,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "gas_turbine_array": [
         ("uid", _J_INT, True, "Unique gas-turbine link identifier", 1),
         ("name", _J_STR, True, "Link name", "nueva_renca_gas"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         ("type", _J_STR, False, "Optional element type/category tag", None),
         ("generator", _J_ID, True, "FK into generator_array", "nueva_renca"),
         ("gas_node", _J_ID, True, "Fuel-gas delivery node", "renca"),
@@ -2044,17 +2042,17 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "thermal_node_array": [
         ("uid", _J_INT, True, "Unique thermal-node identifier", 1),
         ("name", _J_STR, True, "Thermal-node name", "tn1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
     ],
     "hydrogen_node_array": [
         ("uid", _J_INT, True, "Unique hydrogen-node identifier", 1),
         ("name", _J_STR, True, "Hydrogen-node name", "h2_node1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
     ],
     "ammonia_node_array": [
         ("uid", _J_INT, True, "Unique ammonia-node identifier", 1),
         ("name", _J_STR, True, "Ammonia-node name", "nh3_node1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
     ],
     # ------------------------------------------------------------------
     # System — multi-carrier storage peers (PR #483)
@@ -2062,7 +2060,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "thermal_storage_array": [
         ("uid", _J_INT, True, "Unique thermal-storage identifier", 1),
         ("name", _J_STR, True, "Thermal storage name (e.g. molten-salt TES)", "tes1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         ("type", _J_STR, False, 'Optional tag (e.g. "molten_salt", "concrete")', None),
         (
             "thermal_node",
@@ -2101,10 +2099,10 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("soft_emin", _J_SCHED, False, "Soft minimum SoC [MWh_th]", None),
         ("soft_emin_cost", _J_SCHED, False, "Soft-emin penalty [$/MWh_th]", None),
         ("capacity", _J_SCHED, False, "Installed thermal capacity [MWh_th]", None),
-        ("use_state_variable", _J_INT, False, "SDDP state (1=yes, 0=no)", 1),
+        ("use_state_variable", _J_BOOL, False, "SDDP state (1=yes, 0=no)", 1),
         (
             "daily_cycle",
-            _J_INT,
+            _J_BOOL,
             False,
             "PLP-style daily-cycle scaling (default 0 for CSP)",
             None,
@@ -2137,7 +2135,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "hydrogen_storage_array": [
         ("uid", _J_INT, True, "Unique hydrogen-storage identifier", 1),
         ("name", _J_STR, True, "Hydrogen storage name", "salt_cavern"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "type",
             _J_STR,
@@ -2176,8 +2174,8 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("soft_emin", _J_SCHED, False, "Soft minimum SoC [MWh_LHV]", None),
         ("soft_emin_cost", _J_SCHED, False, "Soft-emin penalty [$/MWh_LHV]", None),
         ("capacity", _J_SCHED, False, "Installed storage size [MWh_LHV]", None),
-        ("use_state_variable", _J_INT, False, "SDDP state (1=yes, 0=no)", 1),
-        ("daily_cycle", _J_INT, False, "PLP-style daily-cycle scaling", None),
+        ("use_state_variable", _J_BOOL, False, "SDDP state (1=yes, 0=no)", 1),
+        ("daily_cycle", _J_BOOL, False, "PLP-style daily-cycle scaling", None),
         ("expcap", _J_SCHED, False, "Capacity per expansion module.", None),
         ("expmod", _J_SCHED, False, "Maximum number of expansion modules.", None),
         ("capmax", _J_SCHED, False, "Absolute maximum capacity.", None),
@@ -2194,7 +2192,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "hydrogen_demand_array": [
         ("uid", _J_INT, True, "Unique hydrogen-demand identifier", 1),
         ("name", _J_STR, True, "Hydrogen offtake name", "h2_offtake"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "type",
             _J_STR,
@@ -2243,7 +2241,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Ammonia storage name (e.g. refrigerated tank)",
             "nh3_tank",
         ),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "type",
             _J_STR,
@@ -2276,8 +2274,8 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("soft_emin", _J_SCHED, False, "Soft minimum SoC [MWh_LHV]", None),
         ("soft_emin_cost", _J_SCHED, False, "Soft-emin penalty [$/MWh_LHV]", None),
         ("capacity", _J_SCHED, False, "Installed storage size [MWh_LHV]", None),
-        ("use_state_variable", _J_INT, False, "SDDP state (1=yes, 0=no)", 1),
-        ("daily_cycle", _J_INT, False, "PLP-style daily-cycle scaling", None),
+        ("use_state_variable", _J_BOOL, False, "SDDP state (1=yes, 0=no)", 1),
+        ("daily_cycle", _J_BOOL, False, "PLP-style daily-cycle scaling", None),
         ("expcap", _J_SCHED, False, "Capacity per expansion module.", None),
         ("expmod", _J_SCHED, False, "Maximum number of expansion modules.", None),
         ("capmax", _J_SCHED, False, "Absolute maximum capacity.", None),
@@ -2310,7 +2308,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "nh3_cracker, power_block)",
             "pem_100mw",
         ),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         ("type", _J_STR, False, "Optional tag", None),
         (
             "from_carrier",
@@ -2351,7 +2349,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("capmax", _J_SCHED, False, "Absolute maximum capacity", None),
         ("annual_capcost", _J_SCHED, False, "Annualised investment cost", None),
         ("annual_derating", _J_SCHED, False, "Annual derating factor", None),
-        ("integer_expmod", _J_INT, False, "Integer-constrain expmod (1=yes)", None),
+        ("integer_expmod", _J_BOOL, False, "Integer-constrain expmod (1=yes)", None),
     ],
     # ------------------------------------------------------------------
     # System — CO₂ cap-and-trade allowance pool (PR #495 / #496)
@@ -2365,7 +2363,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             'Pool name (e.g. "EU_ETS", "CA_CapTrade", "RGGI")',
             "EU_ETS",
         ),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "type",
             _J_STR,
@@ -2424,8 +2422,8 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         ("capacity", _J_SCHED, False, "Installed pool size [tCO₂]", None),
-        ("use_state_variable", _J_INT, False, "SDDP state (1=yes, 0=no)", 1),
-        ("daily_cycle", _J_INT, False, "PLP-style daily-cycle scaling", None),
+        ("use_state_variable", _J_BOOL, False, "SDDP state (1=yes, 0=no)", 1),
+        ("daily_cycle", _J_BOOL, False, "PLP-style daily-cycle scaling", None),
         ("expcap", _J_SCHED, False, "Per-expansion-module capacity.", None),
         ("expmod", _J_SCHED, False, "Maximum expansion modules.", None),
         ("capmax", _J_SCHED, False, "Absolute maximum capacity.", None),
@@ -2445,7 +2443,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "reserve_zone_array": [
         ("uid", _J_INT, True, "Unique reserve zone identifier", 1),
         ("name", _J_STR, True, "Reserve zone name", "rz1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "urreq",
             _J_SCHED,
@@ -2523,9 +2521,9 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
         (
             "demands",
-            _J_STR,
+            _J_ARR,
             False,
-            "Demands summed into D (default: all except battery charge)",
+            "JSON array of demand uids or names summed into D (default: all except battery charge)",
             None,
         ),
         (
@@ -2556,24 +2554,23 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
         (
             "contingency_generators",
-            _J_STR,
+            _J_ARR,
             False,
-            "Up contingency set: C_up >= generation of each listed generator",
+            "JSON array of generator uids or names: C_up >= generation of each listed generator",
             None,
         ),
         (
             "contingency_demands",
-            _J_STR,
+            _J_ARR,
             False,
-            "Down contingency set: C_dn >= load of each listed demand "
-            "(e.g. '<bess>_dem' charge)",
+            "JSON array of demand uids or names: C_dn >= load of each listed demand",
             None,
         ),
         (
             "flow_lines",
-            _J_STR,
+            _J_ARR,
             False,
-            "Lines whose signed flow sum enters the planes via flow_coef",
+            "JSON array of line uids or names whose flow enters the requirement",
             None,
         ),
         (
@@ -2626,7 +2623,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "reserve_provision_array": [
         ("uid", _J_INT, True, "Unique reserve provision identifier", 1),
         ("name", _J_STR, True, "Provision name", "rp1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "generator",
             _J_ID,
@@ -2636,10 +2633,10 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
         (
             "reserve_zones",
-            _J_STR,
+            _J_ARR,
             True,
-            "Comma-separated list of reserve zone names (e.g. 'rz1,rz2')",
-            "rz1",
+            'JSON array of reserve zone uids or names (e.g. ["rz1", "rz2"])',
+            '["rz1"]',
         ),
         ("urmax", _J_SCHED, False, "Maximum up-reserve contribution [MW]", None),
         ("drmax", _J_SCHED, False, "Maximum down-reserve contribution [MW]", None),
@@ -2771,7 +2768,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "inertia_zone_array": [
         ("uid", _J_INT, True, "Unique inertia-zone identifier", 1),
         ("name", _J_STR, True, "InertiaZone name", "iz1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "requirement",
             _J_SCHED,
@@ -2801,7 +2798,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "inertia_provision_array": [
         ("uid", _J_INT, True, "Unique inertia-provision identifier", 1),
         ("name", _J_STR, True, "InertiaProvision name", "ip1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "generator",
             _J_ID,
@@ -2811,10 +2808,9 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
         (
             "inertia_zones",
-            _J_STR,
+            _J_ARR,
             False,
-            "Typed array of InertiaZone references (uid or name per element); "
-            "JSON array form (replaces legacy colon-delimited string).",
+            "JSON array of inertia zone uids or names",
             None,
         ),
         (
@@ -2868,12 +2864,12 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Pollutant name (e.g. 'co2', 'ch4', 'n2o', 'sf6').",
             "co2",
         ),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
     ],
     "emission_zone_array": [
         ("uid", _J_INT, True, "Unique emission-zone identifier", 1),
         ("name", _J_STR, True, "EmissionZone name", "global_co2"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "emission",
             _J_ID,
@@ -2936,7 +2932,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "emission_source_array": [
         ("uid", _J_INT, False, "Unique emission-source identifier", 1),
         ("name", _J_STR, False, "EmissionSource name", "ngcc_co2"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "generator",
             _J_ID,
@@ -2998,7 +2994,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "junction_array": [
         ("uid", _J_INT, True, "Unique junction identifier", 1),
         ("name", _J_STR, True, "Junction name (hydraulic node)", "j1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "drain",
             _J_BOOL,
@@ -3014,7 +3010,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "waterway_array": [
         ("uid", _J_INT, True, "Unique waterway identifier", 1),
         ("name", _J_STR, True, "Waterway name (channel between junctions)", "ww1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "junction_a",
             _J_ID,
@@ -3069,7 +3065,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Flow name (exogenous inflow or outflow at a junction)",
             "f1",
         ),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "direction",
             _J_INT,
@@ -3111,7 +3107,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "reservoir_array": [
         ("uid", _J_INT, True, "Unique reservoir identifier", 1),
         ("name", _J_STR, True, "Reservoir name", "res1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "junction",
             _J_ID,
@@ -3295,7 +3291,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "reservoir_seepage_array": [
         ("uid", _J_INT, True, "Unique seepage identifier", 1),
         ("name", _J_STR, True, "ReservoirSeepage name", "filt1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "waterway",
             _J_ID,
@@ -3345,7 +3341,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "reservoir_discharge_limit_array": [
         ("uid", _J_INT, True, "Unique discharge-limit identifier", 1),
         ("name", _J_STR, True, "ReservoirDischargeLimit name", "ddl1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "waterway",
             _J_ID,
@@ -3391,7 +3387,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "turbine_array": [
         ("uid", _J_INT, True, "Unique turbine identifier", 1),
         ("name", _J_STR, True, "Turbine name", "turb1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "waterway",
             _J_ID,
@@ -3483,7 +3479,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Reservoir efficiency name",
             "re1",
         ),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "turbine",
             _J_ID,
@@ -3520,7 +3516,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "pump_array": [
         ("uid", _J_INT, True, "Unique pump identifier", 1),
         ("name", _J_STR, True, "Pump name", "pmp1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "waterway",
             _J_ID,
@@ -3572,7 +3568,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "flow_right_array": [
         ("uid", _J_INT, True, "Unique flow-right identifier", 1),
         ("name", _J_STR, True, "FlowRight name", "fr1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "purpose",
             _J_STR,
@@ -3717,7 +3713,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "volume_right_array": [
         ("uid", _J_INT, True, "Unique volume-right identifier", 1),
         ("name", _J_STR, True, "VolumeRight name", "vr1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "purpose",
             _J_STR,
@@ -3929,7 +3925,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "user_constraint_array": [
         ("uid", _J_INT, True, "Unique constraint identifier", 1),
         ("name", _J_STR, True, "Human-readable constraint name", "uc1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_BOOL, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "expression",
             _J_STR,
@@ -4055,7 +4051,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             'scripts as `decision_variable("name").value`).',
             "dv1",
         ),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "lower_bound",
             _J_NUM,
@@ -4175,7 +4171,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "future_cost_array": [
         ("uid", _J_INT, True, "Unique identifier", 1),
         ("name", _J_STR, True, "Human-readable element name", "fcf"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         ("description", _J_STR, False, "Optional free-text description", None),
         (
             "cuts_file",
@@ -4288,10 +4284,10 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "line_commitment_array": [
         ("uid", _J_INT, True, "Unique identifier", 1),
         ("name", _J_STR, True, "Human-readable element name", "elem1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         ("type", _J_STR, False, "Optional element type/category tag", None),
         ("description", _J_STR, False, "Optional free-text description", None),
-        ("line", _J_ID, False, "FK to the Line being switched", None),
+        ("line", _J_ID, True, "FK to the Line being switched", None),
         (
             "initial_status",
             _J_NUM,
@@ -4359,7 +4355,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
         (
             "starts_scope",
-            _J_STR,
+            _J_INT_OR_STR,
             False,
             "Window-scope for ``max_starts`` / ``min_starts``.",
             None,
@@ -4392,7 +4388,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
     "plant_array": [
         ("uid", _J_INT, True, "Unique identifier", 1),
         ("name", _J_STR, True, "Human-readable element name", "elem1"),
-        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("active", _J_ISCHED, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "generator_names",
             "JSON array",
@@ -4455,7 +4451,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("index", _J_INT, True, "0-based iteration index", 0),
         (
             "update_lp",
-            _J_BOOL,
+            _J_BIT,
             False,
             "Whether to dispatch update_lp for this iteration (default: true)",
             None,

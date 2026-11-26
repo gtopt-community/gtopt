@@ -324,18 +324,23 @@ def test_cli_flags_mutually_exclusive() -> None:
 def test_maybe_patch_short_circuits_on_plexos_legacy(
     embalses_csv: Path,
 ) -> None:
-    """``--plexos-legacy`` always disables the patch."""
+    """``--legacy-profile cen`` disables the auto-detected patch, but an
+    explicit ``--plp-embalses PATH`` overrides the profile."""
     from plexos2gtopt.plexos2gtopt import _maybe_patch_with_plp_embalses
 
     case = _make_case_with_missing_pilmaiquen()
-    options = {
-        "plexos_legacy": True,
-        "plp_embalses": embalses_csv,  # explicit path, but legacy wins
-    }
-    out = _maybe_patch_with_plp_embalses(case, options, embalses_csv.parent)
+    out = _maybe_patch_with_plp_embalses(
+        case, {"plexos_legacy": True}, embalses_csv.parent
+    )
     # Identity: legacy short-circuits before any patching.
     assert out is case
     assert len(out.reservoirs) == 2
+    explicit = _maybe_patch_with_plp_embalses(
+        case,
+        {"plexos_legacy": True, "plp_embalses": embalses_csv},
+        embalses_csv.parent,
+    )
+    assert len(explicit.reservoirs) == 3
 
 
 def test_maybe_patch_short_circuits_on_no_plp_embalses(

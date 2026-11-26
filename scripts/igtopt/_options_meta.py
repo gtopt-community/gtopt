@@ -12,8 +12,10 @@ from __future__ import annotations
 
 from gtopt_shared.options_meta import (
     CASCADE_OPTION_KEYS,
+    GAS_OPTION_KEYS,
     MODEL_OPTION_KEYS,
     MONOLITHIC_OPTION_KEYS,
+    SANITY_OPTION_KEYS,
     SDDP_OPTION_KEYS,
     SIMULATION_OPTION_KEYS,
     SOLVER_OPTION_KEYS,
@@ -23,8 +25,10 @@ from gtopt_shared.options_meta import (
 
 __all__ = [
     "CASCADE_OPTION_KEYS",
+    "GAS_OPTION_KEYS",
     "MODEL_OPTION_KEYS",
     "MONOLITHIC_OPTION_KEYS",
+    "SANITY_OPTION_KEYS",
     "SDDP_OPTION_KEYS",
     "SIMULATION_OPTION_KEYS",
     "SOLVER_OPTION_KEYS",

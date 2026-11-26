@@ -131,6 +131,40 @@ def test_plp_legacy_switches_method(monkeypatch: pytest.MonkeyPatch) -> None:
     assert args.method == "sddp"
 
 
+@pytest.mark.parametrize("flag", ["--legacy-profile=cen", "--plp-legacy"])
+def test_legacy_profile_cen_and_alias(
+    flag: str, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """``--legacy-profile cen`` and the deprecated ``--plp-legacy`` apply the
+    same toggle set; an explicit flag keeps its value; the options record
+    the profile and the applied toggles."""
+    argv = [str(_MIN), flag, "--line-losses-mode", "tangent_signed_flow"]
+    monkeypatch.setattr(sys, "argv", ["plp2gtopt", *argv])
+    args = make_parser().parse_args(argv)
+    with caplog.at_level("INFO"):
+        opts = build_options(args)
+    assert opts["legacy_profile"] == "cen"
+    assert opts["plp_legacy"] is True
+    assert args.pasada_mode == "flow-turbine"
+    assert args.use_line_losses is True
+    assert args.line_losses_mode == "tangent_signed_flow"  # explicit wins
+    assert "line_losses_mode=piecewise_direct" not in opts["legacy_toggles"]
+    assert "pasada_mode=flow-turbine" in opts["legacy_toggles"]
+    assert "--legacy-profile cen: applying" in caplog.text
+    deprecated = "--plp-legacy is deprecated" in caplog.text
+    assert deprecated is (flag == "--plp-legacy")
+
+
+def test_no_legacy_profile_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["plp2gtopt", str(_MIN)])
+    args = make_parser().parse_args([str(_MIN)])
+    opts = build_options(args)
+    assert opts["legacy_profile"] is None
+    assert opts["legacy_toggles"] == []
+    assert opts["plp_legacy"] is False
+    assert args.line_losses_mode == "tangent_signed_flow"
+
+
 def test_build_options_scale_theta_left_to_gtopt(tmp_path: Path) -> None:
     """Without --scale-theta the θ scale is not emitted (C++ auto-scales)."""
     for mode in ("node_angle", "cycle_basis"):

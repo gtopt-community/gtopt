@@ -18,6 +18,7 @@
       "subconductors": 1,
       "tmax_conductor": 75.0,
       "conductor_height": 16.0,
+   "attachment_height": 24.0,
       "tower": "Lattice steel, single or double circuit, about 30-40 m; attachment of the lowest phase about 22-26 m, sag at design temperature about 8-11 m, so the mean conductor height along a span is about 15-18 m."
     },
     "500": {
@@ -31,8 +32,9 @@
       "subconductors": 4,
       "tmax_conductor": 65.0,
       "conductor_height": 24.0,
+   "attachment_height": 32.5,
       "tower": "Lattice steel, single circuit (horizontal or delta) or double circuit, about 40-50 m; attachment about 30-35 m, sag about 12-15 m, mean conductor height about 22-26 m."
     }
   },
-  "notes": "Diameter from the section with D = 1.15 sqrt(4 A / pi) (stranded round wire; Flint 375.4 mm2 -> 25.2 mm). r20 is per sub-conductor (CEN gives the per-phase positive-sequence R20). The conductor height has no CEN field: it is the mean height of the lowest phase along a span (attachment height minus about 2/3 of the sag at design temperature). 104 of 143 XLSX structure lists carry a sag column (flecha) but only 8 a height column, so per-span heights are not derived yet."
+  "notes": "Diameter from the section with D = 1.15 sqrt(4 A / pi) (stranded round wire; Flint 375.4 mm2 -> 25.2 mm). r20 is per sub-conductor (CEN gives the per-phase positive-sequence R20). The conductor height has no CEN field: it is the mean height of the lowest phase along a span (attachment height minus about 2/3 of the sag at design temperature). 104 of 143 XLSX structure lists carry a sag column (flecha) but only 8 a height column, so heights are derived per span only with 'spans --heights derive' (attachment_height: typical lowest-phase attachment of the class, used when neither the structure list nor a tower-geometry JSON gives one)."
 }

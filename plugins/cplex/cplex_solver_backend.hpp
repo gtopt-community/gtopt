@@ -336,6 +336,24 @@ private:
   /// carried into `clone()` alongside the native `CPXcloneprob` copy.
   double m_obj_offset_ {0.0};
 
+  void save_sos_sets();
+  void restore_sos_sets();
+
+  /// SOS sets saved by ``relax_all_integers``.  ``CPXchgprobtype`` to
+  /// LP/QP discards the SOS information together with the ctypes, so
+  /// ``restore_integers`` re-adds these sets after re-imposing the
+  /// integer ctypes; without that, every MIP solved after a relax /
+  /// restore round-trip (the MIP-start stage) silently ignored its SOS2
+  /// loss ladders.  Empty when the relaxed problem had no SOS.
+  struct SavedSos
+  {
+    std::vector<char> type;
+    std::vector<int> beg;
+    std::vector<int> ind;
+    std::vector<double> wt;
+  };
+  std::optional<SavedSos> m_relaxed_sos_ {};
+
   /// Snapshot of the CPLEX numerical-robustness parameters captured by
   /// engage_robust_solve().  When set, disengage_robust_solve() restores
   /// the saved values.  Repeated engage calls keep this snapshot

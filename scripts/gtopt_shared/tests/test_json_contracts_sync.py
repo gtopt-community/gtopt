@@ -241,6 +241,99 @@ def test_field_meta_columns_match_contract(sheet: str) -> None:
     assert not missing, f"{sheet}: contract fields without a column: {sorted(missing)}"
 
 
+#: FIELD_META help-row types accepted for each contract member kind.
+_KIND_TYPES = {
+    "number": {"number", "integer", "integer (0/1)"},
+    "bool": {"boolean (true/false)"},
+    "string": {"string"},
+    "custom": {"string"},
+    "variant": {
+        "number | array | filename",
+        "integer | array | filename",
+        "integer or string (uid or name)",
+        "integer or string",
+        "JSON array",
+        "JSON object",
+    },
+    "array": {"JSON array"},
+    "class": {"JSON object", "JSON array"},
+}
+
+
+@pytest.mark.parametrize(
+    "sheet", sorted(set(FIELD_META) - set(FIELD_META_OPTION_ENTRIES))
+)
+def test_field_meta_types_match_contract_kinds(sheet: str) -> None:
+    """The help-row type of every column matches the C++ member kind."""
+    contract = _all_arrays().get(sheet)
+    if contract is None:
+        pytest.skip(f"{sheet} is not a contract array")
+    kinds = _types()[contract]["kinds"]
+    bad = [
+        f"{field}: {jtype!r} for a {kinds[field]} member"
+        for field, jtype, *_rest in FIELD_META[sheet]
+        if field in kinds and jtype not in _KIND_TYPES[kinds[field]]
+    ]
+    assert not bad, bad
+
+
+@pytest.mark.parametrize(
+    "sheet", sorted(set(FIELD_META) - set(FIELD_META_OPTION_ENTRIES))
+)
+def test_field_meta_marks_contract_required_fields(sheet: str) -> None:
+    """A non-nullable C++ member is a required (dark-blue) column."""
+    contract = _all_arrays().get(sheet)
+    if contract is None:
+        pytest.skip(f"{sheet} is not a contract array")
+    required = set(_types()[contract]["required"])
+    flagged = {row[0] for row in FIELD_META[sheet] if row[2]}
+    assert required <= flagged, sorted(required - flagged)
+
+
+# ── live gtopt --json-schema ───────────────────────────────────────────────
+
+
+@pytest.fixture(scope="module")
+def live_schema() -> dict[str, Any]:
+    schema = jc.gtopt_json_schema()
+    if schema is None:
+        pytest.skip(
+            "no gtopt binary with the full `--json-schema` dump "
+            "(set GTOPT_BIN to a fresh build)"
+        )
+    return schema
+
+
+def test_live_schema_matches_snapshot(live_schema: dict[str, Any]) -> None:
+    """The compiled contract (gtopt --json-schema) equals the header snapshot.
+
+    Catches what the header parser cannot see (macro-generated members,
+    renamed types) and a stale snapshot; together with the FIELD_META
+    tests above it fails whenever a C++ field is missing from igtopt.
+    """
+    live = jc.types_from_json_schema(live_schema)
+    problems = jc.contract_diff(live, _types())
+    assert not problems, "\n".join(problems)
+
+
+def test_live_schema_template_is_fully_documented(
+    live_schema: dict[str, Any],
+) -> None:
+    from igtopt.template_builder import (  # pylint: disable=import-outside-toplevel
+        TemplateContract,
+    )
+
+    contract = TemplateContract(
+        types=jc.types_from_json_schema(live_schema), source="gtopt"
+    )
+    gaps = {
+        sheet: contract.undocumented(sheet) + contract.stale(sheet)
+        for section in ("Simulation", "System")
+        for sheet in contract.arrays(section)
+    }
+    assert not {k: v for k, v in gaps.items() if v}
+
+
 # ── options partitions ─────────────────────────────────────────────────────
 
 _PARTITIONS = (
@@ -256,6 +349,9 @@ _PARTITIONS = (
         "LpMatrixOptions",
         frozenset({"validation", "solver_name"}),
     ),
+    ("GAS_OPTION_KEYS", "GasOptions", frozenset()),
+    ("SANITY_OPTION_KEYS", "SanityOptions", frozenset()),
+    ("CASCADE_OPTION_KEYS", "CascadeOptions", frozenset()),
 )
 
 
@@ -307,12 +403,83 @@ def test_options_sheet_rows_are_accepted() -> None:
     assert not issues, [i.message for i in issues]
 
 
+#: ``options`` sub-objects and the flat-sheet prefix of their keys.
+_OPTION_SECTIONS = {
+    "model_options": "",
+    "sddp_options": "",
+    "lp_matrix_options": "",
+    "gas_options": "",
+    "solver_options": "solver_",
+    "monolithic_options": "monolithic_",
+    "sanity_options": "sanity_",
+    "cascade_options": "cascade_",
+}
+
+#: Contract option fields with no options-sheet row on purpose.
+_OPTIONS_SHEET_WAIVED = {
+    # JSON-only nested block / solver pin recorded in gtopt_state.json
+    ("LpMatrixOptions", "validation"),
+    ("LpMatrixOptions", "solver_name"),
+}
+
+
+def test_options_sheet_has_a_row_for_every_option() -> None:
+    """Every (non-deprecated) option gtopt accepts is an options-sheet row."""
+    types = _types()
+    rows = {key for key, _d, _v in options_meta.OPTIONS_FIELDS}
+    rows |= options_meta.LEGACY_OPTION_KEY_ALIASES
+    po = types["PlanningOptions"]
+    missing = [f for f in po["fields"] if f not in po["nested"] and f not in rows]
+    for section, contract in po["nested"].items():
+        if section == "variable_scales":
+            assert "variable_scales" in rows
+            continue
+        prefix = _OPTION_SECTIONS[section]
+        for f in types[contract]["fields"]:
+            if f in jc.DEPRECATED_KEYS.get(contract, {}):
+                continue
+            if f in jc.REMOVED_KEYS.get(contract, {}):
+                continue  # tools must not emit removed keys
+            if (contract, f) in _OPTIONS_SHEET_WAIVED:
+                continue
+            if prefix + f not in rows:
+                missing.append(f"{section}.{f} (row {prefix + f})")
+    assert not missing, missing
+
+
+def test_options_sheet_json_rows_route_to_their_section() -> None:
+    """JSON-valued option rows (objects / arrays) land on the right key."""
+    flat = {
+        "cascade_level_array": [{"name": "l0"}],
+        "cascade_sddp_options": {"max_iterations": 3},
+        "forward_solver_options": {"algorithm": "dual"},
+        "monolithic_mip_start": {"enabled": True},
+        "sanity_enable": False,
+        "slp_iterations": 2,
+    }
+    planning = _nest_options(dict(flat))
+    opts = planning["options"]
+    assert opts["cascade_options"] == {
+        "level_array": [{"name": "l0"}],
+        "sddp_options": {"max_iterations": 3},
+    }
+    assert opts["sddp_options"]["forward_solver_options"] == {"algorithm": "dual"}
+    assert opts["monolithic_options"]["mip_start"] == {"enabled": True}
+    assert opts["sanity_options"] == {"enable": False}
+    assert opts["gas_options"] == {"slp_iterations": 2}
+    assert not jc.find_schema_problems(planning)
+
+
 @pytest.mark.parametrize("name,contract,waived", _PARTITIONS)
 def test_every_partition_key_routes_to_its_contract(
     name: str, contract: str, waived: frozenset[str]
 ) -> None:
     del contract
-    prefix = {"SOLVER_OPTION_KEYS": "solver_"}.get(name, "")
+    prefix = {
+        "SOLVER_OPTION_KEYS": "solver_",
+        "SANITY_OPTION_KEYS": "sanity_",
+        "CASCADE_OPTION_KEYS": "cascade_",
+    }.get(name, "")
     keys = set(getattr(options_meta, name)) - waived
     keys -= set(options_meta.INTENTIONAL_OPTION_KEY_OVERLAPS)
     keys -= {
@@ -320,6 +487,9 @@ def test_every_partition_key_routes_to_its_contract(
         "mip_start",
         "forward_solver_options",
         "backward_solver_options",
+        # nested-object cascade keys hold a JSON value, not a scalar
+        "model_options",
+        "sddp_options",
     }
     flat = {f"{prefix}{k}": 1 for k in keys}
     issues = [
@@ -334,6 +504,9 @@ def test_every_partition_key_routes_to_its_contract(
 
 _SAMPLE = {
     "integer": 1,
+    "integer (0/1)": 1,
+    "integer | array | filename": 1,
+    "integer or string": 1,
     "number": 1.5,
     "string": "x",
     "boolean (true/false)": True,

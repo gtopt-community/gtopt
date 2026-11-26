@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
+#include <algorithm>
 #include <string>
 #include <string_view>
 
@@ -37,38 +38,98 @@ namespace
 
 }  // namespace test_json_schema_detail
 
-TEST_CASE("dump_json_schema default (options) schema")  // NOLINT
+TEST_CASE("dump_json_schema default is the full Planning scheme")  // NOLINT
 {
   using test_json_schema_detail::is_valid_json;
 
-  SUBCASE("default (empty name) yields a valid options schema")
-  {
-    const std::string schema = dump_json_schema();
+  const std::string schema = dump_json_schema();
 
+  SUBCASE("valid draft 2020-12 JSON rooted at Planning")
+  {
     CHECK(!schema.empty());
     CHECK(schema.front() == '{');
     CHECK(is_valid_json(schema));
-
-    // Draft 2020-12 schema preamble and object shape.
     CHECK(schema.find(R"("$schema")") != std::string::npos);
-    CHECK(schema.find(R"("type")") != std::string::npos);
-    CHECK(schema.find("gtopt.PlanningOptions") != std::string::npos);
+    CHECK(schema.find(R"("$ref": "#/$defs/Planning")") != std::string::npos);
+    CHECK(schema.find("gtopt.Planning") != std::string::npos);
+  }
 
-    // PlanningOptions' json_data_contract maps these properties.
-    CHECK(schema.find(R"("input_directory")") != std::string::npos);
-    CHECK(schema.find(R"("output_directory")") != std::string::npos);
-    CHECK(schema.find(R"("method")") != std::string::npos);
+  SUBCASE("every System element array is described")
+  {
+    for (const auto* key :
+         {
+             R"("bus_array")",
+             R"("generator_array")",
+             R"("gas_node_array")",
+             R"("gas_pipe_array")",
+             R"("gas_compressor_array")",
+             R"("gas_supply_array")",
+             R"("gas_demand_array")",
+             R"("gas_turbine_array")",
+             R"("lng_terminal_array")",
+             R"("hydrogen_node_array")",
+             R"("ammonia_storage_array")",
+             R"("carrier_converter_array")",
+             R"("allowance_pool_array")",
+             R"("line_commitment_array")",
+             R"("inertia_zone_array")",
+             R"("decision_variable_array")",
+             R"("user_model_array")",
+         })
+    {
+      CAPTURE(key);
+      CHECK(schema.find(key) != std::string::npos);
+    }
+  }
+
+  SUBCASE("element types get their own $defs with contract fields")
+  {
+    CHECK(schema.find(R"("GasPipe": {)") != std::string::npos);
+    CHECK(schema.find(R"("LngTerminal": {)") != std::string::npos);
+    CHECK(schema.find(R"("linepack")") != std::string::npos);
+    CHECK(schema.find(R"("exclusive_charge_discharge")") != std::string::npos);
+    CHECK(schema.find(R"("initial_generation")") != std::string::npos);
+    CHECK(schema.find(R"($ref": "#/$defs/GasPipe")") != std::string::npos);
+  }
+
+  SUBCASE("field schedules render as oneOf (number | array | file)")
+  {
+    // Bare scalar alternatives are the case daw's own generator cannot
+    // render; the bespoke emitter deduces them.
+    CHECK(schema.find(R"("oneOf": [{"type": "number"}, {"type": "array")")
+          != std::string::npos);
+  }
+
+  SUBCASE("explicit 'planning' matches the default, case-insensitive")
+  {
+    CHECK(dump_json_schema("planning") == schema);
+    CHECK(dump_json_schema("PLANNING") == schema);
+  }
+}
+
+TEST_CASE("dump_json_schema selects a sub-type root")  // NOLINT
+{
+  using test_json_schema_detail::is_valid_json;
+
+  SUBCASE("options -> PlanningOptions only")
+  {
+    const auto schema = dump_json_schema("options");
+    CHECK(is_valid_json(schema));
+    CHECK(schema.find(R"("$ref": "#/$defs/PlanningOptions")")
+          != std::string::npos);
     CHECK(schema.find(R"("sddp_options")") != std::string::npos);
+    CHECK(schema.find(R"("GasOptions": {)") != std::string::npos);
+    // Pruned to what PlanningOptions reaches: no System elements.
+    CHECK(schema.find(R"("Generator": {)") == std::string::npos);
   }
 
-  SUBCASE("explicit 'options' matches the default")
+  SUBCASE("snake_case and C++ spellings of an element type")
   {
-    CHECK(dump_json_schema("options") == dump_json_schema());
-  }
-
-  SUBCASE("name match is case-insensitive")
-  {
-    CHECK(dump_json_schema("OPTIONS") == dump_json_schema());
+    const auto snake = dump_json_schema("gas_pipe");
+    CHECK(is_valid_json(snake));
+    CHECK(snake.find(R"("$ref": "#/$defs/GasPipe")") != std::string::npos);
+    CHECK(dump_json_schema("GasPipe") == snake);
+    CHECK(snake.find(R"("System": {)") == std::string::npos);
   }
 }
 
@@ -76,16 +137,20 @@ TEST_CASE("dump_json_schema known names render valid JSON")  // NOLINT
 {
   using test_json_schema_detail::is_valid_json;
 
-  SUBCASE("known_schema_names is non-empty and 'options' is the default")
+  SUBCASE("planning is the default, options second, element types follow")
   {
     const auto& names = known_schema_names();
-    REQUIRE(!names.empty());
-    CHECK(names.front() == std::string_view {"options"});
+    REQUIRE(names.size() > 50);
+    CHECK(names[0] == std::string_view {"planning"});
+    CHECK(names[1] == std::string_view {"options"});
+    CHECK(std::ranges::find(names, std::string_view {"lng_terminal"})
+          != names.end());
   }
 
   SUBCASE("every advertised name renders valid, non-empty JSON")
   {
     for (const auto name : known_schema_names()) {
+      CAPTURE(name);
       const std::string schema = dump_json_schema(name);
       CHECK(!schema.empty());
       CHECK(is_valid_json(schema));

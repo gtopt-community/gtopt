@@ -764,6 +764,97 @@ TEST_CASE("line_thermal_limit duals: thermal row vs flow bound")  // NOLINT
   CHECK(row_dual(full_fx.lp(), "line_thermaln_") == doctest::Approx(0.0));
 }
 
+TEST_CASE("line_thermal_limit duals: LMP decomposition and tolls")  // NOLINT
+{
+  // Split allocation (a = ½): sending-end power P_s = f + ℓ/2, delivered
+  // power P_r = f − ℓ/2.  Envelope 120 MW, K = 4 ⇒ 30 MW segments; every
+  // operating point (f = 100 / 95.4 / 91.6) lies in the top segment with
+  // marginal loss s = c·30·7 = 0.21.  π1 = 10 (g1), π2 = 100 (g2) in all
+  // modes, so 1 MW more line flow is worth
+  //   V = π2·(1 − (1−a)·s) − π1·(1 + a·s)
+  // and the limit dual is V / h'(f) for the limited quantity h:
+  //   lossless  h = f          y = −(π2 − π1)
+  //   flow      h = f          rc(f) + s·rc(ℓ) = −V   (column bounds)
+  //   sending   h = f + a·ℓ    y = −V/(1 + a·s) = −(π2·r − π1),
+  //                            r = dP_r/dP_s = (1 − (1−a)s)/(1 + a·s)
+  //   full      h = f + ℓ      y = −V/(1 + s)
+  // `sending` is the congestion part of the LMP difference measured at
+  // the sending end: π2 − π1 = μ + π2·(1 − r), whatever the allocation.
+  // The tariff income IT = π2·P_r − π1·P_s splits into the FTR-style
+  // congestion rent μ·T plus the loss rent π2·(P_r − r·P_s).
+  constexpr double kEnvelope = 120.0;
+  constexpr double kS = kLossK * 30.0 * 7.0;
+  constexpr double kA = 0.5;
+  const double value =
+      (kDear * (1.0 - ((1.0 - kA) * kS))) - (kCheap * (1.0 + (kA * kS)));
+  const double ratio = (1.0 - ((1.0 - kA) * kS)) / (1.0 + (kA * kS));
+
+  SUBCASE("lossless: dual equals the LMP difference")
+  {
+    Fixture fx({.mode = "none", .loss_cost_eps = 0.0});
+    REQUIRE(fx.lp().resolve().value_or(-1) == 0);
+    const double pi1 = row_dual(fx.lp(), "bus_balance_1_");
+    const double pi2 = row_dual(fx.lp(), "bus_balance_2_");
+    CHECK(pi1 == doctest::Approx(kCheap));
+    CHECK(pi2 == doctest::Approx(kDear));
+    CHECK(col_rc(fx.lp(), "line_flowp_") == doctest::Approx(-(pi2 - pi1)));
+  }
+
+  SUBCASE("flow: the rent sits on the column bounds")
+  {
+    // Legacy segment layout (`loss_segment_bound = false`), as in the
+    // "thermal row vs flow bound" test: the ordered-fill bound caps the
+    // top segment at tmax - 90 MW and takes part of the rent.
+    Fixture fx({
+        .allocation = "split",
+        .envelope = kEnvelope,
+        .loss_cost_eps = 0.0,
+        .segment_bound = false,
+    });
+    const auto r = solve(fx);
+    CHECK(r.fp == doctest::Approx(kTmax));
+    const double rc =
+        col_rc(fx.lp(), "line_flowp_") + (kS * col_rc(fx.lp(), "line_lossp_"));
+    CHECK(rc == doctest::Approx(-value).epsilon(1e-6));
+  }
+
+  for (const auto* mode : {"sending", "full"}) {
+    CAPTURE(mode);
+    const bool sending = std::string_view {mode} == "sending";
+    Fixture fx({.allocation = "split",
+                .line_limit = mode,
+                .envelope = kEnvelope,
+                .loss_cost_eps = 0.0});
+    const auto r = solve(fx);
+    const double pi1 = row_dual(fx.lp(), "bus_balance_1_");
+    const double pi2 = row_dual(fx.lp(), "bus_balance_2_");
+    const double y = row_dual(fx.lp(), "line_thermalp_");
+    CHECK(pi1 == doctest::Approx(kCheap));
+    CHECK(pi2 == doctest::Approx(kDear));
+    const double share = sending ? kA : 1.0;
+    CHECK(y == doctest::Approx(-value / (1.0 + (share * kS))).epsilon(1e-6));
+    const double p_send = r.fp + (kA * r.lossp);
+    const double p_recv = r.fp - ((1.0 - kA) * r.lossp);
+    CHECK(r.fp + (share * r.lossp) == doctest::Approx(kTmax).epsilon(1e-6));
+    const double income = (pi2 * p_recv) - (pi1 * p_send);
+    if (sending) {
+      // Physical sending-end limit: μ = π2·r − π1, and
+      // IT = μ·T + π2·(P_r − r·P_s)   (congestion rent + loss rent).
+      CHECK(-y == doctest::Approx((pi2 * ratio) - pi1).epsilon(1e-6));
+      CHECK(
+          income
+          == doctest::Approx((-y * kTmax) + (pi2 * (p_recv - (ratio * p_send))))
+                 .epsilon(1e-6));
+    }
+    // Generic identity: IT = V·f + (s·f − ℓ)·((1−a)·π2 + a·π1).
+    CHECK(income
+          == doctest::Approx((value * r.fp)
+                             + (((kS * r.fp) - r.lossp)
+                                * (((1.0 - kA) * pi2) + (kA * pi1))))
+                 .epsilon(1e-6));
+  }
+}
+
 TEST_CASE("line_thermal_limit duals are written to the Line output")  // NOLINT
 {
   const auto dir =

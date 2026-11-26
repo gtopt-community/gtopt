@@ -165,6 +165,7 @@ def build_options(
     loss_secant_segments: int | None = None,
     line_losses_mode: str | None = None,
     write_out: str | None = None,
+    reserve_shortage_cost: float | None | str = "default",
 ) -> dict[str, Any]:
     """Map :class:`BundleSpec` onto gtopt's ``options`` block.
 
@@ -240,7 +241,18 @@ def build_options(
             # reserve is held as strongly as possible (matching PLEXOS's full
             # provision) yet a shortage is always preferred over shedding load,
             # removing the hard-floor infeasibility.
-            "reserve_shortage_cost": max(demand_fail_cost - 1.0, 0.0),
+            #
+            # ``reserve_shortage_cost`` = ``None``: no global cost, so every
+            # zone without its own cost is HARD (native CEN reserves:
+            # PLEXOS's VoRS DVs are excluded feasibility switches); a
+            # float is the explicit ``--soft-unpenalised-constraints`` P.
+            **(
+                {"reserve_shortage_cost": max(demand_fail_cost - 1.0, 0.0)}
+                if reserve_shortage_cost == "default"
+                else {}
+                if reserve_shortage_cost is None
+                else {"reserve_shortage_cost": float(reserve_shortage_cost)}
+            ),
             # ``loss_cost_eps`` is emitted ONLY when set (``None`` =
             # flag not passed -> gtopt's built-in 0.1 $/MWh applies).
             # An explicit 0 IS emitted: it is the only way to disable ε.
@@ -3139,6 +3151,17 @@ def build_decision_variable_array(
     out: list[dict[str, Any]] = []
     for i, dv in enumerate(decision_variables):
         entry: dict[str, Any] = {"uid": i + 1, "name": dv.name}
+        if not dv.active:
+            # Excluded from the PLEXOS ST run (``Include in ST Schedule``
+            # = 0 under the solved Model's scenarios): the variable does
+            # not exist there, so it is pinned at 0 with no cost.
+            entry.update(lower_bound=0.0, upper_bound=0.0)
+            entry["description"] = (
+                "PLEXOS Include in ST Schedule = 0 (scenario-resolved): "
+                "not in the ST run, pinned at 0"
+            )
+            out.append(entry)
+            continue
         if dv.lower_bound is not None:
             entry["lower_bound"] = dv.lower_bound
         if dv.upper_bound is not None:
@@ -4365,6 +4388,13 @@ def build_planning(  # pylint: disable=too-many-arguments
             loss_secant_segments=loss_secant_segments,
             line_losses_mode=line_losses_mode,
             write_out=write_out,
+            reserve_shortage_cost=(
+                case.reserve_soft_penalty
+                if case.reserve_soft_penalty is not None
+                else None
+                if case.hard_reserves
+                else "default"
+            ),
         ),
         "simulation": build_simulation(case.bundle),
         "system": system,

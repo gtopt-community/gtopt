@@ -43,94 +43,6 @@ class TestFindRepoRoot:
 
 
 # ---------------------------------------------------------------------------
-# parse_json_header_fields
-# ---------------------------------------------------------------------------
-
-
-class TestParseJsonHeaderFields:
-    """Tests for parse_json_header_fields() header parsing."""
-
-    def test_parse_json_header_fields_basic(self, tmp_path):
-        """Header with two json_member entries extracts both names."""
-        header = tmp_path / "test.hpp"
-        header.write_text(
-            'json_member<"field1", int> f1;\njson_member<"field2", std::string> f2;\n'
-        )
-        result = tb.parse_json_header_fields(header)
-        assert result == ["field1", "field2"]
-
-    def test_parse_json_header_fields_deduplication(self, tmp_path):
-        """Duplicate field names are deduplicated, preserving first occurrence."""
-        header = tmp_path / "test.hpp"
-        header.write_text(
-            'json_member<"uid", int> uid1;\n'
-            'json_member<"uid", int> uid2;\n'
-            'json_member<"name", std::string> n;\n'
-        )
-        result = tb.parse_json_header_fields(header)
-        assert result == ["uid", "name"]
-
-    def test_parse_json_header_fields_empty(self, tmp_path):
-        """Header with no matching patterns returns empty list."""
-        header = tmp_path / "test.hpp"
-        header.write_text("struct Foo { int x; };\n")
-        result = tb.parse_json_header_fields(header)
-        assert not result
-
-
-# ---------------------------------------------------------------------------
-# parse_system_arrays
-# ---------------------------------------------------------------------------
-
-
-class TestParseSystemArrays:
-    """Tests for parse_system_arrays() hpp parsing."""
-
-    def test_parse_system_arrays_basic(self, tmp_path):
-        """Synthetic hpp with two json_array_null entries extracts both names."""
-        hpp = tmp_path / "json_system.hpp"
-        hpp.write_text(
-            'json_array_null<"bus_array", BusArray> bus_array;\n'
-            'json_array_null<"generator_array", GenArray> gen_array;\n'
-        )
-        result = tb.parse_system_arrays(hpp)
-        assert result == ["bus_array", "generator_array"]
-
-    def test_parse_system_arrays_empty(self, tmp_path):
-        """No json_array_null entries returns empty list."""
-        hpp = tmp_path / "json_system.hpp"
-        hpp.write_text("struct SystemJson { int x; };\n")
-        result = tb.parse_system_arrays(hpp)
-        assert not result
-
-
-# ---------------------------------------------------------------------------
-# parse_simulation_arrays
-# ---------------------------------------------------------------------------
-
-
-class TestParseSimulationArrays:
-    """Tests for parse_simulation_arrays() hpp parsing."""
-
-    def test_parse_simulation_arrays_basic(self, tmp_path):
-        """Synthetic hpp extracts simulation array names."""
-        hpp = tmp_path / "json_simulation.hpp"
-        hpp.write_text(
-            'json_array_null<"block_array", BlockArray> ba;\n'
-            'json_array_null<"stage_array", StageArray> sa;\n'
-        )
-        result = tb.parse_simulation_arrays(hpp)
-        assert result == ["block_array", "stage_array"]
-
-    def test_parse_simulation_arrays_empty(self, tmp_path):
-        """No matches returns empty list."""
-        hpp = tmp_path / "json_simulation.hpp"
-        hpp.write_text("// no array fields here\n")
-        result = tb.parse_simulation_arrays(hpp)
-        assert not result
-
-
-# ---------------------------------------------------------------------------
 # _build_workbook and _list_sheets – fixtures
 # ---------------------------------------------------------------------------
 
@@ -142,21 +54,17 @@ def repo_root():
 
 
 @pytest.fixture(scope="module")
-def header_dir(repo_root):
-    """Return the include/gtopt header directory, skip if not found."""
-    pytest.importorskip("openpyxl")
-    hdir = repo_root / "include" / "gtopt"
-    if not hdir.is_dir():
-        pytest.skip("C++ header directory not found")
-    return hdir
+def contract():
+    """The bundled snapshot contract (deterministic, no gtopt binary)."""
+    return tb.load_template_contract("snapshot")
 
 
 @pytest.fixture(scope="module")
-def generated_workbook(tmp_path_factory, header_dir):
+def generated_workbook(tmp_path_factory, contract):
     """Generate the template workbook once and share across tests in the module."""
     openpyxl = pytest.importorskip("openpyxl")
     out = tmp_path_factory.mktemp("tmpl") / "test_template.xlsx"
-    tb._build_workbook(out, header_dir)
+    tb._build_workbook(out, contract)
     return openpyxl.load_workbook(out)
 
 
@@ -168,10 +76,11 @@ def generated_workbook(tmp_path_factory, header_dir):
 class TestBuildWorkbook:
     """Tests for _build_workbook() workbook generation."""
 
-    def test_build_workbook_creates_file(self, tmp_path, header_dir):
-        """_build_workbook writes a .xlsx file to the given path."""
+    def test_build_workbook_creates_file(self, tmp_path):
+        """_build_workbook writes a .xlsx file (default: snapshot contract)."""
+        pytest.importorskip("openpyxl")
         output = tmp_path / "template.xlsx"
-        tb._build_workbook(output, header_dir)
+        tb._build_workbook(output)
         assert output.exists()
         assert output.stat().st_size > 0
 
@@ -201,6 +110,111 @@ class TestBuildWorkbook:
         sheets = set(generated_workbook.sheetnames)
         assert required.issubset(sheets), f"Missing sheets: {required - sheets}"
 
+    def test_build_workbook_covers_every_contract_array(
+        self, generated_workbook, contract
+    ):
+        """One sheet per Simulation/System array except the excluded ones."""
+        sheets = set(generated_workbook.sheetnames)
+        for section in ("Simulation", "System"):
+            arrays = set(contract.types[section]["nested"]) - set(
+                tb.TEMPLATE_EXCLUDED_ARRAYS
+            )
+            arrays = {a for a in arrays if a.endswith("_array")}
+            assert arrays <= sheets, sorted(arrays - sheets)
+
+    @pytest.mark.parametrize(
+        "sheet",
+        [
+            "gas_node_array",
+            "gas_pipe_array",
+            "gas_compressor_array",
+            "gas_supply_array",
+            "gas_demand_array",
+            "gas_turbine_array",
+            "lng_terminal_array",
+            "hydrogen_storage_array",
+            "carrier_converter_array",
+            "allowance_pool_array",
+            "line_commitment_array",
+            "inertia_provision_array",
+            "decision_variable_array",
+        ],
+    )
+    def test_new_element_sheets_have_every_contract_column(
+        self, generated_workbook, contract, sheet
+    ):
+        header = [c.value for c in generated_workbook[sheet][1] if c.value]
+        cxx = contract.types[contract.element_type(sheet)]["fields"]
+        assert set(cxx) <= set(header), sorted(set(cxx) - set(header))
+
+
+# ---------------------------------------------------------------------------
+# TemplateContract
+# ---------------------------------------------------------------------------
+
+
+class TestTemplateContract:
+    """Columns come from the contract; FIELD_META supplies the help text."""
+
+    def _fake(self) -> tb.TemplateContract:
+        return tb.TemplateContract(
+            types={
+                "System": {
+                    "fields": ["name", "bus_array", "user_model_array"],
+                    "nested": {"bus_array": "Bus", "user_model_array": "UserModel"},
+                },
+                "Bus": {
+                    "fields": ["uid", "name", "brand_new"],
+                    "required": ["uid", "name", "brand_new"],
+                    "kinds": {"uid": "number", "name": "string", "brand_new": "bool"},
+                    "nested": {},
+                },
+            },
+            source="fake",
+        )
+
+    def test_arrays_skip_excluded_and_scalars(self):
+        assert self._fake().arrays("System") == ["bus_array"]
+        assert not self._fake().arrays("Simulation")
+
+    def test_undocumented_field_gets_generated_column(self):
+        c = self._fake()
+        rows = {r[0]: r for r in c.sheet_fields("bus_array")}
+        assert rows["brand_new"][1] == "boolean (true/false)"
+        assert rows["brand_new"][2] is True
+        assert "undocumented" in rows["brand_new"][3]
+        assert c.undocumented("bus_array") == ["brand_new"]
+
+    def test_stale_field_meta_columns_are_dropped(self):
+        c = self._fake()
+        cols = [r[0] for r in c.sheet_fields("bus_array")]
+        assert "voltage" not in cols  # FIELD_META column the fake rejects
+        assert "voltage" in c.stale("bus_array")
+
+    def test_unknown_sheet_falls_back_to_field_meta(self):
+        c = self._fake()
+        assert c.element_type("no_such_array") is None
+        assert not c.stale("no_such_array")
+        assert c.sheet_fields("block_array") == list(tb.FIELD_META["block_array"])
+
+    def test_build_array_sheets_warns_on_drift(self, caplog):
+        pytest.importorskip("openpyxl")
+        import openpyxl  # pylint: disable=import-outside-toplevel
+
+        wb = openpyxl.Workbook()
+        with caplog.at_level("WARNING"):
+            tb._build_array_sheets(
+                wb, tb._WorkbookStyles(), ["bus_array"], self._fake()
+            )
+        assert "bus_array.brand_new" in caplog.text
+        assert "bus_array.voltage" in caplog.text
+
+    def test_snapshot_contract_has_no_undocumented_columns(self, contract):
+        for section in ("Simulation", "System"):
+            for sheet in contract.arrays(section):
+                assert not contract.undocumented(sheet), sheet
+                assert not contract.stale(sheet), sheet
+
 
 # ---------------------------------------------------------------------------
 # _list_sheets
@@ -210,19 +224,24 @@ class TestBuildWorkbook:
 class TestListSheets:
     """Tests for _list_sheets() stdout output."""
 
-    def test_list_sheets_output_to_stdout(self, header_dir, capsys):
+    def test_list_sheets_output_to_stdout(self, contract, capsys):
         """_list_sheets prints system sheet names to stdout."""
-        tb._list_sheets(header_dir)
+        tb._list_sheets(contract)
         captured = capsys.readouterr()
         assert "bus_array" in captured.out
-        assert "generator_array" in captured.out
+        assert "gas_pipe_array" in captured.out
+        assert "bundled contract snapshot" in captured.out
 
-    def test_list_sheets_includes_simulation_sheets(self, header_dir, capsys):
-        """_list_sheets stdout includes core simulation sheet names."""
-        tb._list_sheets(header_dir)
+    def test_list_sheets_includes_simulation_sheets(self, capsys):
+        """_list_sheets (default contract) lists the simulation sheets."""
+        tb._list_sheets()
         captured = capsys.readouterr()
         assert "block_array" in captured.out
         assert "stage_array" in captured.out
+
+    def test_list_sheets_flags_undocumented(self, capsys):
+        tb._list_sheets(TestTemplateContract()._fake())
+        assert "(1 undocumented)" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------
@@ -233,34 +252,86 @@ class TestListSheets:
 class TestMakeTemplateCli:
     """Integration tests for the --make-template CLI path in igtopt.main()."""
 
-    def test_make_template_cli_generates_file(self, tmp_path, header_dir):
+    def test_make_template_cli_generates_file(self, tmp_path):
         """--make-template with -j writes an xlsx file."""
+        pytest.importorskip("openpyxl")
         out_path = tmp_path / "t.xlsx"
         from igtopt.igtopt import main as igtopt_main
 
-        igtopt_main(["--make-template", "-j", str(out_path)])
+        igtopt_main(
+            ["--make-template", "--schema-source", "snapshot", "-j", str(out_path)]
+        )
         assert out_path.exists()
         assert out_path.stat().st_size > 0
 
-    def test_make_template_cli_list_sheets(self, header_dir, capsys):
+    def test_make_template_cli_list_sheets(self, capsys):
         """--make-template --list-sheets prints sheet names without writing a file."""
         from igtopt.igtopt import main as igtopt_main
 
-        igtopt_main(["--make-template", "--list-sheets"])
+        igtopt_main(["--make-template", "--list-sheets", "--schema-source", "snapshot"])
         captured = capsys.readouterr()
         assert "bus_array" in captured.out
         assert "block_array" in captured.out
 
-    def test_make_template_cli_missing_header_dir(self, tmp_path):
-        """--make-template with a nonexistent --header-dir exits with code 1."""
+    def test_make_template_cli_header_dir_is_deprecated(self, capsys, caplog):
+        """--header-dir is accepted but ignored with a warning."""
+        from igtopt.igtopt import main as igtopt_main
+
+        with caplog.at_level("WARNING"):
+            igtopt_main(
+                [
+                    "--list-sheets",
+                    "--schema-source",
+                    "snapshot",
+                    "--header-dir",
+                    "/nonexistent",
+                ]
+            )
+        assert "--header-dir is deprecated" in caplog.text
+        assert "bus_array" in capsys.readouterr().out
+
+    def test_make_template_cli_schema_file(self, tmp_path, capsys):
+        """--schema-file drives the template from a saved schema dump."""
+        import json  # pylint: disable=import-outside-toplevel
+
+        from igtopt.igtopt import main as igtopt_main
+
+        schema = {
+            "$defs": {
+                "Planning": {"properties": {"system": {"$ref": "#/$defs/System"}}},
+                "System": {
+                    "properties": {
+                        "bus_array": {
+                            "type": "array",
+                            "items": {"$ref": "#/$defs/Bus"},
+                        }
+                    }
+                },
+                "Bus": {
+                    "properties": {"uid": {"type": "integer"}},
+                    "required": ["uid"],
+                },
+            }
+        }
+        f = tmp_path / "schema.json"
+        f.write_text(json.dumps(schema))
+        igtopt_main(["--list-sheets", "--schema-file", str(f)])
+        out = capsys.readouterr().out
+        assert f"schema file {f}" in out
+        assert "bus_array  [1 columns]" in out
+
+    def test_make_template_cli_gtopt_unavailable(self, tmp_path):
+        """--schema-source gtopt without a usable binary exits 1."""
         from igtopt.igtopt import main as igtopt_main
 
         with pytest.raises(SystemExit) as exc_info:
             igtopt_main(
                 [
-                    "--make-template",
-                    "--header-dir",
-                    str(tmp_path / "nonexistent"),
+                    "--list-sheets",
+                    "--schema-source",
+                    "gtopt",
+                    "--gtopt-bin",
+                    str(tmp_path / "no-gtopt"),
                 ]
             )
         assert exc_info.value.code == 1

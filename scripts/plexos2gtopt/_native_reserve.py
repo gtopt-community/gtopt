@@ -44,8 +44,13 @@ native plane-based requirement (``ReserveZone.urreq_planes`` /
   BESS, line flows, constant offset; the shared
   ``limited_generation_group`` DV expanded through its defining row);
 * the provision rows' factors become ``ur_zone_factors`` /
-  ``dr_zone_factors`` on the units' existing provisions; the ``VoRS`` DV
-  cost becomes ``urcost`` / ``drcost``; a non-zero cost on the
+  ``dr_zone_factors`` on the units' existing provisions; an ACTIVE ``VoRS``
+  DV's cost becomes ``urcost`` / ``drcost`` (a labelled feasibility
+  switch); an excluded one (CEN: ``CPF_VoRS_ON`` is not a solved-model
+  scenario) leaves the zone HARD, and the case is marked
+  ``hard_reserves`` so the writer emits no global shortage cost
+  (``--soft-unpenalised-constraints P`` softens them at ``P``); a
+  non-zero cost on the
   requirement DV (PLEXOS charges 10 $/MW of requirement) is kept through
   a one-term link row ``R_dv = reserve_zone(Z).up``;
 * pure provision-sum rows (``Σ c_g·r_g [+ VoRS] >= RHS``, e.g.
@@ -189,6 +194,16 @@ class NativeReserveOptions:
     system_load: tuple[float, ...] = ()
     #: Convert the ST-excluded northern-corridor rows (opt-in).
     north_special: bool = False
+    #: ``--soft-unpenalised-constraints P``: the opt-in feasibility switch.
+    #: ``None`` (default) keeps every native zone HARD (CEN publishes no
+    #: reserve-shortage cost); ``P`` makes each zone without an active
+    #: PLEXOS switch soft at ``P``, labelled as a formulation device.
+    soft_penalty: float | None = None
+    #: ``--legacy-profile cen``: keep PLEXOS Sense-0 balances as equalities
+    #: with the priced ``−Slack`` surplus.  ``False`` (clean default): a
+    #: requirement is ``>=``, its excess free (the surplus slack is a
+    #: PLEXOS device, not part of the reserve model).
+    surplus_equality: bool = False
 
     @property
     def endogenous(self) -> bool:
@@ -233,6 +248,12 @@ class NativeReserveOptions:
             load_factor=load_factor,
             system_load=system_load,
             north_special=bool(options.get("reserve_north_special")),
+            soft_penalty=(
+                float(options["soft_unpenalised_constraints"])
+                if options.get("soft_unpenalised_constraints") is not None
+                else None
+            ),
+            surplus_equality=bool(options.get("reserve_surplus_equality")),
         )
 
 
@@ -273,6 +294,39 @@ def read_system_load_csv(path: Path) -> tuple[float, ...]:
             )
         out.append(value)
     return tuple(out)
+
+
+# ── slack classification ───────────────────────────────────────────────────
+@dataclass(frozen=True)
+class SlackRecord:
+    """One slack DV of a replaced PLEXOS reserve row, classified.
+
+    ``kind``: ``"switch"`` (``+ VoRS``, a feasibility / diagnostic switch),
+    ``"surplus"`` (``− Slack``, the priced excess that turns an equality
+    into ``>=``) or ``"excluded"`` (an unpriced DV that is not in the ST
+    run).  ``active`` is the scenario-resolved ``Include in ST Schedule``.
+    """
+
+    row: str
+    dv: str
+    kind: str
+    cost: float
+    active: bool
+
+
+def _hardness(label: str | None, cost: float) -> str:
+    """Zone description tail: how the requirement is enforced."""
+    if label == "switch":
+        return (
+            f"SOFT at {cost:g} $/MW: an ACTIVE PLEXOS feasibility switch "
+            "(VoRS DV), a formulation device, not a reserve-shortage cost"
+        )
+    if label == "soft":
+        return (
+            f"SOFT at {cost:g} $/MW (--soft-unpenalised-constraints), a "
+            "feasibility switch, not a reserve-shortage cost"
+        )
+    return "HARD (CEN publishes no reserve-shortage cost)"
 
 
 # ── expression parsing ─────────────────────────────────────────────────────
@@ -617,6 +671,10 @@ class _Zone:
     prov_row: Row
     shortage_cost: float | None = None
     surplus_cost: float | None = None
+    #: Shortage cost source: ``"switch"`` (an ACTIVE PLEXOS feasibility
+    #: switch DV), ``"soft"`` (``--soft-unpenalised-constraints``) or
+    #: ``None`` (hard).
+    shortage_source: str | None = None
     planes: list[ReservePlaneSpec] = field(default_factory=list)
     uses_inertia: bool = False
     contingency_dvs: set[str] = field(default_factory=set)
@@ -660,6 +718,9 @@ class _Builder:  # pylint: disable=too-many-instance-attributes
         self.rewritten: dict[str, UserConstraintSpec] = {}
         #: Extractor zones a native zone supersedes → that native zone.
         self.retired: dict[str, str] = {}
+        #: Every slack DV read from a replaced row, classified (see
+        #: :class:`SlackRecord`).
+        self.slacks: list[SlackRecord] = []
 
     # -- discovery ---------------------------------------------------------
     def requirement_dvs(self) -> dict[str, Row]:
@@ -771,24 +832,11 @@ class _Builder:  # pylint: disable=too-many-instance-attributes
                 f"'Σ f·r + VoRS − {req_dv} >= 0'; left as a user constraint"
             )
             return None
-        shortage: float | None = None
-        surplus: float | None = None
-        for t in prov_row.of_kind("decision_variable"):
-            if t.ref == req_dv:
-                continue
-            cost = self.dvs[t.ref].cost if t.ref in self.dvs else 0.0
-            if t.coef > 0.0 and cost > 0.0:
-                c = cost * k_r / t.coef
-                shortage = c if shortage is None else min(shortage, c)
-            elif t.coef < 0.0 < cost:
-                # ``− Slack``: the priced excess of an equality balance.
-                c = cost * k_r / -t.coef
-                surplus = c if surplus is None else min(surplus, c)
-            else:
-                self.warnings.append(
-                    f"{prov_row.spec.name}: dropped {t.coef:+g}·{t.ref} "
-                    "(it only raises the requirement at a cost)"
-                )
+        shortage, surplus = self._slack_costs(
+            prov_row,
+            (t for t in prov_row.of_kind("decision_variable") if t.ref != req_dv),
+            k_r,
+        )
         name = req_dv.removesuffix("_Requirement") or req_dv
         taken = {r.name for r in self.case.reserves}
         if name in taken:
@@ -801,7 +849,68 @@ class _Builder:  # pylint: disable=too-many-instance-attributes
             prov_row=prov_row,
             shortage_cost=shortage,
             surplus_cost=surplus,
+            shortage_source="switch" if shortage is not None else None,
         )
+
+    def _slack_costs(
+        self, row: Row, terms: Iterable[Term], k_r: float
+    ) -> tuple[float | None, float | None]:
+        """Classify the slack DVs of a replaced balance row.
+
+        Two classes, both PLEXOS *formulation devices*, never part of the
+        reserve model itself (CEN publishes no reserve-shortage cost):
+
+        * ``+ VoRS`` (positive coefficient, priced): a feasibility /
+          diagnostic switch.  When the DV is excluded from the ST run
+          (``Include in ST Schedule`` = 0 under the solved Model's
+          scenarios, e.g. ``CPF_RS5m_VoRS`` tagged only to ``CPF_VoRS_ON``)
+          it does not exist: the zone is HARD.  An active one becomes an
+          explicit soft penalty (``shortage``), labelled as such.
+        * ``− Slack`` (negative coefficient, priced, e.g. ``CPF5mUp_Slack``
+          at 1 $/MW): the surplus of an equality balance, i.e. the
+          equality emulates ``>=`` with a priced excess (``surplus``).
+
+        Returns ``(shortage, surplus)`` per MW of requirement.
+        """
+        shortage: float | None = None
+        surplus: float | None = None
+        for t in terms:
+            dv = self.dvs.get(t.ref)
+            cost = dv.cost if dv is not None else 0.0
+            active = dv is None or dv.active
+            if t.coef > 0.0 and cost > 0.0:
+                klass = "switch"
+                if active:
+                    c = cost * k_r / t.coef
+                    shortage = c if shortage is None else min(shortage, c)
+            elif t.coef < 0.0 < cost:
+                klass = "surplus"
+                if active:
+                    c = cost * k_r / -t.coef
+                    surplus = c if surplus is None else min(surplus, c)
+            elif dv is not None and not active:
+                klass = "excluded"
+            else:
+                self.warnings.append(
+                    f"{row.spec.name}: dropped {t.coef:+g}·{t.ref} "
+                    "(it only raises the requirement at a cost)"
+                )
+                continue
+            self.slacks.append(
+                SlackRecord(
+                    row=row.spec.name, dv=t.ref, kind=klass, cost=cost, active=active
+                )
+            )
+        return shortage, surplus
+
+    def _shortage(self, cost: float | None) -> tuple[float, str | None]:
+        """Zone shortage cost and its label: an active PLEXOS switch wins,
+        else ``--soft-unpenalised-constraints P``, else hard (0, unset)."""
+        if cost is not None:
+            return cost, "switch"
+        if self.opts.soft_penalty is not None:
+            return self.opts.soft_penalty, "soft"
+        return 0.0, None
 
     def _member(self, row: Row, dv: str) -> tuple[float, ...]:
         """Hourly coefficient of ``dv`` in ``row`` (dated sets resolved)."""
@@ -1101,11 +1210,12 @@ class _Builder:  # pylint: disable=too-many-instance-attributes
         planes = [self._nonnegative_contingency(p) for p in planes]
         load = self.opts
         sources = ", ".join(r.spec.name for r in zone.calc_rows)
+        cost, label = self._shortage(zone.shortage_cost)
         spec = ReserveSpec(
             object_id=0,
             name=zone.name,
-            urcost=(zone.shortage_cost or 0.0) if up else 0.0,
-            drcost=0.0 if up else (zone.shortage_cost or 0.0),
+            urcost=cost if up else 0.0,
+            drcost=0.0 if up else cost,
             urreq_planes=tuple(planes) if up else (),
             drreq_planes=() if up else tuple(planes),
             load_term="endogenous_generation" if load.endogenous else "exogenous",
@@ -1118,7 +1228,7 @@ class _Builder:  # pylint: disable=too-many-instance-attributes
             description=(
                 f"{_NOTE}: CEN PLEXOS requirement {zone.req_dv} = max of "
                 f"{len(zone.calc_rows)} plane(s) ({sources}); provisions from "
-                f"{zone.prov_row.spec.name}"
+                f"{zone.prov_row.spec.name}; {_hardness(label, cost)}"
             ),
             omit_zero_requirement=True,
         )
@@ -1179,10 +1289,21 @@ class _Builder:  # pylint: disable=too-many-instance-attributes
         """``requirement_sense`` / surplus cost of a balance row.
 
         PLEXOS Sense 0 (or unset) is an equality: ``Σ f·r + VoRS − R −
-        Slack = 0`` (:meth:`_is_equality`).  A plane zone (``planes``)
-        gets no surplus cost: its requirement ``R`` is a column above the
-        planes that absorbs any excess, so gtopt builds no surplus column.
+        Slack = 0`` (:meth:`_is_equality`).  Only ``--legacy-profile cen``
+        (``surplus_equality``) keeps it: the clean default writes the
+        requirement as ``>=`` with a free excess.  A plane zone
+        (``planes``) gets no surplus cost: its requirement ``R`` is a
+        column above the planes that absorbs any excess, so gtopt builds
+        no surplus column.
         """
+        if not self.opts.surplus_equality:
+            if self._is_equality(row):
+                self.warnings.append(
+                    f"{row.spec.name}: PLEXOS Sense-0 equality written as "
+                    "'>=' (clean: the priced surplus slack is dropped; "
+                    "--legacy-profile cen keeps the equality)"
+                )
+            return {}
         if planes and surplus is not None:
             self.warnings.append(
                 f"{row.spec.name}: surplus (−Slack) cost dropped (a plane "
@@ -1255,6 +1376,7 @@ class _Builder:  # pylint: disable=too-many-instance-attributes
                 continue
             cost = row.spec.penalty if row.spec.penalty > 0.0 else None
             pure = True
+            switches: list[Term] = []
             for t in others:
                 dv = self.dvs.get(t.ref)
                 if (
@@ -1263,16 +1385,16 @@ class _Builder:  # pylint: disable=too-many-instance-attributes
                     and dv
                     and dv.cost > 0.0
                 ):
-                    cost = (
-                        dv.cost / t.coef
-                        if cost is None
-                        else min(cost, dv.cost / t.coef)
-                    )
+                    switches.append(t)
                 else:
                     pure = False
             req = self._rhs(row)
             if not pure or min(req) < 0.0 or max(req) <= 0.0:
                 continue
+            switch_cost, _ = self._slack_costs(row, switches, 1.0)
+            if switch_cost is not None:
+                cost = switch_cost if cost is None else min(cost, switch_cost)
+            zcost, label = self._shortage(cost)
             up = directions == {"up"}
             self.new_zones.append(
                 ReserveSpec(
@@ -1280,8 +1402,8 @@ class _Builder:  # pylint: disable=too-many-instance-attributes
                     name=name,
                     ur_requirement=req if up else (),
                     dr_requirement=() if up else req,
-                    urcost=(cost or 0.0) if up else 0.0,
-                    drcost=0.0 if up else (cost or 0.0),
+                    urcost=zcost if up else 0.0,
+                    drcost=0.0 if up else zcost,
                     # An equality row's penalty prices both sides.
                     **self._sense_fields(
                         row,
@@ -1290,7 +1412,7 @@ class _Builder:  # pylint: disable=too-many-instance-attributes
                     ),
                     description=(
                         f"{_NOTE}: PLEXOS provision-sum constraint {name} "
-                        "(fixed requirement = its RHS)"
+                        f"(fixed requirement = its RHS); {_hardness(label, zcost)}"
                     ),
                     omit_zero_requirement=True,
                 )
@@ -1791,8 +1913,28 @@ def apply_native_reserve(
             len(builder.retired),
             ", ".join(f"{k}→{v}" for k, v in sorted(builder.retired.items())),
         )
+    for s in builder.slacks:
+        logger.info(
+            "%s: %s %s %s (cost %g, %s)%s",
+            _NOTE,
+            s.row,
+            {
+                "switch": "feasibility switch",
+                "surplus": "surplus slack",
+                "excluded": "excluded DV",
+            }[s.kind],
+            s.dv,
+            s.cost,
+            "active" if s.active else "NOT in the ST run",
+            ": zone HARD" if s.kind == "switch" and not s.active else "",
+        )
     return replace(
         case,
+        hard_reserves=opts.soft_penalty is None,
+        reserve_soft_penalty=opts.soft_penalty,
+        reserve_slacks=tuple(
+            (s.row, s.dv, s.kind, s.cost, s.active) for s in builder.slacks
+        ),
         reserves=builder.reserves(provisions),
         reserve_provisions=provisions,
         inertia_zones=case.inertia_zones + tuple(builder.inertia_zones),

@@ -334,15 +334,49 @@ def _build_demands_keyed(
     return keyed
 
 
-def _line_tmax(max_i_ka: float, base_kv: float) -> float:
-    """Return thermal limit in MW; 9999 if the pandapower value is unconstrained."""
+def _line_tmax(max_i_ka: float, base_kv: float, max_loading: float = 100.0) -> float:
+    """Return thermal limit in MW; 9999 if the pandapower value is unconstrained.
+
+    The rating is the current limit at nominal voltage,
+    ``sqrt(3) * V * max_i_ka``, scaled by ``max_loading_percent`` (the
+    OPF limit pandapower applies to the larger end current).
+    """
     if math.isinf(max_i_ka) or max_i_ka >= _TMAX_UNLIMITED:
         return _TMAX_UNLIMITED
-    return round(max_i_ka * base_kv * math.sqrt(3), 1)
+    return round(max_i_ka * base_kv * math.sqrt(3) * max_loading / 100.0, 1)
+
+
+def _loading_percent(row: Any) -> float:
+    """``max_loading_percent`` of a branch row (100 when missing / NaN)."""
+    value = _finite_pos(row.get("max_loading_percent", 100.0))
+    return 100.0 if value is None else value
+
+
+def _impedance_fields(
+    x_pu: float, r_pu: float, base_kv: float, base_mva: float, losses: bool
+) -> dict[str, float]:
+    """Series impedance fields of a branch entry.
+
+    Without losses: ``reactance`` in p.u. (no ``voltage``, gtopt's
+    per-unit mode).  With losses every branch is written in physical
+    units, ``voltage`` [kV] plus ``reactance`` / ``resistance`` [Ω] on
+    that voltage, so that gtopt's ``R·f²/V²`` loss is in MW.  Mixing the
+    two is not allowed: ``f = V²/X·Δθ`` would scale the per-unit
+    branches by ``1/base_mva`` against the physical ones.
+    """
+    if not losses:
+        return {"reactance": round(x_pu, 6)}
+    z_base = base_kv**2 / base_mva
+    # Significant digits, not decimals: a 0.208 kV bus has z_base ≈ 4e-4 Ω.
+    return {
+        "voltage": round(base_kv, 6),
+        "reactance": float(f"{x_pu * z_base:.9g}"),
+        "resistance": float(f"{r_pu * z_base:.9g}"),
+    }
 
 
 def _build_physical_lines(
-    net: pp.pandapowerNet, base_mva: float
+    net: pp.pandapowerNet, base_mva: float, losses: bool = False
 ) -> list[dict[str, Any]]:
     """Build line entries for physical lines (not transformers)."""
     lines: list[dict[str, Any]] = []
@@ -352,18 +386,22 @@ def _build_physical_lines(
         fb = int(row["from_bus"])
         tb = int(row["to_bus"])
         base_kv = get_bus_base_kv(net, fb)
-        x_pu = ohm_to_pu(
-            float(row["x_ohm_per_km"]) * float(row["length_km"]), base_kv, base_mva
-        )
+        length = float(row["length_km"])
+        x_pu = ohm_to_pu(float(row["x_ohm_per_km"]) * length, base_kv, base_mva)
         if abs(x_pu) < 1e-6:  # keep series-compensated (x < 0) branches
             continue
-        tmax = _line_tmax(float(row.get("max_i_ka", float("inf"))), base_kv)
+        r_pu = ohm_to_pu(
+            float(row.get("r_ohm_per_km", 0.0) or 0.0) * length, base_kv, base_mva
+        )
+        tmax = _line_tmax(
+            float(row.get("max_i_ka", float("inf"))), base_kv, _loading_percent(row)
+        )
         lines.append(
             {
                 "name": f"l{fb + 1}_{tb + 1}",
                 "bus_a": fb + 1,
                 "bus_b": tb + 1,
-                "reactance": round(x_pu, 6),
+                **_impedance_fields(x_pu, r_pu, base_kv, base_mva, losses),
                 "tmax_ab": tmax,
                 "tmax_ba": tmax,
             }
@@ -396,7 +434,9 @@ def _get_tap_ratio(row: Any) -> float:
     return round(1.0 + deviation, 6)
 
 
-def _build_transformers(net: pp.pandapowerNet, base_mva: float) -> list[dict[str, Any]]:
+def _build_transformers(
+    net: pp.pandapowerNet, base_mva: float, losses: bool = False
+) -> list[dict[str, Any]]:
     """Build line entries for transformers (modelled as branches with tap support).
 
     Each pandapower ``trafo`` row is converted to a gtopt line entry with:
@@ -427,11 +467,18 @@ def _build_transformers(net: pp.pandapowerNet, base_mva: float) -> list[dict[str
         if abs(x_pu) < 1e-6:  # keep series-compensated (x < 0) branches
             continue
 
+        r_pu = (vkr / 100.0) * (base_mva / sn_mva)
         entry: dict[str, Any] = {
             "name": f"t{hv + 1}_{lv + 1}",
             "bus_a": hv + 1,
             "bus_b": lv + 1,
-            "reactance": round(x_pu, 6),
+            **_impedance_fields(
+                x_pu,
+                r_pu,
+                get_bus_base_kv(net, hv) if losses else 0.0,
+                base_mva,
+                losses,
+            ),
             "type": "transformer",
         }
 
@@ -460,7 +507,9 @@ def _build_transformers(net: pp.pandapowerNet, base_mva: float) -> list[dict[str
     return trafos
 
 
-def _build_impedances(net: pp.pandapowerNet, base_mva: float) -> list[dict[str, Any]]:
+def _build_impedances(
+    net: pp.pandapowerNet, base_mva: float, losses: bool = False
+) -> list[dict[str, Any]]:
     """Build line entries for pandapower ``impedance`` branches.
 
     ``from_ppc`` turns MATPOWER branches between buses of different
@@ -479,12 +528,19 @@ def _build_impedances(net: pp.pandapowerNet, base_mva: float) -> list[dict[str, 
         x_pu = float(row["xft_pu"]) * base_mva / float(row["sn_mva"])
         if abs(x_pu) < 1e-6:
             continue
+        r_pu = float(row.get("rft_pu", 0.0) or 0.0) * base_mva / float(row["sn_mva"])
         entries.append(
             {
                 "name": f"z{fb + 1}_{tb + 1}",
                 "bus_a": fb + 1,
                 "bus_b": tb + 1,
-                "reactance": round(x_pu, 6),
+                **_impedance_fields(
+                    x_pu,
+                    r_pu,
+                    get_bus_base_kv(net, fb) if losses else 0.0,
+                    base_mva,
+                    losses,
+                ),
                 "tmax_ab": _TMAX_UNLIMITED,
                 "tmax_ba": _TMAX_UNLIMITED,
             }
@@ -492,16 +548,20 @@ def _build_impedances(net: pp.pandapowerNet, base_mva: float) -> list[dict[str, 
     return entries
 
 
-def _build_lines(net: pp.pandapowerNet, base_mva: float) -> list[dict[str, Any]]:
+def _build_lines(
+    net: pp.pandapowerNet, base_mva: float, losses: bool = False
+) -> list[dict[str, Any]]:
     """Build line array: physical lines followed by transformers, with sequential UIDs.
 
     Duplicate names (e.g. parallel transformers between the same buses) are
     made unique by appending ``_2``, ``_3``, … to later occurrences.
+    With *losses* every branch carries ``voltage`` / ``resistance`` in
+    physical units (see :func:`_impedance_fields`).
     """
     entries = (
-        _build_physical_lines(net, base_mva)
-        + _build_transformers(net, base_mva)
-        + _build_impedances(net, base_mva)
+        _build_physical_lines(net, base_mva, losses)
+        + _build_transformers(net, base_mva, losses)
+        + _build_impedances(net, base_mva, losses)
     )
     seen: dict[str, int] = {}
     for uid, entry in enumerate(entries, start=1):
@@ -513,6 +573,37 @@ def _build_lines(net: pp.pandapowerNet, base_mva: float) -> list[dict[str, Any]]
         else:
             seen[name] = 1
     return entries
+
+
+@dataclass(frozen=True)
+class LineLossOptions:
+    """Line-loss model options emitted into ``model_options``.
+
+    ``line_losses_mode`` (``None`` = not emitted): any mode other than
+    ``"none"`` also writes every branch in physical units (``voltage``
+    [kV], ``reactance`` / ``resistance`` [Ω]) so the pandapower
+    resistances become gtopt losses ``R·f²/V²``.  ``loss_segments``
+    (PWL segments) and ``line_thermal_limit_mode`` (``flow`` /
+    ``sending`` / ``full``) are emitted when set.
+    """
+
+    line_losses_mode: str | None = None
+    loss_segments: int | None = None
+    line_thermal_limit_mode: str | None = None
+
+    @property
+    def physical_units(self) -> bool:
+        """Whether branches carry resistance (a loss mode is active)."""
+        return self.line_losses_mode not in (None, "none")
+
+    def model_options(self) -> dict[str, Any]:
+        """The ``model_options`` entries of the options that are set."""
+        fields = {
+            "line_losses_mode": self.line_losses_mode,
+            "loss_segments": self.loss_segments,
+            "line_thermal_limit_mode": self.line_thermal_limit_mode,
+        }
+        return {key: val for key, val in fields.items() if val is not None}
 
 
 SUPPORTED_SOLVERS: tuple[str, ...] = ("monolithic", "sddp", "cascade")
@@ -823,7 +914,7 @@ def _sddp_options(
     return {"max_iterations": max_iterations, "convergence_tol": convergence_tol}
 
 
-def convert(
+def convert(  # pylint: disable=too-many-arguments
     output_path: Path | None = None,
     net: pp.pandapowerNet | None = None,
     name: str | None = None,
@@ -837,6 +928,7 @@ def convert(
     output_format: str = "csv",
     sddp_max_iterations: int | None = None,
     sddp_convergence_tol: float = 0.01,
+    losses: "LineLossOptions | None" = None,
 ) -> dict[str, Any]:
     """Load a pandapower network and write the gtopt JSON file.
 
@@ -871,6 +963,9 @@ def convert(
         plp2gtopt) when the case has state (batteries from
         ``net.storage``) and 0 — forward pass only, the same result as
         ``monolithic`` with one phase per stage — when it has none.
+    losses:
+        Line-loss model options (:class:`LineLossOptions`; ``None`` =
+        the historical lossless per-unit output).
 
     Returns
     -------
@@ -898,6 +993,9 @@ def convert(
             "use_kirchhoff": use_kirchhoff,
         },
     }
+    if losses is None:
+        losses = LineLossOptions()
+    options["model_options"].update(losses.model_options())
     if solver_type == "cascade":
         options["cascade_options"] = _default_cascade_options()
 
@@ -915,7 +1013,7 @@ def convert(
             "bus_array": _build_buses(net),
             "generator_array": _build_generators(net),
             "demand_array": _build_demands(net),
-            "line_array": _build_lines(net, _BASE_MVA),
+            "line_array": _build_lines(net, _BASE_MVA, losses.physical_units),
         },
     }
 

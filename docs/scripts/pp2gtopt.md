@@ -123,6 +123,9 @@ pp2gtopt -f network.xlsx -o network.json
 | `--sddp-convergence-tol T` | `0.01` | `sddp_options.convergence_tol` |
 | `--single-phase` | off | One phase for all stages (default: one phase per stage) |
 | `--output-format` | `csv` | gtopt solution output format (`csv`/`parquet`) |
+| `--line-losses-mode MODE` | unset (lossless) | `model_options.line_losses_mode`; any mode but `none` also writes every branch in physical units (`voltage` kV, `reactance` / `resistance` Ω) so the pandapower resistances become losses — see [Line losses](#line-losses) |
+| `--loss-segments K` | unset | `model_options.loss_segments` (PWL segments) |
+| `--line-thermal-limit-mode M` | unset (`flow`) | `model_options.line_thermal_limit_mode`: `flow`, `sending` (sending-end power, the DC image of a current limit) or `full` |
 | `--from-state PATH` | — | Replay a `pp2gtopt_state.json`; other flags override it |
 | `--sanity-report PATH` | — | Write the post-conversion data-quality report as JSON (the summary is always logged): per-kV `|X|/V²` / `R/V²` distribution and lines below the tie threshold, kV-class impedance outliers, X/R, non-standard / mistyped bus kV, zero-rated units (and those still committed), profiles outside [0, 1], reservoirs without `emin` under an agreement reserve level, water-right rewards above the demand fail cost.  Same report on an existing case: `python -m gtopt_shared.sanity_report case.json` (runs with the post-conversion check) |
 
@@ -212,6 +215,20 @@ Z_base = (vn_kv)² / sn_mva
 
 The resulting reactance is written to the GTOpt `Line.reactance` field,
 which is what the DC OPF (Kirchhoff mode) requires.
+
+<a id="line-losses"></a>
+**Line losses.**  With `--line-losses-mode` (other than `none`) the
+converter writes every branch in physical units instead: `voltage` =
+the bus nominal kV (the HV side for transformers), `reactance` and
+`resistance` in Ω (lines: `x_ohm_per_km`, `r_ohm_per_km` × length;
+transformers: from `vk_percent` / `vkr_percent`; impedances: `xft_pu` /
+`rft_pu`).  `V²/X` then equals `base_mva / x_pu`, so the flows are
+unchanged, and gtopt's loss `R·f²/V²` is in MW.  All branches switch
+together: a per-unit branch next to a physical one would carry
+`1/base_mva` of its flow.
+
+**Line ratings**: `tmax = √3 · vn_kv · max_i_ka · max_loading_percent /
+100` MW (`9999` when `max_i_ka` is unlimited).
 
 ### 3. Generator cost linearisation
 

@@ -2099,16 +2099,16 @@ def test_warn_if_series_varies(caplog: pytest.LogCaptureFixture) -> None:
     assert "G" in caplog.text
 
 
-def test_extract_lines_el0_default_unenforced(
+def test_extract_lines_el0_default_enforced(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The DEFAULT EL=0 mode is ``unenforced`` — PLEXOS semantics.
+    """The DEFAULT EL=0 mode is ``strict`` (CLI ``enforced``): clean.
 
-    With no ``GTOPT_EL0_LINES`` / list env set, an EL=0 line keeps EL=0 and
-    is flagged ``unenforced`` (the writer emits a non-binding cap): PLEXOS
-    never enforces an EL=0 rating.  The opt-in ``enforced`` (alias
-    ``strict``) mode hard-caps it at the rating instead, and only lines named
-    in ``--lift-line-caps`` get the soft over-rating band.
+    With no ``GTOPT_EL0_LINES`` / list env set, an EL=0 line is hard-capped
+    at its rating; only lines named in ``--lift-line-caps`` get the soft
+    over-rating band.  ``unenforced`` (``--legacy-profile cen``) keeps EL=0
+    and flags the line (the writer emits a non-binding cap): PLEXOS never
+    enforces an EL=0 rating.
     """
     xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
     xml_path.write_text(_EL0_LINE_XML)
@@ -2129,15 +2129,21 @@ def test_extract_lines_el0_default_unenforced(
     bundle = PlexosBundle(root=tmp_path, source=tmp_path)
     db = load_xml(xml_path)
 
-    # Clean slate: no mode, no lists → default unenforced.
+    # Clean slate: no mode, no lists → default enforced (hard cap).
     monkeypatch.delenv("GTOPT_EL0_LINES", raising=False)
     monkeypatch.delenv("GTOPT_LIFT_LINE_CAPS", raising=False)
     monkeypatch.delenv("GTOPT_NO_LIFT_LINES", raising=False)
     default = {ln.name: ln for ln in extract_lines(db, bundle)}["CABLE"]
-    assert default.unenforced is True
-    assert default.enforce_limits == 0
-    assert default.soft_cap is False
+    assert default.unenforced is False
+    assert default.enforce_limits == 2
     assert default.tmax_ab == 90.0
+
+    monkeypatch.setenv("GTOPT_EL0_LINES", "unenforced")
+    replica = {ln.name: ln for ln in extract_lines(db, bundle)}["CABLE"]
+    assert replica.unenforced is True
+    assert replica.enforce_limits == 0
+    assert replica.soft_cap is False
+    assert replica.tmax_ab == 90.0
 
     for mode in ("enforced", "strict"):
         monkeypatch.setenv("GTOPT_EL0_LINES", mode)
@@ -2158,27 +2164,27 @@ def test_extract_lines_el0_default_unenforced(
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [
-        (None, "unenforced"),
-        ("", "unenforced"),
+        (None, "strict"),
+        ("", "strict"),
         ("unenforced", "unenforced"),
         ("Enforced", "strict"),
         (" strict ", "strict"),
         ("extended", "extended"),
-        ("bogus", "unenforced"),
+        ("bogus", "strict"),
     ],
 )
 def test_el0_lines_mode_resolution(
     monkeypatch: pytest.MonkeyPatch, raw: str | None, expected: str
 ) -> None:
     """``el0_lines_mode`` reads the env, normalises ``enforced`` → ``strict``
-    and falls back to the PLEXOS-mirroring default."""
+    and falls back to the clean (enforced) default."""
     if raw is None:
         monkeypatch.delenv("GTOPT_EL0_LINES", raising=False)
     else:
         monkeypatch.setenv("GTOPT_EL0_LINES", raw)
     assert el0_lines_mode() == expected
     assert el0_lines_mode("enforced") == "strict"
-    assert EL0_LINES_DEFAULT == "unenforced"
+    assert EL0_LINES_DEFAULT == "strict"
 
 
 # ---------------------------------------------------------------------------

@@ -23,6 +23,8 @@ from ._defaults import resolve_default_emissions_file
 from ._horizon import HorizonOptions, apply_horizon
 from ._plexos_versions import detect_version, is_solution_db, resolve_version
 from ._native_reserve import NativeReserveOptions, apply_native_reserve
+from ._provision_split import CapLookup, split_provisions_by_family
+from ._renewable_floor import free_renewable_floors
 from .gtopt_writer import (
     build_planning,
     build_provenance,
@@ -131,8 +133,9 @@ def _maybe_patch_with_plp_embalses(
 
     Three knobs:
 
-    * ``--plexos-legacy`` (options['plexos_legacy']) — force-disables
-      the patch (strict PLEXOS semantics).
+    * ``--legacy-profile cen`` (options['plexos_legacy']) — disables
+      the patch (strict PLEXOS semantics) unless ``--plp-embalses PATH``
+      is given explicitly.
     * ``--no-plp-embalses`` (options['no_plp_embalses']) — disables
       auto-detect and explicit-path patching alike.
     * ``--plp-embalses PATH`` (options['plp_embalses']) — explicit
@@ -142,7 +145,7 @@ def _maybe_patch_with_plp_embalses(
     locations next to ``input_path`` and silently no-ops when none of
     them ship an ``embalses.csv``.
     """
-    if options.get("plexos_legacy"):
+    if options.get("plexos_legacy") and options.get("plp_embalses") is None:
         return case
     if options.get("no_plp_embalses"):
         return case
@@ -179,6 +182,29 @@ def _load_reserve_db(bundle: PlexosBundle) -> PlexosDb | None:
     if path is None or not Path(path).is_file():
         return None
     return load_xml(path)
+
+
+def _family_cap_lookup(bundle: PlexosBundle) -> CapLookup | None:
+    """Per-(generator, family) CFdata ``MRU`` / ``MRD`` cap, or ``None``
+    when the bundle ships no ``CFdata/`` (the split then keeps the
+    aggregated cap)."""
+    from .parsers import (  # pylint: disable=import-outside-toplevel
+        CF_RESERVE_DIRS,
+        cf_maxresp_series,
+    )
+
+    root = getattr(bundle, "root", None)
+    if root is None or not (Path(root) / "CFdata").is_dir():
+        return None
+    dirs = dict((sub, (sub, prefix)) for sub, prefix in CF_RESERVE_DIRS)
+
+    def _lookup(gen: str, family: str, direction: str) -> tuple[float, ...]:
+        if family not in dirs:
+            return ()
+        sub, prefix = dirs[family]
+        return tuple(cf_maxresp_series(bundle, gen, sub, prefix, direction))
+
+    return _lookup
 
 
 def _materialise_plexos_model(bundle: Any, options: dict[str, Any]) -> None:
@@ -540,7 +566,11 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
         case = extract_case(
             bundle,
             lax_uc_refs=bool(options.get("lax_uc_refs")),
-            plexos_legacy=bool(options.get("plexos_legacy")),
+            # CF_*_COMP Sense unset read as '=' (``--legacy-profile cen``;
+            # a programmatic ``plexos_legacy`` option still implies it).
+            plexos_legacy=bool(
+                options.get("cf_comp_equality") or options.get("plexos_legacy")
+            ),
             period_rhs_mode=str(options.get("plexos_period_rhs") or "prorate"),
             # PLEXOS Sense 0 is an equality; written ``=`` only in native
             # mode (its balances carry both slacks), ``>=`` in uc mode.
@@ -562,6 +592,11 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
         # ``--plexos-legacy`` is on (strict PLEXOS semantics — no
         # cross-bundle mixing) or when ``--no-plp-embalses`` is set.
         case = _maybe_patch_with_plp_embalses(case, options, input_path)
+        # Clean: zero-cost solar / wind / run-of-river commitments lose
+        # their Min Stable Level and forced-ON floors (--renewable-floors).
+        case, renewable_floor_report = free_renewable_floors(
+            case, str(options.get("renewable_floors") or "free")
+        )
         # --horizon-days N / --reserve-load-factor auto: both may read the
         # PLEXOS solution (RES bundle); opened once, only when needed.
         horizon_opts, solution, load_est = _prepare_solution_consumers(
@@ -578,6 +613,9 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             NativeReserveOptions.from_options(options),
             db_loader=lambda: _load_reserve_db(bundle),
         )
+        # One provision per reserve family with shared headroom (PLEXOS:
+        # one provision per Reserve); per-family CFdata caps.
+        case = split_provisions_by_family(case, caps=_family_cap_lookup(bundle))
         # Reserve Units variables whose rows were replaced (native) or
         # dropped are held only by their own linking rows: remove them.
         case = prune_unreferenced_reserve_units(case)
@@ -890,6 +928,17 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
         provenance["plexos_profile"] = plexos_version.as_dict()
         # How unenforced PLEXOS line ratings were modelled (--el0-lines).
         provenance["el0_lines"] = el0_lines_mode()
+        # Operator-replica profile (None = the clean gtopt formulation)
+        # and the toggles it applied (explicit flags excluded).
+        provenance["renewable_floors"] = {
+            "mode": str(options.get("renewable_floors") or "free"),
+            "pmin_dropped": renewable_floor_report.pmin_dropped,
+            "forced_on_dropped": renewable_floor_report.forced_on_dropped,
+        }
+        provenance["legacy_profile"] = {
+            "profile": options.get("legacy_profile"),
+            "toggles": list(options.get("legacy_toggles") or ()),
+        }
         # PLEXOS constraints without a Penalty Price: HARD (null) unless
         # --soft-unpenalised-constraints PENALTY re-softened them.
         provenance["soft_unpenalised_constraints"] = options.get(

@@ -1136,3 +1136,140 @@ TEST_CASE(
 
   std::filesystem::remove_all(tmpdir);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 6. relax_integers / restore_integers round-trip keeps the SOS2 sets
+// ═══════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(
+    "relax_integers + restore_integers keep SOS2 enforced in the next MIP "
+    "solve")  // NOLINT
+{
+  // Production bug (CEN PCP, CPLEX, `monolithic_options.mip_start`): the
+  // MIP-start stage relaxes the problem (`relax_all_integers`, on CPLEX a
+  // `CPXchgprobtype(LP)`), solves the root LP and the dive's fixed-integer
+  // LPs, then `restore_integers` re-imposes the integer ctypes.  The LP
+  // flip also DISCARDS every SOS set, and the restore did not re-add
+  // them, so the subsequent MIP solved the SOS2 λ ladders as plain LP
+  // weights: loss columns rode the ±fmax chord (loss = c·fmax² at a
+  // small flow) and the run reported "optimal".
+  //
+  // Same λ-form lure as test 1: SOS2-feasible optimum y = 1
+  // (obj −0.5); with the SOS2 lost the MIP returns y = 2
+  // (λ0 = λ2 = 0.5, obj −1.5).
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+
+  bool tested_any = false;
+  for (const auto& name : reg.available_solvers()) {
+    if (!reg.supports_mip(name)) {
+      continue;
+    }
+    CAPTURE(name);
+
+    LinearProblem lp("sos2_relax_restore");
+    const auto x = lp.add_col(SparseCol {
+        .lowb = 1.0,
+        .uppb = 1.0,
+    });
+    const auto l0 = lp.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 1.0,
+    });
+    const auto l1 = lp.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 1.0,
+    });
+    const auto l2 = lp.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 1.0,
+    });
+    const auto y = lp.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 10.0,
+        .cost = -1.0,
+    });
+    const auto u = lp.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 1.0,
+        .cost = 0.5,
+        .is_integer = true,
+    });
+
+    auto conv = SparseRow {};
+    conv[l0] = 1.0;
+    conv[l1] = 1.0;
+    conv[l2] = 1.0;
+    conv.equal(1.0);
+    std::ignore = lp.add_row(std::move(conv));
+
+    auto flow = SparseRow {};
+    flow[l1] = 1.0;
+    flow[l2] = 2.0;
+    flow[x] = -1.0;
+    flow.equal(0.0);
+    std::ignore = lp.add_row(std::move(flow));
+
+    auto chord = SparseRow {};
+    chord[l1] = 1.0;
+    chord[l2] = 4.0;
+    chord[y] = -1.0;
+    chord.greater_equal(0.0);
+    std::ignore = lp.add_row(std::move(chord));
+
+    auto gate = SparseRow {};
+    gate[y] = 1.0;
+    gate[u] = -10.0;
+    gate.less_equal(0.0);
+    std::ignore = lp.add_row(std::move(gate));
+
+    lp.add_sos2({l0, l1, l2});
+
+    const auto flat = lp.flatten({
+        .equilibration_method = LpEquilibrationMethod::none,
+    });
+
+    std::optional<LinearInterface> li;
+    try {
+      li.emplace(name, flat);
+    } catch (const std::exception&) {
+      MESSAGE("solver ", name, " has no SOS2 support — skipped");
+      continue;
+    }
+    tested_any = true;
+
+    // MIP-start stage shape: relax, solve the LP relaxation (SOS2 is
+    // inert there, so y = 2 is expected HERE), restore, re-solve the MIP.
+    const std::array<int, 1> int_cols {
+        static_cast<int>(value_of(u)),
+    };
+    CHECK(li->relax_integers() >= 1);
+    REQUIRE(li->resolve({}).has_value());
+    REQUIRE(li->is_optimal());
+
+    // Twice: a second round-trip must not lose (or duplicate) the sets.
+    for (int round = 0; round < 2; ++round) {
+      CAPTURE(round);
+      CHECK(li->restore_integers(int_cols) == 1);
+      REQUIRE(li->resolve({}).has_value());
+      REQUIRE(li->is_optimal());
+      const auto sol = li->get_col_sol();
+      CHECK(sol[y] == doctest::Approx(1.0).epsilon(1e-6));
+      CHECK(sol[l1] == doctest::Approx(1.0).epsilon(1e-6));
+      const std::array<double, 3> lam {
+          sol[l0],
+          sol[l1],
+          sol[l2],
+      };
+      check_sos2_adjacency(lam);
+      CHECK(li->get_obj_value() == doctest::Approx(-0.5).epsilon(1e-6));
+      if (round == 0) {
+        CHECK(li->relax_integers() >= 1);
+      }
+    }
+  }
+
+  if (!tested_any) {
+    MESSAGE("no SOS2-capable MIP plugin loaded — skipping");
+  }
+}

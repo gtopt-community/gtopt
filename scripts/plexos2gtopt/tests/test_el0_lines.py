@@ -20,10 +20,11 @@ from plexos2gtopt.plexos2gtopt import convert_plexos_bundle
 from plexos2gtopt.tests import horizon_fixture as fx
 
 
-def test_cli_default_is_unenforced() -> None:
-    """Without the flag, the CLI picks the PLEXOS-mirroring mode."""
-    assert EL0_LINES_DEFAULT == "unenforced"
-    assert make_parser().parse_args(["x"]).el0_lines == "unenforced"
+def test_cli_default_is_enforced() -> None:
+    """Without the flag, the CLI picks the clean (enforced) mode; the
+    PLEXOS-mirroring one belongs to ``--legacy-profile cen``."""
+    assert EL0_LINES_DEFAULT == "strict"
+    assert make_parser().parse_args(["x"]).el0_lines == "enforced"
 
 
 @pytest.mark.parametrize("mode", ["enforced", "strict", "extended", "unenforced"])
@@ -39,12 +40,13 @@ def test_cli_rejects_unknown_mode(capsys: pytest.CaptureFixture[str]) -> None:
     assert "--el0-lines" in capsys.readouterr().err
 
 
-def test_help_says_default_mirrors_plexos() -> None:
-    """``--help`` names the default, says it mirrors PLEXOS, lists every
-    mode and states the cap factor actually written."""
+def test_help_says_default_is_enforced() -> None:
+    """``--help`` names the clean default, ties the PLEXOS-mirroring mode
+    to ``--legacy-profile cen``, lists every mode and states the cap
+    factor actually written."""
     flat = re.sub(r"\s+", " ", make_parser().format_help())
-    assert "'unenforced' (DEFAULT, mirrors PLEXOS)" in flat
-    assert "'enforced' (alias 'strict', opt-in)" in flat
+    assert "'enforced' (alias 'strict', DEFAULT, clean)" in flat
+    assert "'unenforced' (--legacy-profile cen, mirrors PLEXOS)" in flat
     assert "'extended' (opt-in)" in flat
     assert "Constraint Voltage Threshold" in flat
     assert f"{LINE_UNENFORCED_FACTOR:g}x the rating" in flat
@@ -54,7 +56,7 @@ def test_help_says_default_mirrors_plexos() -> None:
 @pytest.mark.parametrize(
     ("option", "expected"),
     [
-        (None, "unenforced"),
+        (None, "strict"),
         ("unenforced", "unenforced"),
         ("enforced", "strict"),
         ("extended", "extended"),

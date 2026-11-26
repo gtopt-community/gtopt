@@ -955,6 +955,12 @@ class DecisionVariableSpec:
     upper_bound: float | None = None
     cost: float = 0.0
     integer: bool = False
+    # PLEXOS ``Include in ST Schedule`` resolved under the solved Model's
+    # scenarios (same tiers as the Constraint rows).  ``False`` means the
+    # variable does not exist in the ST run: the writer pins it at 0 with
+    # no cost (CEN ``*_VoRS`` reserve-shortage switches are tagged only to
+    # the ``CPF_VoRS_ON`` scenario, inactive in ``PRGdia_Full_Definitivo``).
+    active: bool = True
 
 
 @dataclass(frozen=True)
@@ -1430,6 +1436,20 @@ class PlexosCase:
     # values (the SDDP terminal value function).  ``None`` when the
     # bundle ships no water-value file.
     boundary_cut: BoundaryCutSpec | None = None
+    # Reserve hardness (``--reserve-model native``).  ``hard_reserves``:
+    # the writer emits NO global ``model_options.reserve_shortage_cost``,
+    # so every zone without its own cost is HARD (gtopt has no per-zone
+    # hard flag: any zone cost, even 0, builds a shortage column).
+    # ``reserve_soft_penalty``: ``--soft-unpenalised-constraints P``, the
+    # global shortage cost instead (a feasibility switch).
+    hard_reserves: bool = False
+    reserve_soft_penalty: float | None = None
+    # Slack DVs of the replaced PLEXOS reserve rows, classified as
+    # ``(row, dv, kind, cost, active)``; ``kind`` ∈ switch / surplus /
+    # excluded (``_native_reserve.SlackRecord``).  Provenance only.
+    reserve_slacks: tuple[tuple[str, str, str, float, bool], ...] = field(
+        default_factory=tuple
+    )
     # User-constraint conversion funnel (raw → dropped → synthesised), used
     # by the PLEXOS↔gtopt comparison report.  ``None`` until populated by
     # ``extract_case``.

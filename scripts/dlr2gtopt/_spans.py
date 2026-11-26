@@ -25,6 +25,11 @@ class Tower:
     lat: float
     lon: float
     elevation: float | None = None
+    # Structure type as written in the structure list (e.g. "22AD+3"), and
+    # the conductor attachment height above ground [m] when known; both
+    # optional, used by :mod:`dlr2gtopt._heights`.
+    structure_type: str | None = None
+    attachment: float | None = None
 
 
 @dataclass(frozen=True)
@@ -39,6 +44,9 @@ class Span:
     length_m: float
     chainage_km: float
     elevation: float | None = None
+    # Effective conductor height above ground [m] for this span (optional;
+    # used by ``weather --height-source spans``).
+    height: float | None = None
 
 
 def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -58,22 +66,34 @@ def bearing_deg(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return math.degrees(math.atan2(y, x)) % 360.0
 
 
+def route_towers(
+    towers: list[Tower], min_length_m: float = 1.0
+) -> dict[str, list[Tower]]:
+    """Towers of each line in route order, with consecutive towers closer
+    than ``min_length_m`` merged (span ``k`` joins towers ``k-1`` and ``k``
+    of the returned list)."""
+    by_line: dict[str, list[Tower]] = {}
+    for t in towers:
+        by_line.setdefault(t.line, []).append(t)
+    out: dict[str, list[Tower]] = {}
+    for line, ts in by_line.items():
+        ordered = sorted(ts, key=lambda t: t.seq)
+        kept = [ordered[0]]
+        for t in ordered[1:]:
+            if haversine_m(kept[-1].lat, kept[-1].lon, t.lat, t.lon) >= min_length_m:
+                kept.append(t)
+        out[line] = kept
+    return out
+
+
 def build_spans(towers: list[Tower], min_length_m: float = 1.0) -> list[Span]:
     """Spans of each line from its towers (sorted by ``seq``).
 
     Consecutive towers closer than ``min_length_m`` (duplicated structures,
     e.g. two circuits listed on one tower) are merged.
     """
-    by_line: dict[str, list[Tower]] = {}
-    for t in towers:
-        by_line.setdefault(t.line, []).append(t)
     out: list[Span] = []
-    for line, ts in by_line.items():
-        ordered = sorted(ts, key=lambda t: t.seq)
-        kept = [ordered[0]] if ordered else []
-        for t in ordered[1:]:
-            if haversine_m(kept[-1].lat, kept[-1].lon, t.lat, t.lon) >= min_length_m:
-                kept.append(t)
+    for line, kept in route_towers(towers, min_length_m).items():
         chain = 0.0
         for k, (a, b) in enumerate(zip(kept, kept[1:]), start=1):
             length = haversine_m(a.lat, a.lon, b.lat, b.lon)
@@ -98,7 +118,15 @@ def build_spans(towers: list[Tower], min_length_m: float = 1.0) -> list[Span]:
     return out
 
 
-TOWER_FIELDS = ("line", "tower_seq", "lat", "lon", "elevation")
+TOWER_FIELDS = (
+    "line",
+    "tower_seq",
+    "lat",
+    "lon",
+    "elevation",
+    "type",
+    "attachment",
+)
 SPAN_FIELDS = (
     "line",
     "span",
@@ -108,6 +136,7 @@ SPAN_FIELDS = (
     "length_m",
     "chainage_km",
     "elevation",
+    "height",
 )
 
 
@@ -116,8 +145,8 @@ def _opt_float(s: str | None) -> float | None:
 
 
 def read_towers(path: Path, line: str | None = None) -> list[Tower]:
-    """Towers CSV ``line,tower_seq,lat,lon[,elevation]`` (``line`` optional
-    when given as argument)."""
+    """Towers CSV ``line,tower_seq,lat,lon[,elevation,type,attachment]``
+    (``line`` optional when given as argument)."""
     out: list[Tower] = []
     with path.open(newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
@@ -131,6 +160,8 @@ def read_towers(path: Path, line: str | None = None) -> list[Tower]:
                     lat=float(row["lat"]),
                     lon=float(row["lon"]),
                     elevation=_opt_float(row.get("elevation")),
+                    structure_type=(row.get("type") or "").strip() or None,
+                    attachment=_opt_float(row.get("attachment")),
                 )
             )
     return out
@@ -149,6 +180,8 @@ def write_towers(path: Path, towers: list[Tower]) -> None:
                     f"{t.lat:.7f}",
                     f"{t.lon:.7f}",
                     "" if t.elevation is None else t.elevation,
+                    t.structure_type or "",
+                    "" if t.attachment is None else t.attachment,
                 ]
             )
 
@@ -169,6 +202,7 @@ def write_spans(path: Path, spans: list[Span]) -> None:
                     f"{s.length_m:.1f}",
                     f"{s.chainage_km:.4f}",
                     "" if s.elevation is None else f"{s.elevation:.1f}",
+                    "" if s.height is None else f"{s.height:.2f}",
                 ]
             )
 
@@ -186,6 +220,7 @@ def read_spans(path: Path) -> list[Span]:
                 length_m=float(row["length_m"]),
                 chainage_km=float(row["chainage_km"]),
                 elevation=_opt_float(row.get("elevation")),
+                height=_opt_float(row.get("height")),
             )
             for row in csv.DictReader(f)
         ]

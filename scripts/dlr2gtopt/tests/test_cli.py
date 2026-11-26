@@ -241,6 +241,27 @@ def test_weather_sources(case: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         )
         == 0
     )
+    assert (
+        run(
+            "weather",
+            "--spans",
+            case / "spans.csv",
+            "--source",
+            "open-meteo",
+            "--model",
+            "era5",
+            "--start-date",
+            "2024-01-01",
+            "--end-date",
+            "2024-01-02",
+            "--snap",
+            0.25,
+            *cache,
+            "-o",
+            case / "om_archive.parquet",
+        )
+        == 0
+    )
     with pytest.raises(SystemExit, match="grib"):
         run(
             "weather",
@@ -519,3 +540,43 @@ def test_towers_sources(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
 def test_errors_exit_2(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert run("spans", tmp_path / "missing.csv", "-o", tmp_path / "s.csv") == 2
     assert "error" in capsys.readouterr().err
+
+
+def test_weather_height_source_spans(
+    case: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """``--height-source spans`` reads the spans' height column; the scalar
+    default is unchanged."""
+    import dataclasses
+
+    from dlr2gtopt._spans import write_spans
+
+    def get(url: str) -> bytes:
+        n = url.split("latitude=")[1].split("&")[0].count(",") + 1
+        return json.dumps(om_reply(n)).encode()
+
+    monkeypatch.setattr(tw, "urllib_get", get)
+    spans = read_spans(case / "spans.csv")
+    spans[0] = dataclasses.replace(spans[0], height=60.0)
+    write_spans(case / "spans_h.csv", spans)
+    common = ["--source", "open-meteo", "--cache-dir", case / "cache", "--pause", 0]
+    for src, out in (("scalar", "a.csv"), ("spans", "b.csv")):
+        with caplog.at_level("INFO", logger="dlr2gtopt"):
+            assert (
+                run(
+                    "weather",
+                    "--spans",
+                    case / "spans_h.csv",
+                    *common,
+                    "--height-source",
+                    src,
+                    "-o",
+                    case / out,
+                )
+                == 0
+            )
+    assert "per-span heights: 1 of 12 spans set" in caplog.text
+    a = wx.read_weather(case / "a.csv", spans)
+    b = wx.read_weather(case / "b.csv", spans)
+    assert b.data["wind_speed"][0, 0] > a.data["wind_speed"][0, 0]
+    assert b.data["wind_speed"][0, 1] == pytest.approx(a.data["wind_speed"][0, 1])

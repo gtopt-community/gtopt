@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from dataclasses import dataclass
 from functools import lru_cache
@@ -143,7 +144,8 @@ def parse_contract_headers(json_dir: Path) -> dict[str, dict[str, Any]]:
     """Parse every ``json_*.hpp`` under ``json_dir``.
 
     Returns ``{type: {"header": str, "fields": [key, ...],
-    "kinds": {key: kind}, "nested": {key: type}}}`` where ``kind`` is the
+    "required": [key, ...], "kinds": {key: kind}, "nested": {key: type}}}``
+    where ``required`` lists the non-nullable members and ``kind`` is the
     daw member kind without the ``json_`` / ``_null`` / ``_raw`` decoration
     (``number``, ``string``, ``bool``, ``variant``, ``array``, ``class``,
     ``custom``), ``nested`` maps a ``json_class`` / ``json_array`` member to
@@ -166,6 +168,7 @@ def parse_contract_headers(json_dir: Path) -> dict[str, dict[str, Any]]:
             close_idx = _matching_angle(text, open_idx)
             members = _split_top_level(text[open_idx + 1 : close_idx])
             fields: list[str] = []
+            required: list[str] = []
             type_args: dict[str, tuple[str, list[str]]] = {}
             for member in members:
                 mm = _MEMBER_RE.match(member.strip())
@@ -175,6 +178,8 @@ def parse_contract_headers(json_dir: Path) -> dict[str, dict[str, Any]]:
                 args = _split_top_level(mm.group(3) or "")
                 if key not in fields:
                     fields.append(key)
+                    if "_null" not in kind:
+                        required.append(key)
                 type_args[key] = (kind, args)
             type_name = _norm_type(cm.group(1))
             if type_name in raw:
@@ -185,6 +190,7 @@ def parse_contract_headers(json_dir: Path) -> dict[str, dict[str, Any]]:
             raw[type_name] = {
                 "header": path.name,
                 "fields": fields,
+                "required": required,
                 "kinds": {
                     k: re.sub(r"^json_|_null$|_raw$", "", kind).removesuffix("_raw")
                     for k, (kind, _args) in type_args.items()
@@ -270,6 +276,152 @@ def array_types(section: str = "System") -> dict[str, str]:
     """``{array key: element contract type}`` of ``System`` / ``Simulation``."""
     info = load_snapshot()["types"][section]
     return {k: t for k, t in info["nested"].items() if k.endswith("_array")}
+
+
+# ── live contract from ``gtopt --json-schema`` ─────────────────────────────
+
+#: Accepted values of :func:`load_contract_types`'s ``source``.
+CONTRACT_SOURCES = ("auto", "gtopt", "snapshot")
+
+#: Keys compared between the live schema and the header snapshot.
+COMPARED_KEYS = ("fields", "required", "kinds", "nested")
+
+
+def _ref_name(prop: dict[str, Any]) -> str | None:
+    ref = prop.get("$ref")
+    if isinstance(ref, str) and ref.startswith("#/$defs/"):
+        return ref.removeprefix("#/$defs/")
+    return None
+
+
+def _schema_kind(prop: dict[str, Any]) -> str:
+    """Snapshot ``kind`` vocabulary for one JSON-Schema property."""
+    if _ref_name(prop) is not None:
+        return "class"
+    if "oneOf" in prop:
+        return "variant"
+    return {
+        "array": "array",
+        "boolean": "bool",
+        "integer": "number",
+        "number": "number",
+        "object": "class",
+    }.get(str(prop.get("type")), "string")
+
+
+def types_from_json_schema(schema: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Contract types from a ``gtopt --json-schema`` dump.
+
+    Returns the same ``{type: {"fields", "required", "kinds", "nested"}}``
+    shape as :func:`parse_contract_headers` (without ``header``), one entry
+    per ``$defs`` object.  ``json_custom`` members (string-converted enums)
+    render as plain strings, so their kind is ``string``.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    for name, body in schema.get("$defs", {}).items():
+        props: dict[str, Any] = body.get("properties", {})
+        nested: dict[str, str] = {}
+        for key, prop in props.items():
+            target = _ref_name(prop)
+            if target is None and prop.get("type") == "array":
+                target = _ref_name(prop.get("items", {}))
+            if target is not None:
+                nested[key] = target
+        out[name] = {
+            "fields": list(props),
+            "required": list(body.get("required", [])),
+            "kinds": {k: _schema_kind(v) for k, v in props.items()},
+            "nested": nested,
+        }
+    return out
+
+
+def gtopt_json_schema(binary: str | None = None) -> dict[str, Any] | None:
+    """Run ``gtopt --json-schema`` and return the parsed full input scheme.
+
+    ``binary`` defaults to :func:`gtopt_shared.gtopt_binary.find_gtopt_binary`.
+    Returns ``None`` when no binary is found, it fails, or it predates the
+    full-scheme dump (an old gtopt only emitted ``PlanningOptions``).
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from gtopt_shared.gtopt_binary import find_gtopt_binary
+
+    exe = binary or find_gtopt_binary()
+    if exe is None:
+        return None
+    try:
+        proc = subprocess.run(
+            [exe, "--json-schema"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        schema = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(schema, dict) or ROOT_TYPE not in schema.get("$defs", {}):
+        return None
+    return schema
+
+
+def load_contract_types(
+    source: str = "auto",
+    *,
+    gtopt_bin: str | None = None,
+    schema_file: Path | None = None,
+) -> tuple[dict[str, dict[str, Any]], str]:
+    """Contract types and a label naming where they came from.
+
+    * ``schema_file`` — a saved ``gtopt --json-schema`` dump (wins);
+    * ``"gtopt"`` — run the gtopt binary (``ValueError`` when unavailable);
+    * ``"snapshot"`` — the bundled header snapshot;
+    * ``"auto"`` — the gtopt binary when one is found, else the snapshot.
+    """
+    if source not in CONTRACT_SOURCES:
+        raise ValueError(f"unknown contract source {source!r}")
+    if schema_file is not None:
+        schema = json.loads(Path(schema_file).read_text(encoding="utf-8"))
+        return types_from_json_schema(schema), f"schema file {schema_file}"
+    if source != "snapshot":
+        schema = gtopt_json_schema(gtopt_bin)
+        if schema is not None:
+            return types_from_json_schema(schema), "gtopt --json-schema"
+        if source == "gtopt":
+            raise ValueError(
+                "gtopt --json-schema is unavailable (no gtopt binary found, "
+                "or it predates the full input-scheme dump); set GTOPT_BIN"
+            )
+    return load_snapshot()["types"], "bundled contract snapshot"
+
+
+def contract_diff(
+    live: dict[str, dict[str, Any]], snapshot: dict[str, dict[str, Any]]
+) -> list[str]:
+    """Differences between live schema types and snapshot types.
+
+    Only the types present in ``live`` (those reachable from ``Planning``)
+    are compared; ``custom`` kinds in the snapshot compare equal to the
+    ``string`` the schema renders them as.
+    """
+    problems: list[str] = []
+    for name, info in sorted(live.items()):
+        snap = snapshot.get(name)
+        if snap is None:
+            problems.append(f"{name}: missing from the snapshot")
+            continue
+        for key in COMPARED_KEYS:
+            want = snap.get(key)
+            got = info.get(key)
+            if key == "kinds" and isinstance(want, dict):
+                want = {k: "string" if v == "custom" else v for k, v in want.items()}
+            if want != got:
+                problems.append(f"{name}.{key}: gtopt {got!r} != snapshot {want!r}")
+    return problems
 
 
 # ── planning key walker ────────────────────────────────────────────────────

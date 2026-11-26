@@ -141,7 +141,9 @@ def _features_rows(options: dict[str, Any] | None) -> list[tuple[str, str]]:
         rows.append(("expand_ror", "on"))
 
     # --- Legacy compat ---
-    if o.get("plp_legacy"):
+    if o.get("legacy_profile"):
+        rows.append(("legacy_profile", str(o["legacy_profile"])))
+    elif o.get("plp_legacy"):
         rows.append(("plp_legacy", "on"))
 
     return rows

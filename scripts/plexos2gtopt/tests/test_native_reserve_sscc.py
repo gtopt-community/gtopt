@@ -158,15 +158,20 @@ def test_writer_inertia_fields() -> None:
 
 
 def test_fixed_equality_zone_keeps_surplus_cost() -> None:
-    """A fixed-requirement zone (no planes) keeps ``"eq"`` + surplus cost:
-    there the surplus column is built."""
+    """Under ``--legacy-profile cen`` a fixed-requirement zone (no planes)
+    keeps ``"eq"`` + surplus cost: there the surplus column is built.  The
+    clean default writes ``>=``."""
     ucs = [
         replace(u, penalty=7.0) if u.name == "CSF_UpMinProvision" else u
         for u in _base_ucs()
     ]
     db = _db({"CSF_UpMinProvision": {"Sense": 0.0}})
-    out = apply_native_reserve(_case(ucs), _EXO, db=db)
+    replica = NativeReserveOptions(surplus_equality=True)
+    out = apply_native_reserve(_case(ucs), replica, db=db)
     csf = _zone(out, "CSF_UpMinProvision")
     assert (csf.requirement_sense, csf.ursurplus_cost) == ("eq", 7.0)
     entry = build_reserve_zone_array((csf,), block_count=24)[0]
     assert entry["ursurplus_cost"] == 7.0
+    # Clean default: '>=' with a free excess, no surplus column.
+    clean = _zone(apply_native_reserve(_case(ucs), _EXO, db=db), "CSF_UpMinProvision")
+    assert (clean.requirement_sense, clean.ursurplus_cost) == ("", None)

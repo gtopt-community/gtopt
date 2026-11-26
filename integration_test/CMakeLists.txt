@@ -357,6 +357,25 @@ add_e2e_case(line_loss_envelope line_loss_envelope.json)
 # cases/line_loss_overflow_sink/README.md.
 add_e2e_case(line_loss_overflow_sink line_loss_overflow_sink.json)
 
+# line_thermal_limit_mode on MATPOWER/pandapower case9 (line 5-6 limited
+# to 80 %, tangent_signed_flow losses): `flow` lets the sending-end power
+# exceed the rating by half the loss, `sending` holds it at the rating
+# (the pandapower AC-OPF current limit), `full` sits below it.  See
+# cases/ieee9b_line_limit/README.md.
+foreach(_mode flow sending full)
+  add_e2e_case(ieee9b_line_limit_${_mode} ieee9b_line_limit.json
+    CASE_DIR "${CASES_DIR}/ieee9b_line_limit/${_mode}")
+endforeach()
+
+# Two-bus congested lossy line: the line limit dual, the LMP split into
+# loss and congestion parts, and the transmission tolls (Chilean
+# ingreso tarifario / peaje, FTR congestion rent) under a lossless model
+# and `flow` / `sending` / `full`.  See cases/line_limit_tolls/README.md.
+foreach(_mode lossless flow sending full)
+  add_e2e_case(line_limit_tolls_${_mode} line_limit_tolls.json
+    CASE_DIR "${CASES_DIR}/line_limit_tolls/${_mode}")
+endforeach()
+
 # Nonanticipative global DecisionVariable (an LNG cargo decided before the
 # hydrology is known): two hydrology scenes merged into one extensive-form
 # LP, per-scenario reservoir state, output split back per scene.

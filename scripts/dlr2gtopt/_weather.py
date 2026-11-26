@@ -23,6 +23,7 @@ model to each span):
 from __future__ import annotations
 
 import csv
+import dataclasses
 import io
 import json
 import logging
@@ -259,21 +260,26 @@ def interpolate_spans(
     method: str = "bilinear",
     height: float = 15.0,
     profile: str = "log",
+    span_heights: bool = False,
 ) -> Weather:
-    """Per-span weather from gridded node series (vertical then horizontal)."""
-    cache: dict[Node, tuple[FloatArray, ...]] = {}
+    """Per-span weather from gridded node series (vertical then horizontal).
+
+    ``height`` is the conductor height for every span; with ``span_heights``
+    a span's own :attr:`Span.height` is used instead when it is set."""
+    cache: dict[tuple[Node, float], tuple[FloatArray, ...]] = {}
     n_t, n_s = len(times), len(spans)
     out = {k: np.zeros((n_t, n_s)) for k in FIELDS}
     has_ghi = all(ns.ghi is not None for ns in node_series.values())
     for j, s in enumerate(spans):
+        h = s.height if span_heights and s.height is not None else height
         u_acc = np.zeros(n_t)
         v_acc = np.zeros(n_t)
         for node, w in grid.stencil(s.lat, s.lon, method):
-            if node not in cache:
+            if (node, h) not in cache:
                 ns = node_series[node]
                 ghi = ns.ghi if ns.ghi is not None else np.full(n_t, np.nan)
-                cache[node] = (*at_height(ns, height, profile), ghi)
-            spd, u, v, ta, ghi = cache[node]
+                cache[node, h] = (*at_height(ns, h, profile), ghi)
+            spd, u, v, ta, ghi = cache[node, h]
             out["wind_speed"][:, j] += w * spd
             out["ambient_temperature"][:, j] += w * ta
             out["solar_irradiance"][:, j] += w * ghi
@@ -295,8 +301,19 @@ EXPLORADOR_URL = "https://eolico.minenergia.cl"
 # (found by bisecting the server's nearest-node snapping).
 EXPLORADOR_GRID = RegularGrid(dlat=0.01, dlon=0.01)
 EXPLORADOR_MODELS = {
-    "wrf2010": {"nombre": "WRF 2010", "value": "wrf2010", "recon": "off", "index": 0}
+    "wrf2010": {"nombre": "WRF 2010", "value": "wrf2010", "recon": "off", "index": 0},
+    "wrf2015": {"nombre": "WRF 2015", "value": "wrf2015", "recon": "off", "index": 1},
+    "recon": {"nombre": "RECON 1980-2017", "value": "recon", "recon": "on", "index": 2},
 }
+EXPLORADOR_DOWNLOADS = {
+    "wrf2010": "SerieHorariaVientoWrf2010",
+    "wrf2015": "SerieHorariaVientoWrf2015",
+    "recon": "SerieHorariaVientoRecon",
+}
+# The 1980-2017 reconstruction ("recon") only carries wind speed and
+# direction (10/20 m); temperature and GHI come from another source
+# (see ``_history.py``).
+EXPLORADOR_WIND_ONLY = frozenset({"recon"})
 EXPLORADOR_UTC_OFFSET = -4.0  # series are in Chilean standard time (UTC-4)
 
 
@@ -334,7 +351,7 @@ class Explorador:
                 "lon": round(lon, 5),
                 "address": "",
                 "nombre_sitio": "S",
-                "descarga": "SerieHorariaVientoWrf2010",
+                "descarga": EXPLORADOR_DOWNLOADS[self.model],
                 "modelo": EXPLORADOR_MODELS[self.model],
                 "variable": variable,
                 "alturas": list(heights),
@@ -353,7 +370,11 @@ class Explorador:
     def node_series(
         self, lat: float, lon: float, wind_heights: Sequence[float] = (10, 20)
     ) -> tuple[list[datetime], NodeSeries]:
-        """All fields at one grid node."""
+        """All fields at one grid node (wind only for ``recon``)."""
+        if self.model in EXPLORADOR_WIND_ONLY:
+            raise ValueError(
+                f"explorador model {self.model} has wind only: use wind_series()"
+            )
         times, spd = parse_explorador_csv(
             self.series_csv(lat, lon, "vel", wind_heights)
         )
@@ -361,6 +382,15 @@ class Explorador:
         _, temp = parse_explorador_csv(self.series_csv(lat, lon, "temp", wind_heights))
         _, glb = parse_explorador_csv(self.series_csv(lat, lon, "glb", [10]))
         return times, NodeSeries(spd, wdir, temp, next(iter(glb.values())))
+
+
+def explorador_wind(
+    client: Explorador, lat: float, lon: float, heights: Sequence[float] = (10, 20)
+) -> tuple[list[datetime], dict[float, FloatArray], dict[float, FloatArray]]:
+    """Wind speed and direction per height at one node (any model)."""
+    times, spd = parse_explorador_csv(client.series_csv(lat, lon, "vel", heights))
+    _, wdir = parse_explorador_csv(client.series_csv(lat, lon, "vdir", heights))
+    return times, spd, wdir
 
 
 def parse_explorador_csv(
@@ -404,6 +434,7 @@ def explorador_weather(
     method: str = "bilinear",
     height: float = 15.0,
     profile: str = "log",
+    span_heights: bool = False,
     grid: RegularGrid = EXPLORADOR_GRID,
     progress: Callable[[int, int], None] | None = None,
 ) -> Weather:
@@ -417,7 +448,14 @@ def explorador_weather(
         if progress is not None:
             progress(k, len(nodes))
     return interpolate_spans(
-        grid, spans, series, times, method=method, height=height, profile=profile
+        grid,
+        spans,
+        series,
+        times,
+        method=method,
+        height=height,
+        profile=profile,
+        span_heights=span_heights,
     )
 
 
@@ -427,11 +465,29 @@ def explorador_weather(
 
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 OPEN_METEO_CUSTOMER_URL = "https://customer-api.open-meteo.com/v1/forecast"
-OPEN_METEO_MODELS = ("best_match", "ecmwf_ifs025", "gfs_seamless", "icon_seamless")
+OPEN_METEO_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
+OPEN_METEO_CUSTOMER_ARCHIVE_URL = (
+    "https://customer-archive-api.open-meteo.com/v1/archive"
+)
+OPEN_METEO_MODELS = (
+    "best_match",
+    "ecmwf_ifs025",
+    "gfs_seamless",
+    "icon_seamless",
+    # historical archive (--start-date/--end-date)
+    "era5",
+    "era5_land",
+    "era5_seamless",
+    "ecmwf_ifs",
+)
 OPEN_METEO_ATTRIBUTION = "Weather data by Open-Meteo.com (CC BY 4.0)"
 _OM_VARS = (
     "temperature_2m,temperature_80m,wind_speed_10m,wind_speed_80m,"
     "wind_direction_10m,wind_direction_80m,shortwave_radiation"
+)
+_OM_ARCHIVE_VARS = (
+    "temperature_2m,wind_speed_10m,wind_speed_100m,"
+    "wind_direction_10m,wind_direction_100m,shortwave_radiation"
 )
 
 
@@ -444,22 +500,51 @@ def open_meteo_url(
     past_days: int = 0,
     api_key: str | None = None,
     base_url: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
 ) -> str:
-    """Open-Meteo forecast URL for several points (one request)."""
-    base = base_url or (OPEN_METEO_CUSTOMER_URL if api_key else OPEN_METEO_URL)
+    """Open-Meteo URL for several points (one request).
+
+    With ``start_date`` (YYYY-MM-DD) the historical archive API is used
+    (ERA5 / ERA5-Land / IFS reanalysis-style series, 10 and 100 m wind)
+    instead of the forecast API."""
     params = {
         "latitude": ",".join(f"{x:.5f}" for x in lats),
         "longitude": ",".join(f"{x:.5f}" for x in lons),
-        "hourly": _OM_VARS,
         "models": model,
         "wind_speed_unit": "ms",
         "timezone": "GMT",
-        "forecast_days": str(forecast_days),
-        "past_days": str(past_days),
     }
+    if start_date is not None:
+        base = base_url or (
+            OPEN_METEO_CUSTOMER_ARCHIVE_URL if api_key else OPEN_METEO_ARCHIVE_URL
+        )
+        params["hourly"] = _OM_ARCHIVE_VARS
+        params["start_date"] = start_date
+        params["end_date"] = end_date or start_date
+    else:
+        base = base_url or (OPEN_METEO_CUSTOMER_URL if api_key else OPEN_METEO_URL)
+        params["hourly"] = _OM_VARS
+        params["forecast_days"] = str(forecast_days)
+        params["past_days"] = str(past_days)
     if api_key:
         params["apikey"] = api_key
     return base + "?" + urllib.parse.urlencode(params, safe=",")
+
+
+def _om_array(hourly: Mapping[str, Any], name: str) -> FloatArray:
+    return fill_gaps(
+        np.array([np.nan if x is None else x for x in hourly[name]], float)
+    )
+
+
+def _om_levels(hourly: Mapping[str, Any], prefix: str) -> dict[float, FloatArray]:
+    """``{height: series}`` of ``<prefix><h>m`` fields (e.g. wind_speed_100m)."""
+    return {
+        float(k[len(prefix) : -1]): _om_array(hourly, k)
+        for k in hourly
+        if k.startswith(prefix) and k.endswith("m")
+    }
 
 
 def parse_open_meteo(
@@ -472,21 +557,12 @@ def parse_open_meteo(
     for it in items:
         h = it["hourly"]
         times = [datetime.strptime(t, "%Y-%m-%dT%H:%M") for t in h["time"]]
-
-        def arr(name: str, hh: Mapping[str, Any] = h) -> FloatArray:
-            return fill_gaps(
-                np.array([np.nan if x is None else x for x in hh[name]], float)
-            )
-
         out.append(
             NodeSeries(
-                speed={10.0: arr("wind_speed_10m"), 80.0: arr("wind_speed_80m")},
-                direction={
-                    10.0: arr("wind_direction_10m"),
-                    80.0: arr("wind_direction_80m"),
-                },
-                temperature={2.0: arr("temperature_2m"), 80.0: arr("temperature_80m")},
-                ghi=arr("shortwave_radiation"),
+                speed=_om_levels(h, "wind_speed_"),
+                direction=_om_levels(h, "wind_direction_"),
+                temperature=_om_levels(h, "temperature_"),
+                ghi=_om_array(h, "shortwave_radiation"),
             )
         )
     return times, out
@@ -498,16 +574,27 @@ def open_meteo_weather(
     *,
     height: float = 15.0,
     profile: str = "log",
+    span_heights: bool = False,
     batch: int = 50,
+    snap: float | None = None,
     **url_kw: Any,
 ) -> Weather:
     """Per-span weather from Open-Meteo at each span midpoint (the API picks
-    the model cell; several spans per request)."""
+    the model cell; several points per request).
+
+    ``snap`` (degrees, e.g. 0.25 for ERA5) rounds the midpoints to that grid
+    first and requests each distinct point once, which keeps long archive
+    requests (charged per point and per two weeks) small."""
+    if snap:
+        pts = [(round(s.lat / snap) * snap, round(s.lon / snap) * snap) for s in spans]
+    else:
+        pts = [(s.lat, s.lon) for s in spans]
+    uniq = list(dict.fromkeys(pts))
     series: list[NodeSeries] = []
     times: list[datetime] = []
-    for k in range(0, len(spans), batch):
-        chunk = spans[k : k + batch]
-        url = open_meteo_url([s.lat for s in chunk], [s.lon for s in chunk], **url_kw)
+    for k in range(0, len(uniq), batch):
+        chunk = uniq[k : k + batch]
+        url = open_meteo_url([p[0] for p in chunk], [p[1] for p in chunk], **url_kw)
         key_src = url.split("apikey=", maxsplit=1)[0]
         import hashlib
 
@@ -519,28 +606,20 @@ def open_meteo_weather(
         t, ns = parse_open_meteo(json.loads(cache.fetch(key, url)), height, profile)
         times = t
         series += ns
+    index = {p: i for i, p in enumerate(uniq)}
     grid = RegularGrid(1.0, 1.0)
     pseudo = [
-        Span(
-            s.line,
-            s.span,
-            float(i),
-            0.0,
-            s.azimuth,
-            s.length_m,
-            s.chainage_km,
-            s.elevation,
-        )
-        for i, s in enumerate(spans)
+        dataclasses.replace(s, lat=float(i), lon=0.0) for i, s in enumerate(spans)
     ]
     w = interpolate_spans(
         grid,
         pseudo,
-        {(i, 0): n for i, n in enumerate(series)},
+        {(i, 0): series[index[p]] for i, p in enumerate(pts)},
         times,
         method="nearest",
         height=height,
         profile=profile,
+        span_heights=span_heights,
     )
     return Weather(w.times, list(spans), w.data)
 
@@ -640,6 +719,7 @@ def ecmwf_weather(
     method: str = "bilinear",
     height: float = 15.0,
     profile: str = "log",
+    span_heights: bool = False,
 ) -> Weather:
     """Per-span weather from ECMWF open-data fields (same bilinear path)."""
     if "10u" not in fields or "10v" not in fields or "2t" not in fields:
@@ -672,7 +752,14 @@ def ecmwf_weather(
             spd, drn, {2.0: at("2t") - 273.15}, None if ssrd is None else ssrd[:, i, j]
         )
     return interpolate_spans(
-        grid, spans, series, times, method=method, height=height, profile=profile
+        grid,
+        spans,
+        series,
+        times,
+        method=method,
+        height=height,
+        profile=profile,
+        span_heights=span_heights,
     )
 
 

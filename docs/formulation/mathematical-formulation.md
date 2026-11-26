@@ -1125,7 +1125,21 @@ y^{th} \;=\; -\,\frac{\pi_b\,(1 - \ell') - \pi_a - \varepsilon_l\,\ell'}
 
 because relaxing $\overline{F}$ by 1 MW admits only $1/(1 + \ell')$ MW
 more flow.  Under
-`flow` the same rent appears as the reduced cost of $f^{dir}$ (`flow_cost`).
+`flow` the same rent appears as the reduced cost of $f^{dir}$ (`flow_cost`)
+only where the flow column itself carries the limit (`none`, `linear`,
+`tangent_signed_flow`).  In the segment-based PWL modes (`piecewise`,
+`bidirectional`, `piecewise_direct`) the segment widths add up to
+$\overline{F}_l^{dir}$, so the limit is implied by the segment bounds
+and the rent is spread over segment reduced costs that are not written
+out: `flow_cost` is empty for those lines.  Use `sending` / `full` when
+the limit dual is needed, or recover it from the LMPs as
+$\pi_b(1-(1-a)\ell') - \pi_a(1+a\ell')$ (see
+`cases/line_limit_tolls`).  With split allocation the dual is
+$V/(1 + a\ell')$ under `sending`, which equals
+$`\pi_b\,r - \pi_a`$ with $r = (1-(1-a)\ell')/(1+a\ell')$ the
+power delivered per MW injected at the sending end: the congestion part
+of the price difference with the marginal loss referred to the sending
+end [[37]](#ref37), independent of the allocation $a$.
 
 **Analytic loss cap at the rated flow.**  Independently of the mode,
 every loss column is bounded by the loss the line can carry at its
@@ -6364,6 +6378,16 @@ DOI: [10.1109/TPWRS.2019.2932184](https://doi.org/10.1109/TPWRS.2019.2932184).
 
 > With split loss allocation the relaxation is exact iff
 > $\tfrac12(\pi_a + \pi_b) > 0$.
+
+<a id="ref37"></a>
+**[37]** Litvinov, E., Zheng, T., Rosenwald, G., and Shamsollahi, P.
+(2004). "Marginal Loss Modeling in LMP Calculation." *IEEE Trans. Power
+Systems*, 19(2), pp. 880–888.
+DOI: [10.1109/TPWRS.2004.825894](https://doi.org/10.1109/TPWRS.2004.825894).
+
+> LMP split into energy, loss and congestion components with marginal
+> loss factors; the `sending` limit dual is the congestion component
+> with the loss referred to the sending-end injection.
 
 <a id="ref38"></a>
 **[38]** IEEE Std 738-2012. "IEEE Standard for Calculating the

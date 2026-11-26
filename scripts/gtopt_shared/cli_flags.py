@@ -22,6 +22,10 @@ when a new converter wants the entire baseline.
 from __future__ import annotations
 
 import argparse
+import logging
+import sys
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, Literal
 
@@ -32,7 +36,11 @@ from gtopt_shared.operator import add_operator_argument
 __all__ = [
     "APERTURE_CHUNK_MODE_CHOICES",
     "DEFAULT_WRITE_OUT",
+    "LEGACY_PROFILE_CHOICES",
     "LINE_LOSSES_MODE_CHOICES",
+    "LegacyToggle",
+    "add_legacy_profile_argument",
+    "apply_legacy_profile",
     "add_aperture_chunk_mode_argument",
     "add_aperture_chunk_size_argument",
     "add_common_arguments",
@@ -607,13 +615,17 @@ def add_loss_secant_segments_argument(
 
 
 #: Default ``--lift-line-caps`` set for the plexos dialect.  Under the
-#: ``--el0-lines strict`` opt-in (the default ``unenforced`` mode ignores
-#: this list for EL=0 lines and sub-threshold EL=1 lines) every EL=0
-#: ("Never enforce") line is a plain hard cap; this list LIFTS back to a
-#: soft cap (3× free / 6× hard band) the EL=0 radial / load-pocket feeders
-#: that need to run above their rating, plus the one EL=1 radial corridor
-#: (``Capricornio110->LaNegra110``).  The other EL=0 lines stay hard (see
-#: ``DEFAULT_NO_LIFT_LINES_PLEXOS`` for the cable kept hard even
+#: default ``--el0-lines enforced`` (``strict``) mode every EL=0 ("Never
+#: enforce") line is a plain hard cap (the ``unenforced`` mode of
+#: ``--legacy-profile cen`` ignores this list for EL=0 lines and
+#: sub-threshold EL=1 lines); this list LIFTS back to a soft cap (3× free /
+#: 6× hard band) the EL=0 lines that the PLEXOS solution actually runs
+#: ABOVE their rating, plus
+#: the one EL=1 radial corridor (``Capricornio110->LaNegra110``) PLEXOS
+#: over-uses.  The EL=0 members are data-derived: a 14-case CEN PCP sweep
+#: (2025-10 → 2026-05) found exactly these 34 EL=0 lines lifted in ≥1 case
+#: (util > 1.02× rating); the other ~154 EL=0 lines are never lifted and stay
+#: hard (see ``DEFAULT_NO_LIFT_LINES_PLEXOS`` for the cable kept hard even
 #: under ``--el0-lines extended``).
 _DEFAULT_LIFT_LINES_PLEXOS: tuple[str, ...] = (
     "AJahuel220->AJahuel154",
@@ -987,3 +999,145 @@ def add_common_arguments(
             parser,
             default=defaults.get("write_out"),
         )
+
+
+# ---------------------------------------------------------------------------
+# --legacy-profile: operator-replica toggle sets (default: clean gtopt)
+# ---------------------------------------------------------------------------
+#
+# The converters' default is the clean gtopt formulation: no artificial
+# negative prices.  Reproducing an operator's published model (its quirks
+# included) is a diagnostic step, so every such quirk sits behind a named
+# profile.  The quirks belong to the operator's model, not to the source
+# tool (several PLEXOS operators exist), hence profiles are named after
+# the operator.  ``plexos2gtopt`` and ``plp2gtopt`` each declare their own
+# toggle set per profile; the flag, its deprecated per-tool alias
+# (``--plexos-legacy`` / ``--plp-legacy``), the precedence rule and the
+# log line are shared here.
+
+_LEGACY_LOG = logging.getLogger(__name__)
+
+#: Known ``--legacy-profile`` names.
+LEGACY_PROFILE_CHOICES: Final[tuple[str, ...]] = ("cen",)
+
+
+@dataclass(frozen=True)
+class LegacyToggle:
+    """One operator-replica quirk a ``--legacy-profile`` turns on.
+
+    ``dest`` is the ``argparse`` destination the profile sets to
+    ``value``.  ``flags`` lists the CLI spellings that set the same
+    destination: when the user typed any of them, the explicit value
+    wins over the profile.  A toggle without ``flags`` is internal (no
+    individual CLI flag): the profile always sets it.
+    """
+
+    dest: str
+    value: Any
+    note: str
+    flags: tuple[str, ...] = ()
+
+    def spelling(self) -> str:
+        """How the toggle reads in ``--help``."""
+        if not self.flags:
+            return f"{self.dest} (internal)"
+        if self.value is True:
+            return self.flags[0]
+        if self.value is False:
+            return f"{self.dest}=false"
+        return f"{self.flags[0]} {self.value}"
+
+
+def add_legacy_profile_argument(
+    parser: argparse.ArgumentParser,
+    *,
+    profiles: Mapping[str, Sequence[LegacyToggle]],
+    alias: str,
+    alias_dest: str,
+) -> None:
+    """Add ``--legacy-profile {...}`` plus the deprecated *alias* flag.
+
+    The help text lists each profile's toggles.  *alias* (e.g.
+    ``--plexos-legacy``) is a ``store_true`` on *alias_dest* that
+    :func:`apply_legacy_profile` maps to ``--legacy-profile cen`` with a
+    deprecation warning.
+    """
+    parts = [
+        "replicate an operator's published model, quirks included "
+        "(diagnostic reconciliation only).  Default: no profile, i.e. the "
+        "clean gtopt formulation, which produces no artificial negative "
+        "prices.  Explicit flags override a profile's toggles."
+    ]
+    for name, toggles in profiles.items():
+        items = "; ".join(f"{t.spelling()}: {t.note}" for t in toggles)
+        parts.append(f"Profile '{name}' applies: {items}.")
+    parser.add_argument(
+        "--legacy-profile",
+        dest="legacy_profile",
+        choices=tuple(profiles),
+        default=None,
+        help="  ".join(parts),
+    )
+    parser.add_argument(
+        alias,
+        dest=alias_dest,
+        action="store_true",
+        default=False,
+        help="deprecated alias of --legacy-profile cen",
+    )
+
+
+def apply_legacy_profile(
+    args: argparse.Namespace,
+    profiles: Mapping[str, Sequence[LegacyToggle]],
+    *,
+    alias_dest: str,
+    alias_flag: str,
+    argv: Sequence[str] | None = None,
+) -> list[str]:
+    """Resolve ``--legacy-profile`` and apply its toggles to *args*.
+
+    The deprecated alias (*alias_flag*, stored on *alias_dest*) selects
+    ``cen`` with a warning.  Each toggle sets its destination unless the
+    user typed one of its ``flags`` in *argv* (default ``sys.argv[1:]``).
+    Afterwards ``args.legacy_profile`` holds the profile (or ``None``),
+    ``args.<alias_dest>`` is ``True`` iff a profile is active, and
+    ``args.legacy_toggles`` lists the applied ``dest=value`` items, which
+    callers record in their provenance.  Idempotent: a second call
+    returns the recorded list.
+    """
+    done = getattr(args, "legacy_toggles", None)
+    if done is not None:
+        return list(done)
+    profile = getattr(args, "legacy_profile", None)
+    if getattr(args, alias_dest, False):
+        _LEGACY_LOG.warning(
+            "%s is deprecated: use --legacy-profile cen (same toggles)", alias_flag
+        )
+        if profile is None:
+            profile = "cen"
+    if profile is not None and profile not in profiles:
+        raise ValueError(f"unknown --legacy-profile {profile!r}")
+    args.legacy_profile = profile
+    setattr(args, alias_dest, profile is not None)
+    applied: list[str] = []
+    if profile is None:
+        args.legacy_toggles = applied
+        return applied
+    typed = {a.split("=", 1)[0] for a in (sys.argv[1:] if argv is None else argv)}
+    kept: list[str] = []
+    for toggle in profiles[profile]:
+        if typed & set(toggle.flags):
+            kept.append(toggle.dest)
+            continue
+        setattr(args, toggle.dest, toggle.value)
+        applied.append(f"{toggle.dest}={toggle.value}")
+    _LEGACY_LOG.info(
+        "--legacy-profile %s: applying %s", profile, ", ".join(applied) or "nothing"
+    )
+    if kept:
+        _LEGACY_LOG.info(
+            "--legacy-profile %s: explicit flags keep %s", profile, ", ".join(kept)
+        )
+    args.legacy_toggles = applied
+    return applied

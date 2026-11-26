@@ -122,3 +122,137 @@ def test_main_check_update_and_missing_root(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(jc, "find_repo_root", lambda: None)
     assert jc.main([]) == 2
     assert "checkout not found" in capsys.readouterr().err
+
+
+# ── gtopt --json-schema source ─────────────────────────────────────────────
+
+_FAKE_SCHEMA = {
+    "$defs": {
+        "Planning": {
+            "type": "object",
+            "properties": {
+                "system": {"$ref": "#/$defs/System"},
+                "tags": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        "System": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "bus_array": {"type": "array", "items": {"$ref": "#/$defs/Bus"}},
+            },
+            "required": ["name"],
+        },
+        "Bus": {
+            "type": "object",
+            "properties": {
+                "uid": {"type": "integer"},
+                "voltage": {"oneOf": [{"type": "number"}, {"type": "string"}]},
+                "active": {"type": "boolean"},
+                "kind": {"type": "string"},
+                "extra": {"type": "object"},
+                "ref": {"$ref": 3},
+            },
+            "required": ["uid"],
+        },
+    }
+}
+
+
+def _fake_gtopt(tmp_path, stdout: str, rc: int = 0) -> str:
+    out = tmp_path / "schema_out.txt"
+    out.write_text(stdout, encoding="utf-8")
+    exe = tmp_path / "fake_gtopt"
+    exe.write_text(f"#!/bin/sh\ncat '{out}'\nexit {rc}\n", encoding="utf-8")
+    exe.chmod(0o755)
+    return str(exe)
+
+
+def test_types_from_json_schema_kinds_and_nesting():
+    types = jc.types_from_json_schema(_FAKE_SCHEMA)
+    assert types["System"]["required"] == ["name"]
+    assert types["System"]["nested"] == {"bus_array": "Bus"}
+    assert types["Planning"]["nested"] == {"system": "System"}
+    assert types["Bus"]["kinds"] == {
+        "uid": "number",
+        "voltage": "variant",
+        "active": "bool",
+        "kind": "string",
+        "extra": "class",
+        "ref": "string",
+    }
+
+
+def test_gtopt_json_schema_success(tmp_path):
+    schema = dict(_FAKE_SCHEMA)
+    schema["$defs"] = {**_FAKE_SCHEMA["$defs"], jc.ROOT_TYPE: {"properties": {}}}
+    exe = _fake_gtopt(tmp_path, json.dumps(schema))
+    assert jc.gtopt_json_schema(exe) == schema
+    types, label = jc.load_contract_types("auto", gtopt_bin=exe)
+    assert label == "gtopt --json-schema"
+    assert jc.ROOT_TYPE in types
+
+
+@pytest.mark.parametrize(
+    ("stdout", "rc"),
+    [
+        ("{}", 1),
+        ("not json", 0),
+        ("[1, 2]", 0),
+        ('{"$defs": {"PlanningOptions": {}}}', 0),
+    ],
+)
+def test_gtopt_json_schema_rejects_bad_output(tmp_path, stdout, rc):
+    assert jc.gtopt_json_schema(_fake_gtopt(tmp_path, stdout, rc)) is None
+
+
+def test_gtopt_json_schema_unrunnable_binary(tmp_path):
+    missing = tmp_path / "no_such_gtopt"
+    assert jc.gtopt_json_schema(str(missing)) is None
+
+
+def test_gtopt_json_schema_no_binary_found(monkeypatch):
+    # pylint: disable-next=import-outside-toplevel
+    from gtopt_shared import gtopt_binary
+
+    monkeypatch.setattr(gtopt_binary, "find_gtopt_binary", lambda: None)
+    assert jc.gtopt_json_schema() is None
+
+
+def test_load_contract_types_sources(tmp_path):
+    with pytest.raises(ValueError, match="unknown contract source"):
+        jc.load_contract_types("bogus")
+    schema_file = tmp_path / "schema.json"
+    schema_file.write_text(json.dumps(_FAKE_SCHEMA), encoding="utf-8")
+    types, label = jc.load_contract_types("gtopt", schema_file=schema_file)
+    assert "Bus" in types and label.startswith("schema file")
+    bad = _fake_gtopt(tmp_path, "", 1)
+    with pytest.raises(ValueError, match="unavailable"):
+        jc.load_contract_types("gtopt", gtopt_bin=bad)
+    types, label = jc.load_contract_types("auto", gtopt_bin=bad)
+    assert label == "bundled contract snapshot" and jc.ROOT_TYPE in types
+    _, label = jc.load_contract_types("snapshot")
+    assert label == "bundled contract snapshot"
+
+
+def test_contract_diff_reports_missing_and_mismatch():
+    snapshot = {
+        "Bus": {
+            "fields": ["uid", "kind"],
+            "required": ["uid"],
+            "kinds": {"uid": "number", "kind": "custom"},
+            "nested": {},
+        }
+    }
+    live = {
+        "Bus": {
+            "fields": ["uid", "kind"],
+            "required": ["uid"],
+            "kinds": {"uid": "number", "kind": "string"},
+            "nested": {},
+        },
+        "Gone": {"fields": []},
+    }
+    assert jc.contract_diff(live, snapshot) == ["Gone: missing from the snapshot"]
+    live["Bus"]["fields"] = ["uid"]
+    assert jc.contract_diff(live, snapshot)[0].startswith("Bus.fields")

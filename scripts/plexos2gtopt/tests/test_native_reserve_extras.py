@@ -51,7 +51,8 @@ from plexos2gtopt.tests.cov_parsers_kit import DbKit
 from plexos2gtopt.tests.test_native_reserve import _case, _dv, _uc, _zone
 
 _DAY1 = datetime(2026, 11, 7)
-_OPTS = NativeReserveOptions()
+# PLEXOS Sense-0 emulation is the ``--legacy-profile cen`` replica.
+_OPTS = NativeReserveOptions(surplus_equality=True)
 
 
 def _u(gen: str) -> str:

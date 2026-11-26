@@ -18,10 +18,12 @@ from gtopt_config import (
     add_version_argument,
 )
 from gtopt_shared.cli_flags import (
+    LegacyToggle,
     add_aperture_chunk_mode_argument,
     add_aperture_chunk_size_argument,
     add_demand_fail_cost_argument,
     add_demand_tier_segments_argument,
+    add_legacy_profile_argument,
     add_lift_line_caps_argument,
     add_line_losses_mode_argument,
     add_loss_cost_eps_argument,
@@ -64,6 +66,46 @@ DEFAULT_ROR_RESERVOIRS_FILE: Path = package_data_path(
 DEFAULT_PMIN_FLOWRIGHT_FILE: Path = package_data_path(
     "gtopt_expand", "templates", "pmin_as_flowright.csv"
 )
+
+#: ``--legacy-profile`` toggle sets (``--plp-legacy`` = ``cen``): the
+#: PLP-compatibility defaults that bring gtopt closer to PLP at the cost
+#: of LP quality / size.  ``discount_rate``, ``use_kirchhoff`` already
+#: match PLP; ``reservoir_scale_mode`` is left alone (user preference).
+PLP_LEGACY_PROFILES: dict[str, tuple[LegacyToggle, ...]] = {
+    "cen": (
+        LegacyToggle("method", "sddp", "PLP's SDDP", ("-M", "--method")),
+        LegacyToggle(
+            "line_losses_mode",
+            "piecewise_direct",
+            "PLP genpdlin.f loss segments",
+            ("--line-losses-mode",),
+        ),
+        LegacyToggle(
+            "use_line_losses",
+            True,
+            "use_line_losses emitted explicitly",
+            ("-L", "--use-line-losses", "--no-use-line-losses"),
+        ),
+        LegacyToggle(
+            "pasada_mode",
+            "flow-turbine",
+            "every pasada central a turbine on its own afluent",
+            ("--pasada-mode", "--pasada-hydro", "--no-pasada-hydro"),
+        ),
+        LegacyToggle(
+            "soft_storage_bounds",
+            False,
+            "hard EmbVMin / EmbVFin as in PLP",
+            ("--soft-storage-bounds", "--no-soft-storage-bounds"),
+        ),
+        LegacyToggle(
+            "plp_legacy",
+            True,
+            "raw PLP filtration segments (no q(vmin)=0 anchoring) and "
+            "PLP's capped seepage-outlet topology (no free drain)",
+        ),
+    ),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -1184,22 +1226,11 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
     # corridors where the SOS2 exact bracket is wanted (MIP runs).
     add_loss_secant_segments_argument(parser, default=None)
     add_lift_line_caps_argument(parser, dialect="plp")
-    parser.add_argument(
-        "--plp-legacy",
-        dest="plp_legacy",
-        action="store_true",
-        default=False,
-        help=(
-            "bundle PLP-compatibility defaults that make GTOpt outputs "
-            "closer to PLP even when that is not the highest-quality "
-            "or smallest-LP choice. Adjusts the defaults of: "
-            "--line-losses-mode (→piecewise_direct; PLP `genpdlin.f`), "
-            "--use-line-losses (→true, emitted explicitly). "
-            "method, pasada_mode, use_kirchhoff, discount_rate are already "
-            "PLP-aligned by default so no bundle change is needed. "
-            "reservoir_scale_mode is intentionally left alone. "
-            "Explicit flags still win over the bundle."
-        ),
+    add_legacy_profile_argument(
+        parser,
+        profiles=PLP_LEGACY_PROFILES,
+        alias="--plp-legacy",
+        alias_dest="plp_legacy",
     )
     parser.add_argument(
         "--disable-discharge-limit-for",

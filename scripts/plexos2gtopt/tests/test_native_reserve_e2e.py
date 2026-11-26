@@ -87,9 +87,9 @@ def test_exogenous_conversion(tmp_path: Path) -> None:
     assert "system_inertia" not in up10
     assert up10["urcost"] == pytest.approx(10000.0)
     assert "urreq" not in up10
-    # PLEXOS Sense 0: equality balance; the CPF10s_Slack surplus cost is
-    # not emitted (the plane requirement R absorbs any excess).
-    assert up10["requirement_sense"] == "eq"
+    # PLEXOS Sense 0 is an equality with a priced surplus slack; the clean
+    # default writes '>=' (free excess): no sense, no surplus cost.
+    assert "requirement_sense" not in up10
     assert "ursurplus_cost" not in up10
     assert "contingency_includes_reserve" not in up10
 
@@ -109,7 +109,7 @@ def test_exogenous_conversion(tmp_path: Path) -> None:
         "contingency_coef": pytest.approx(1.0912),
     }
     assert q1_floor["alpha"] == pytest.approx(4.125 + 1.0912 * 120.0)
-    assert up5["requirement_sense"] == "eq"
+    assert "requirement_sense" not in up5
     assert "ursurplus_cost" not in up5
 
     down = zones["CPF5mDown"]
@@ -125,7 +125,7 @@ def test_exogenous_conversion(tmp_path: Path) -> None:
 
     csf = zones["CSF_UpMinProvision"]
     assert csf["urreq"] == [[20.0] * 12 + [25.0] * 12]  # Res_Requirement.csv
-    assert csf["requirement_sense"] == "eq"  # unset Sense
+    assert "requirement_sense" not in csf  # unset Sense (= ; clean: >=)
     assert "urmin" not in csf  # CSF_RS Min Provision 18 is not a PLEXOS floor
     # One zone per requirement: the extractor's Reserve zones whose
     # provision the row sums (CSF_RS, CSF_RS_BESS) are superseded.
@@ -196,14 +196,20 @@ def test_exogenous_conversion(tmp_path: Path) -> None:
     assert "ur_energy_usage" not in csf_lw
 
     provs = {p["name"]: p for p in system["reserve_provision_array"]}
-    coal_p = provs["provision_COAL"]
-    factors = dict(
-        zip(
-            coal_p["reserve_zones"],
-            zip(coal_p["ur_zone_factors"], coal_p["dr_zone_factors"], strict=True),
-            strict=True,
+    # One provision per reserve family, sharing the unit's headroom.
+    assert "provision_COAL" not in provs
+    factors: dict[str, tuple[float, float]] = {}
+    for fam in ("CPF", "CSF"):
+        coal_p = provs[f"provision_COAL__{fam}"]
+        assert coal_p["shared_headroom"] is True
+        assert all(fam in z for z in coal_p["reserve_zones"])
+        factors.update(
+            zip(
+                coal_p["reserve_zones"],
+                zip(coal_p["ur_zone_factors"], coal_p["dr_zone_factors"], strict=True),
+                strict=True,
+            )
         )
-    )
     assert factors["CPF10s"] == (pytest.approx(0.9), 0.0)
     assert factors["CPF5mUp"] == (pytest.approx(0.7), 0.0)
     assert factors["CPF5mDown"] == (0.0, pytest.approx(0.5))
@@ -238,10 +244,11 @@ def test_north_special_opt_in(tmp_path: Path) -> None:
     # Scheduled requirement: the dated RHS of SpecialCPFNorth_Definition
     # (7 MW on 2026-11-07); no corridor-flow term.
     assert north["urreq_planes"] == [{"alpha": pytest.approx(7.0)}]
-    assert north["requirement_sense"] == "eq"
+    assert "requirement_sense" not in north
     assert "flow_lines" not in north
     provs = {p["name"]: p for p in planning["system"]["reserve_provision_array"]}
-    coal = provs["provision_COAL"]
+    # The northern CPF sub-requirement counts the CPF provision.
+    coal = provs["provision_COAL__CPF"]
     assert "SpecialCPFNorth" in coal["reserve_zones"]
 
 

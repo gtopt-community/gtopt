@@ -972,10 +972,11 @@ igtopt system.xlsx -l DEBUG
 
 ### Template generation (`-T` / `--make-template`)
 
-The `--make-template` flag reads the GTOpt C++ JSON header files
-(`include/gtopt/json/`) and generates a ready-to-use Excel template.
-Re-running after adding a new JSON element to the C++ source automatically
-produces an up-to-date workbook.
+The `--make-template` flag generates a ready-to-use Excel template with one
+sheet per element class and one column per field GTOpt accepts.  The sheets
+and columns come from `gtopt --json-schema` (the C++ JSON contracts), or
+from the contract snapshot bundled with the scripts when no GTOpt binary is
+found, so a new C++ element appears in the template automatically.
 
 ```bash
 # Regenerate docs/templates/gtopt_template.xlsx (default output)
@@ -987,8 +988,9 @@ igtopt --make-template -j /tmp/my_template.xlsx
 # Print the sheet list that would be generated (no file written)
 igtopt --make-template --list-sheets
 
-# Custom C++ header directory
-igtopt --make-template --header-dir /path/to/include/gtopt
+# Pin the contract source (auto | gtopt | snapshot) or use a saved dump
+igtopt --make-template --schema-source gtopt --gtopt-bin build/standalone/gtopt
+igtopt --make-template --schema-file schema.json
 ```
 
 ### ZIP output (`-z` / `--zip`)
@@ -1127,9 +1129,11 @@ array sheet (e.g. `lmax` in `demand_array`) should contain the string
 | `--ignore-errors` | off | Proceed despite errors in individual sheets (output may be incomplete) |
 | `-l, --log-level LEVEL` | `INFO` | Verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) |
 | `-V, --version` | — | Print version and exit |
-| `-T, --make-template` | off | Generate the Excel template from C++ JSON headers instead of converting |
-| `--header-dir DIR` | auto-detect | Path to `include/gtopt/` (used with `--make-template`) |
-| `--list-sheets` | off | Print sheet list from C++ headers and exit (used with `--make-template`) |
+| `-T, --make-template` | off | Generate the Excel template from the gtopt input contract instead of converting |
+| `--schema-source SRC` | `auto` | Contract for the template: `gtopt` (`gtopt --json-schema`), `snapshot` (bundled), `auto` (gtopt if found, else snapshot) |
+| `--schema-file FILE` | — | Use a saved `gtopt --json-schema` dump |
+| `--gtopt-bin PATH` | autodetect | gtopt binary for `--schema-source gtopt` / `auto` |
+| `--list-sheets` | off | Print the template sheets (with column counts) and exit |
 
 ---
 
@@ -1708,6 +1712,14 @@ gtopt_check_output --init-config
 - **Line congestion ranking** — identifies most congested transmission lines
 - **LMP statistics** — locational marginal price analysis
 - **Cost breakdown** — dispatches by generator cost tier
+- **Loss arbitrage** — per-line phantom circulation, loss inflation and
+  idle-line loss, with a `loss_cost_eps` override snippet
+  (`--emit-overrides`)
+- **Loss eps acceptance** — `loss_cost_eps` (ε, default 0.1 $/MWh) keeps
+  fictitious losses unprofitable only while every bus price stays at or
+  above `−ε`.  Each bus-hour below `−ε` of its lossy lines is a WARNING
+  `loss eps invalidated: bus B block H lambda=λ < -eps=-ε, excess loss X
+  MW on <lines>`, where `X` is the booked loss beyond `(R/V²)·f²`
 
 ### All options
 

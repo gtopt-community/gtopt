@@ -588,9 +588,9 @@ instead of emulating them with user constraints:
 | `InertiaNRMin_D` / `InertiaNRMin_N` (`Σ H·S·u [+ c·y] ≥ RHS`, coefficients of `Inertia_Calculation_e2`) | one `InertiaZone` per row: `requirement` = the (timesliced) RHS per hour, `cost` = the row penalty; units share the `InertiaProvision` of the same `H·S` (`inertia_zones` lists every zone) |
 | `InertiaCommitGuacolda2` (`Σ u_g − k·y ≥ 0`, `y ∈ [0, U]`) + `c·y` in `InertiaNRMin_D` | `InertiaZone.requirement_credits` `{name: y, generators, units: k·U/c_u, credit: c·U}`, continuous selector (as PLEXOS; `integer` unset); the commit row becomes an inactive stub |
 | `*_Comparison` (`k·C − Σ p_g − limited_generation_group ≥ offset`), DV lower bound 300 / 200 MW | one `urcontingencies` / `drcontingencies` candidate per row: plant modes summed, BESS discharge as `<bat>_gen`, charge as `<bat>_dem`, line flows, the constant as `offset`; the shared `limited_generation_group` DV is expanded through `limited_generation_calculation` (Σ PMGD gen − BESS charge); the bound becomes a second plane with `C` fixed at it; the rows themselves stay active (they also cap `C ≤ 400`) |
-| `CPF_*MinProvision` (`Σ f_g·r_g + VoRS − R − Slack = 0`, PLEXOS Sense 0 / unset) | `ur_zone_factors` / `dr_zone_factors` = `f_g` on each unit's existing `ReserveProvision`; `VoRS` cost → `urcost` / `drcost`; Sense 0 → `requirement_sense: "eq"`; the priced `Slack` is dropped with a warning: the requirement `R` is a column above its planes and absorbs any excess provision, so gtopt builds no surplus column for a plane zone |
+| `CPF_*MinProvision` (`Σ f_g·r_g + VoRS − R − Slack = 0`, PLEXOS Sense 0 / unset) | `ur_zone_factors` / `dr_zone_factors` = `f_g` on each unit's `ReserveProvision` of that family; an ACTIVE `VoRS` DV's cost → `urcost` / `drcost`, an excluded one (CEN: always) → a HARD zone (see *Reserves are hard* below); the requirement is `>=` with a free excess (clean default); only `--legacy-profile cen` keeps Sense 0 as `requirement_sense: "eq"`, and even then the priced `Slack` is dropped with a warning: the requirement `R` is a column above its planes and absorbs any excess provision, so gtopt builds no surplus column for a plane zone |
 | `CPF10s_Requirement` cost (10 $/MW) | kept through the link row `<zone>_RequirementCost`: `R_dv − reserve_zone(Z).up = 0` |
-| `CSF_*MinProvision`, `CTF_*MinProvision` (`Σ c_g·r_g [+ VoRS] ≥ RHS`) | fixed-requirement zones (`urreq` / `drreq` = RHS profile, cost = penalty / VoRS cost; Sense 0 → `requirement_sense: "eq"`).  A Reserve-level `Provision Coefficient` means the reserve's whole provision, generators **and** every battery provider (`<bat>_gen__<reserve>`).  The extractor's `Reserve` zones the row sums (`CSF_RS`, `CSF_RS_BESS`, …) are retired: one zone per requirement, so the dual is not split between two zones (a retired zone a provision still needs stays with no requirement, floor or cost) |
+| `CSF_*MinProvision`, `CTF_*MinProvision` (`Σ c_g·r_g [+ VoRS] ≥ RHS`) | fixed-requirement zones (`urreq` / `drreq` = RHS profile, cost = penalty / active VoRS cost, else HARD; `>=` by default, Sense 0 → `requirement_sense: "eq"` + the `Slack` cost as `ursurplus_cost` / `drsurplus_cost` only under `--legacy-profile cen`).  A Reserve-level `Provision Coefficient` means the reserve's whole provision, generators **and** every battery provider (`<bat>_gen__<reserve>`).  The extractor's `Reserve` zones the row sums (`CSF_RS`, `CSF_RS_BESS`, …) are retired: one zone per requirement, so the dual is not split between two zones (a retired zone a provision still needs stays with no requirement, floor or cost) |
 | Timesliced RHS (`M4-9,H10-17;M1-3,H9-19`, `;` = OR) | per-hour values (the tagged row overrides the base in the hours and date window it covers).  One grammar for the whole converter (`plexos_model.timeslice_matcher`): `M` month, `H` hour, `W` weekday (1 = Sunday), `D` day of month, a bare number continues the previous kind, `!` negates; a calendar tag without a horizon date falls back to the scalar RHS with a warning, never to "every hour" |
 | Dated coefficient sets (`Date From` / `Date To`) | per-hour plane schedules (latest `Date From` in force on the day wins, an open-ended `Date From` runs until superseded — the extractor uses the same rule; undated otherwise).  A `±1e30` value (RHS, coefficient or DV bound) is "no value / no limit", never a number |
 | `CSF_*_Def` (`Σ r − CSF_*_Requirement`, a definition read by `MAXCSF_*`) | stays a user constraint with the PLEXOS RHS 0 and Sense (unset = `=`): the extractor's requirement-profile RHS and `≥` are replaced |
@@ -684,6 +684,66 @@ per-unit `Min Regulation / Spinning / Replacement Provision` is
 semi-continuous in PLEXOS (a unit provides 0 or at least the minimum)
 and is not emitted: gtopt's `provision >= urmin·u` would force every
 committed unit into every reserve.
+
+**Reserves are hard; VoRS and Slack are formulation devices.**  CEN
+publishes no reserve-shortage cost, and its PLEXOS model treats the
+reserve balances as hard.  The slack Decision Variables of the
+`*MinProvision` rows are formulation devices, not part of the reserve
+model, in two classes:
+
+* **Feasibility / diagnostic switches** — `CPF_RS5m_VoRS`,
+  `CPF_RS10s_VoRS`, `CPF_LW_VoRS`, `CPFN_RS_VoRS`, `CPFN_LW_VoRS`
+  (`+ VoRS`, 10000 $/MW).  Their `Include in ST Schedule` is `0` by
+  default and `-1` only under the scenario `CPF_VoRS_ON`, which the
+  solved model `PRGdia_Full_Definitivo` does not include, so they do
+  not exist in the ST run (the RES solution reports no value for them).
+  The zone is then HARD: no `urcost` / `drcost`, and no global
+  `model_options.reserve_shortage_cost` either (gtopt would otherwise
+  price every zone without a cost of its own; a zone cost of 0 would
+  even make the shortage free).  When a scenario does activate a switch,
+  its cost is emitted as an explicitly labelled soft penalty, never as an
+  economic reserve-shortage cost.
+  `--soft-unpenalised-constraints P` softens every hard zone at `P`
+  (zone costs and the global cost), as the opt-in feasibility switch.
+* **Surplus slacks** — `CPF5mUp_Slack`, `CPF10s_Slack` (`− Slack`,
+  1 $/MW, always active): the priced excess that turns PLEXOS's Sense-0
+  equality into `>=`.  An artefact of the PLEXOS formulation: the clean
+  default writes the requirement as `>=` with a free excess and drops the
+  slack.  `--legacy-profile cen` keeps the equality and the surplus cost
+  (`ursurplus_cost` / `drsurplus_cost`) on a fixed zone; on a plane zone
+  gtopt builds no surplus column: the requirement column `R` (priced
+  10 $/MW through `<zone>_RequirementCost`) absorbs the excess, so an
+  excess MW costs 10 instead of PLEXOS's 1.
+
+Every Decision Variable's `Include in ST Schedule` is resolved like a
+Constraint's: a row tagged with an active scenario wins over the untagged
+default, rows tagged only with inactive scenarios are ignored, and a row
+whose `Date From` / `Date To` window does not hold the horizon start does
+not apply (`GEN_T4_MACHICURA`'s untagged `0` is dated 2022-04-09 only).
+An excluded DV is written fixed at 0 with no cost.  The conversion log
+lists every slack DV with its class and status (`feasibility switch …
+NOT in the ST run: zone HARD`, `surplus slack … active`), and the case
+keeps them for provenance.
+
+**One provision per reserve family.**  PLEXOS has one provision variable
+per (Reserve, Generator) pair, all under one headroom
+`gen + Σ_up r ≤ available capacity` (RES 2025-09-16: no providing unit
+exceeds it; ANGOSTURA_U1 provides CSF 45 + CTF 16 MW, RALCO_U1 CPF 73 +
+CSF 54 MW in the same hour).  gtopt's `ReserveProvision` has one up
+column shared by all its zones, so a unit in several families gets one
+provision per family (`provision_<gen>__CPF`, `__CSF`, `__CTF`, family
+= the `CPF` / `CSF` / `CTF` token of the zone name), each with
+`shared_headroom: true` (one headroom row per generator) and its own
+CFdata `MRU` / `MRD` cap.  Without the split the `CTF_UpMinProvision`
+equality pins the shared column and starves `CPF5mUp` (2025-09-16 h21:
+167 MW short, and through the `Generation_SEN` term the over-generation
+earns `0.0134 × shortage cost`, so the evening bus prices sit at −1).
+User-constraint references follow: a row whose name names one family
+(`COLBUN_U1_CPF_Simmetry`, `BAT_*_ActCSFLW`) takes that family's
+column, any other row (`Reserve Units` gates, `CFRS_*`, `Max_Tx_*`) the
+sum of the families, i.e. the old column.  BESS provisions are already
+one per zone (`provision_<bat>_gen__<ZONE>`) and keep their native
+reserve path.
 
 **Contingency units.**  A `*_Comparison` DV in GW (`1000·C ≥ p`) is
 scaled once: candidates are in MW (`k_C·C`) and the plane multiplies by
@@ -796,8 +856,13 @@ A complementary line-cap policy ships out of the box:
   `augment_el1_with_soft_caps` step at the end of `build_planning`;
   it's the LP's priced escape valve when PLEXOS itself dispatches a
   line above its stated rating.
-* **EL=0 ("Never enforce")** → `--el0-lines unenforced` (default)
-  mirrors PLEXOS, which never enforces an EL=0 rating. The CEN
+* **EL=0 ("Never enforce")** → `--el0-lines enforced` (alias
+  `strict`, the clean default) treats EL=0 like EL=2, a hard cap at the
+  rating, with lines in `--lift-line-caps` given the soft band:
+  congestion then shows as unserved energy at a known bus instead of a
+  flow no limit restrains.  `--el0-lines unenforced` (part of
+  `--legacy-profile cen`) mirrors PLEXOS, which never enforces an EL=0
+  rating. The CEN
   bundles carry no line penalty or overload data (their Line
   properties are only Enforce Limits, Max/Min Flow, Max/Min Rating,
   Reactance, Resistance, Units and Units Out), so there is no soft
@@ -815,9 +880,7 @@ A complementary line-cap policy ships out of the box:
   2021 bundles) below the threshold. Its rating has no scenario
   override; the `Lin_MaxRating.csv` Data File gives 76 MW over the
   static 137 MW Max Rating.
-  The opt-ins: `--el0-lines enforced` (alias `strict`) treats EL=0
-  like EL=2, a hard cap at the rating, with lines in
-  `--lift-line-caps` given the soft band. `--el0-lines extended`
+  The other opt-in: `--el0-lines extended`
   frees flow up to the rating, penalises it between the rating and a
   headroom multiple, and hard-caps it at that multiple. The mode
   used is recorded as `el0_lines` in the provenance sidecar.
@@ -1063,6 +1126,54 @@ plexos2gtopt --info  INPUT
 plexos2gtopt --validate INPUT
 plexos2gtopt --compare GTOPT_JSON INPUT
 ```
+
+### Clean default vs `--legacy-profile cen`
+
+The default conversion is the clean gtopt formulation; it produces no
+artificial negative prices: an exogenous CPF load term
+(`--reserve-load-term exogenous`), inertia from commitment
+(`--reserve-inertia-term commitment`), the native BESS reserve
+(`--bess-reserve native`), enforced line ratings (`--el0-lines
+enforced`, unserved energy visible), hard reserves written as `>=`
+(VoRS switches and surplus slacks dropped), free renewable curtailment,
+and the `loss_cost_eps` guard.
+
+`--legacy-profile cen` replicates CEN's PLEXOS PCP model, quirks
+included.  It is a diagnostic step to explain the operator's published
+prices, not a production setting.  It applies:
+
+| Toggle | `cen` value | Effect |
+|---|---|---|
+| `--reserve-load-term` | `endogenous` | `D = Generation_SEN` as an LP column: every MWh earns `Σ β·μ` (PLEXOS negative LMPs) |
+| `--reserve-inertia-term` | `endogenous` | inertia from the dispatch-based provisions (`Inertia_SEN`) |
+| `--bess-reserve` | `uc` | BESS SSCC rows as PLEXOS user constraints |
+| `--el0-lines` | `unenforced` | EL=0 / below-threshold ratings never enforced |
+| `cf_comp_equality` (internal) | on | `BAT_*_CF_GEN_COMP` / `CF_LOAD_COMP` with Sense unset read as `=` |
+| `reserve_surplus_equality` (internal) | on | Sense-0 reserve balances kept as equalities with the priced `− Slack` surplus |
+| `--no-plp-embalses` | on | no PLP `embalses.csv` cross-reference patch |
+| `--renewable-floors` | `plexos` | Min Stable Level and Commit=+1 floors kept on solar, wind and run-of-river units |
+
+`--renewable-floors free` (the clean default) removes the PLEXOS Min
+Stable Level (`Commitment.pmin`) and forced-ON (`Gen_Commit` = +1)
+periods from solar, wind and run-of-river commitments (hydro with no
+turbine on a reservoir with storage).  Forced-OFF periods, the status
+column and every other UC datum stay.  CEN ships a Min Stable Level on
+renewable units with `Commit = -1` (free) and no Fixed Load, for example
+`TAMARICO_FV` at 5.17 MW, clamped to its first positive rating.  Once
+pinned on, such a floor forces injection at a negative-price bus.  On
+PCP 2025-06-26 the clean default frees 57 floors (36 run-of-river,
+8 solar, 13 wind) and 667 forced-ON profiles.  Storage hydro and
+units with a start-up, shut-down or no-load cost are untouched, and so
+is concentrated solar (`*_CS`, a steam turbine on a heat store).  The
+provenance sidecar lists the freed units under `renewable_floors`.
+
+An individual flag typed on the command line wins over the profile
+(`--legacy-profile cen --el0-lines enforced` keeps the ratings).  The
+log says `--legacy-profile cen: applying ...`, and the provenance
+sidecar records `legacy_profile: {profile, toggles}` with the toggles the
+profile actually applied.  `--plexos-legacy` is a deprecated alias of
+`--legacy-profile cen` (it logs a deprecation warning); plp2gtopt shares
+the flag (`--plp-legacy` is its alias).
 
 ### Horizon
 

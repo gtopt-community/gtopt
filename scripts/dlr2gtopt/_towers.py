@@ -69,23 +69,42 @@ class PoliteCache:
         get: HttpGet | None = None,
         pause: float = 3.0,
         sleep: Callable[[float], None] = time.sleep,
+        retries: int = 0,
+        backoff: float = 30.0,
     ) -> None:
         self.cache_dir = cache_dir
         self.get = get or urllib_get
         self.pause = pause
         self.sleep = sleep
+        self.retries = retries
+        self.backoff = backoff
         self._last = -math.inf
         self.requests = 0
 
     def fetch(self, key: str, url: str) -> bytes:
-        """Return the cached body for ``key`` or GET ``url`` and cache it."""
+        """Return the cached body for ``key`` or GET ``url`` and cache it.
+
+        Transient failures (dropped connections, timeouts, HTTP 429/5xx) are
+        retried ``retries`` times, waiting ``backoff * 2**k`` seconds; other
+        HTTP errors (4xx) are raised at once."""
         path = self.cache_dir / key
         if path.exists():
             return path.read_bytes()
-        wait = self._last + self.pause - time.monotonic()
-        if wait > 0:
-            self.sleep(wait)
-        body = self.get(url)
+        for attempt in range(self.retries + 1):
+            wait = self._last + self.pause - time.monotonic()
+            if wait > 0:
+                self.sleep(wait)
+            try:
+                body = self.get(url)
+                break
+            except OSError as e:
+                self._last = time.monotonic()
+                code = getattr(e, "code", None)
+                permanent = isinstance(code, int) and code < 500 and code != 429
+                if permanent or attempt == self.retries:
+                    raise
+                logger.warning("retry %d/%d after %s", attempt + 1, self.retries, e)
+                self.sleep(self.backoff * 2**attempt)
         self._last = time.monotonic()
         self.requests += 1
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -325,6 +344,7 @@ _HEADERS: dict[str, tuple[str, ...]] = {
     "seq": ("correlativo", "corr", "secuencia", "seq"),
     "circ": ("circuito", "circuit", "nombre circuito"),
     "zone": ("huso", "zona", "zone"),
+    "type": ("tipo estructura", "tipo", "type"),
 }
 
 
@@ -419,7 +439,10 @@ def parse_structure_rows(
             lat, lon = utm_to_latlon(x, y, int(zone), utm_south)
         else:
             lat, lon = y, x
-        towers.append(Tower(line=line, seq=seq, lat=lat, lon=lon))
+        stype = None
+        if col["type"] and col["type"][0] < len(row):
+            stype = str(row[col["type"][0]] or "").strip() or None
+        towers.append(Tower(line=line, seq=seq, lat=lat, lon=lon, structure_type=stype))
     if not towers:
         raise ValueError("structure table: no coordinate rows")
     return sorted(towers, key=lambda t: t.seq)

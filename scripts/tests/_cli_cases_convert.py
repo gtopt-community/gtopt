@@ -751,3 +751,55 @@ def case_rts_gmlc_offline_cache(ctx: CliRun) -> None:
     data = assert_planning_json(out)
     assert len(data["system"]["generator_array"]) == 2
     assert "Written:" in res.stdout
+
+
+# ---------------------------------------------------------------------------
+# re2gtopt -- one wind plant on synthetic hub-height weather (the dlr2gtopt
+# synthetic history's hours); no network, no pvlib.
+# ---------------------------------------------------------------------------
+
+
+@e2e("re2gtopt")
+def case_re_wind_model_synthetic(ctx: CliRun) -> None:
+    """Plant list + plant weather -> hourly wind capacity factors."""
+    # pylint: disable-next=import-outside-toplevel
+    import numpy as np
+
+    # pylint: disable-next=import-outside-toplevel,import-error
+    from dlr2gtopt.tests._typical_synth import history
+
+    # pylint: disable-next=import-outside-toplevel,import-error
+    from re2gtopt._sources import PlantWeather
+
+    tmp = ctx.tmp_path
+    (tmp / "plants.csv").write_text(
+        "name,type,lat,lon,pmax_mw,hub_height,turbine\n"
+        "W1,wind,-31.505,-71.505,90,100,iec2\n",
+        encoding="utf-8",
+    )
+    w = history(years=(2001, 2002))
+    n = len(w.times)
+    PlantWeather(
+        list(w.times),
+        ["W1"],
+        {
+            "wind_speed_hub": w.data["wind_speed"][:, :1] * 2.5,
+            "temperature": np.full((n, 1), 15.0),
+            "pressure": np.full((n, 1), np.nan),
+            "ghi": np.zeros((n, 1)),
+            "wind_speed_10m": np.full((n, 1), 3.0),
+        },
+        {"W1": 100.0},
+    ).write(tmp / "weather.parquet")
+    ctx.run(
+        [
+            "model",
+            "--plants",
+            tmp / "plants.csv",
+            "--weather",
+            tmp / "weather.parquet",
+            "-o",
+            tmp / "run",
+        ]
+    )
+    assert (tmp / "run" / "cf_model.parquet").stat().st_size > 0

@@ -46,5 +46,6 @@ What the goldens pin (guard on):
   feed it.
 - No demand fails.
 
-The goldens were produced by gtopt itself (CPLEX). See
+The goldens were produced by gtopt itself (HiGHS 1.16; objective
+12 598.22 with the default `loss_flow_abs_cost`). See
 `docs/formulation/mathematical-formulation.md`, "Overflow-Tier Price".

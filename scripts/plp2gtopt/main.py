@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from gtopt_config import DEFAULT_CONFIG_PATH, get_version, load_config, save_section
+from gtopt_shared.cli_flags import apply_legacy_profile
 from gtopt_shared.operator import add_operator_argument, select_operator
 from gtopt_shared.sanity_report import add_sanity_report_argument
 from gtopt_shared.source_versions import (
@@ -24,6 +25,7 @@ from gtopt_shared.state_snapshot import (
 )
 
 from ._fast_path import FAST_PATH_METHODS, apply_iterative_fast_path
+from ._parsers import PLP_LEGACY_PROFILES
 from .plp2gtopt import (
     convert_plp_case,
     print_pumped_storage_template,
@@ -342,82 +344,42 @@ def _infer_output_dir(input_dir: Path, explicit_output: Path) -> Path:
 
 
 def _apply_plp_legacy_bundle(args: argparse.Namespace) -> None:
-    """Apply --plp-legacy defaults in place, honouring explicit flags.
+    """Resolve ``--legacy-profile`` (``--plp-legacy`` = ``cen``) in place.
 
-    The bundle substitutes defaults so that gtopt output is as close to
+    The profile substitutes defaults so that gtopt output is as close to
     PLP as possible, at the cost of LP quality / size.  Explicit user
-    flags take precedence — we only override values that the user
-    did not set on the command line.
+    flags take precedence — only values the user did not set on the
+    command line are overridden (``gtopt_shared.cli_flags.
+    apply_legacy_profile``).  The ``cen`` toggle set is
+    ``PLP_LEGACY_PROFILES['cen']``:
 
-    Bundle table (see --plp-legacy help):
+      | Option              | Default (clean)        | cen                |
+      |---------------------|------------------------|--------------------|
+      | method              | sddp                   | sddp (=)           |
+      | line_losses_mode    | tangent_signed_flow    | piecewise_direct   |
+      | use_line_losses     | unset (→gtopt true)    | true (explicit)    |
+      | pasada_mode         | auto                   | flow-turbine       |
+      | soft_storage_bounds | false                  | false (=)          |
+      | plp_legacy (writer) | false                  | true               |
 
-      | Option           | Default (normal)       | --plp-legacy       |
-      |------------------|------------------------|--------------------|
-      | method           | sddp                   | sddp (=)           |
-      | line_losses_mode | tangent_signed_flow    | piecewise_direct   |
-      | use_line_losses  | unset (→gtopt true)    | true (explicit)    |
-      | pasada_mode      | auto                   | flow-turbine       |
-      | use_kirchhoff    | true                   | true (=)           |
-      | discount_rate    | 0.0                    | 0.0 (=)            |
+    ``use_kirchhoff`` / ``discount_rate`` already match PLP;
+    ``reservoir_scale_mode`` is intentionally left alone.
 
-    `=` marks no-op bundle entries: gtopt's normal default already
-    matches PLP so no change is needed.  `reservoir_scale_mode` is
-    intentionally left alone (user preference).
-
-    Why pasada_mode = flow-turbine under --plp-legacy: PLP models every
-    `pasada` (run-of-river) central as an independent turbine driven by
-    its own afluent — there is no per-RoR junction / waterway / reservoir
-    chain because `pasada` centrals have no upstream/downstream hydro
-    relations in PLP.  The `auto` default runs name-based tech detection
-    and may divert some pasadas to generator-profile mode (solar/wind
-    look-alikes); under PLP-compat we always want flow+turbine so the
-    LP topology matches PLP exactly.
+    Why pasada_mode = flow-turbine: PLP models every `pasada`
+    (run-of-river) central as an independent turbine driven by its own
+    afluent — there is no per-RoR junction / waterway / reservoir chain.
+    The `auto` default runs name-based tech detection and may divert some
+    pasadas to generator-profile mode; under PLP-compat we always want
+    flow+turbine so the LP topology matches PLP exactly.  PLP's EmbVMin /
+    EmbVFin are HARD bounds (leemanem.f / volfinem.f), hence
+    ``soft_storage_bounds`` stays off.
     """
-    if not args.plp_legacy:
-        return
-
-    # argparse stores the final parsed value regardless of whether it
-    # came from the CLI or the default.  Inspect sys.argv directly to
-    # tell "user typed --method" apart from "default was sddp".
-    explicit_flags = {a.split("=", 1)[0] for a in sys.argv[1:]}
-    explicit_method = {"-M", "--method"} & explicit_flags
-    explicit_losses = {"--line-losses-mode"} & explicit_flags
-    explicit_use_losses = {"-L", "--use-line-losses"} & explicit_flags
-    explicit_pasada = {"--pasada-mode", "--pasada-hydro", "--no-pasada-hydro"} & (
-        explicit_flags
+    apply_legacy_profile(
+        args,
+        PLP_LEGACY_PROFILES,
+        alias_dest="plp_legacy",
+        alias_flag="--plp-legacy",
     )
-
-    applied: list[str] = []
-    if not explicit_method and args.method != "sddp":
-        args.method = "sddp"
-        applied.append("method=sddp")
-    if not explicit_losses and args.line_losses_mode != "piecewise_direct":
-        args.line_losses_mode = "piecewise_direct"
-        applied.append("line_losses_mode=piecewise_direct")
-    if not explicit_use_losses and args.use_line_losses is None:
-        # Force explicit `true` in the JSON so the PLP-compat intent is
-        # self-documenting, even though the gtopt default is also true.
-        args.use_line_losses = True
-        applied.append("use_line_losses=true")
-    if not explicit_pasada and args.pasada_mode != "flow-turbine":
-        # PLP has no tech detection — every pasada is a hydro turbine
-        # driven by its afluent, regardless of the central's name.
-        args.pasada_mode = "flow-turbine"
-        applied.append("pasada_mode=flow-turbine")
-
-    # PLP's EmbVMin / EmbVFin are HARD bounds (leemanem.f / volfinem.f,
-    # verified against the PLP-written last-stage LP), so --plp-legacy keeps
-    # `soft_storage_bounds` OFF — hard ``vol_end >= efin`` / ``vol >= emin``.
-    explicit_ssb = {
-        "--soft-storage-bounds",
-        "--no-soft-storage-bounds",
-    } & explicit_flags
-    if not explicit_ssb and args.soft_storage_bounds:
-        args.soft_storage_bounds = False
-        applied.append("soft_storage_bounds=false")
-
-    if applied:
-        logging.info("--plp-legacy: applying %s", ", ".join(applied))
 
 
 def build_options(args: argparse.Namespace) -> dict[str, Any]:
@@ -693,6 +655,8 @@ def build_options(args: argparse.Namespace) -> dict[str, Any]:
     opts["soft_emin_cost"] = args.soft_emin_cost
     opts["embed_reservoir_constraints"] = args.embed_reservoir_constraints
     opts["plp_legacy"] = args.plp_legacy
+    opts["legacy_profile"] = getattr(args, "legacy_profile", None)
+    opts["legacy_toggles"] = list(getattr(args, "legacy_toggles", None) or ())
     # Auto water-shortfall pricing (see plp2gtopt._water_value).
     opts["auto_water_fail_cost"] = getattr(args, "auto_water_fail_cost", False)
     opts["water_fail_cost"] = getattr(args, "water_fail_cost", None)

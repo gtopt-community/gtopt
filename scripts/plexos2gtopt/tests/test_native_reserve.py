@@ -515,7 +515,6 @@ class TestApply:
 
         text = caplog.text
         assert "factor 1.05 x demand" in text
-        assert "CPF_Up10MinProvision: surplus (−Slack) cost dropped (a plane" in text
         assert "provision factor profiles != 1" in text
         assert "Orphan) .value" not in text
         assert "-2·decision_variable(Orphan).value not representable" in text

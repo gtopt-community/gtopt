@@ -12,6 +12,62 @@ in [docs/whats-new.md](docs/whats-new.md).
 
 ### Added
 
+- **`dlr2gtopt` / `re2gtopt`: one `--weather-source {explorador,open-meteo}`
+  option for `history`**, through a weather layer both tools share
+  (`gtopt_shared/weather_source.py`). `explorador` is the Explorador
+  Eólico WRF 1 km hindcast (2010 or 2015); `open-meteo` is the Open-Meteo
+  archive (ERA5 from 1940, ECMWF IFS from 2017). Years outside a source
+  fail unless `--climatology calendar` (replay the source year on the same
+  local month/day/hour) or `month-hour` (per month × hour statistic) is
+  set. Each output gets a `.provenance.json`. Without the option the
+  previous default is unchanged. The free Open-Meteo API is
+  non-commercial only (`--api-key` / `--base-url` for commercial use).
+  A third source, `explorador-solar`, reads the Explorador Solar
+  (2004–2016): the hourly series (needs the site's download-profile
+  declaration, `--explorador-solar-profile`, no default) or the
+  month × hour means (`--explorador-solar-mode aggregate`). The hourly
+  file is parsed in its real layout (metadata and variable table to the
+  provenance; `difh` as DHI); its stamps were fitted as fixed UTC−4,
+  centred on the hour (`--explorador-solar-label`), and its wind height
+  is 5.5 m as documented by the site's SOLEVAPP report
+  (`--explorador-solar-wind-height`). With no wind direction,
+  `dlr2gtopt history` needs an explicit attack angle (45° study value,
+  0° conservative variant, `--perpendicular-wind` 90°), or
+  `--wind-angle-source explorador-eolico`: the angle per span and local
+  month × hour from the Explorador Eólico WRF dominant direction
+  (speed-weighted modal 22.5° sector), a rating parameter only.
+
+- **`re2gtopt`: wind and PV plant profiles on the DLR typical year.**
+  A new script turns weather into hourly output per plant and writes
+  gtopt `GeneratorProfile` schedules, using the same historical hours
+  that `dlr2gtopt typical-year` picks for the line ratings.
+  - Weather: Explorador Eólico recon (10–140 m, the DLR grid and
+    stencil) and ERA5 (Open-Meteo).
+  - Wind model: density normalisation, OEDB or generic power curves,
+    farm smoothing, wake, a soft cut-out and an explicit max-output
+    cap (default 0.95).
+  - PV model (pvlib): DIRINT, Perez, single-axis tracking with
+    backtracking, Faiman cell temperature, soiling and DC/AC clipping.
+  - Each plant's equipment is sized to reproduce its reported Pmax,
+    with a per-plant peak check.
+  - `inventory`: plant location and equipment from the CEN Infotécnica
+    API. `fetch-cen`: hourly generation, curtailment and forecasts from
+    CEN public files, cached and never committed.
+  - `calibrate`: fits on observed output by scalar, empirical curve or
+    quantile map. Curtailment is treated as censoring, so the profile
+    is *potential* generation. Includes leave-one-year-out validation.
+  - `typical`: the default `--case mean` preserves the long-term
+    monthly energy. P90 and other quantiles are energy-yield cases.
+  - `to-blocks` / `repeat`: use dlr2gtopt's own hour->block mapping.
+    `--block-stat dlr-hour --cf-history` takes each block's CF at the
+    DLR block's exact historical hour.
+  - It reads the DLR provenance columns (blend partner, knn members)
+    and the same `--timezone` / `--dst` calendar as dlr2gtopt.
+  - Generic defaults for single plants: no farm smoothing (`ninja` stays
+    available for fleets), and a PV DC/AC ratio by commissioning year
+    (1.05 to 2015, 1.2 for 2016–2019, 1.3 from 2020; overridable).
+  - Literature, defaults and data licences:
+    `scripts/re2gtopt/README.md`.
 - **Point-sampled stages** (`Stage.sampling = "point"`, `Block.time`,
   `Stage.period_hours`, `Stage.periodic`): block values are samples at
   node times and block durations are quadrature weights; a stage can
@@ -227,6 +283,36 @@ in [docs/whats-new.md](docs/whats-new.md).
   with shedding, peak MW) and reported as a warning; `--fail-on-unserved`
   or a catalog entry with `"serves_all_load": true` makes it an error.
 
+- **`dlr2gtopt`: typical meteorological years for long-term DLR.**
+  Long-term studies have no weather forecast, and gtopt computes each
+  critical span's rating itself, so the new subcommands build typical
+  **weather** for `Line.dlr`.
+  - `history`: a multi-year per-span table. Wind comes from the Explorador
+    Eólico 1980-2017 reconstruction (1 km); temperature and GHI from ERA5
+    via the Open-Meteo archive, calibrated per span to the WRF 1 km
+    month × hour climatology.
+  - `typical-year`: an 8760 h typical year of all critical spans, with the
+    mean case (TMY month selection by the Finkelstein-Schafer statistic on
+    the line rating) and the P90 case (the rating exceeded 90 % of the
+    time = the 10th percentile, by analogue hours per month × hour, or a
+    real low-rating month). Statistics are taken after the min over spans;
+    every hour keeps all spans from one historical hour. It writes the
+    month × hour rating statistics, a verification report with
+    out-of-sample over/under-estimation, and plots.
+  - `to-blocks` maps the typical year to PLP load blocks through
+    plp2gtopt's hour→block map (or month × hour bands, or chronological
+    blocks), and `repeat` tiles a month template over a 20-year horizon.
+    Both write the `Line.dlr` weather schedules (or the `rating` /
+    per-line `tmax` profiles).
+  - Provenance (`--source-columns on`, the default): typical files
+    record the blend partner of month seams (`source_time_2`) and the
+    hours averaged by `knn-mean` (`knn_sources`). The blocks table
+    records each block's UTC `source_time` and `source_year`, also in
+    `--history` mode.
+  - Calendar: `--timezone auto` (from the span coordinates) and
+    `--dst off` (fixed standard time, UTC−4 for Chile, as PLP `indhor`)
+    replace the UTC default. `--utc-offset` stays as an explicit
+    override.
 - **Line thermal limit with losses.** The new option
   `line_thermal_limit_mode` sets how a line's limit (`tmax_ab` /
   `tmax_ba`, and the installed capacity of expandable lines) treats its

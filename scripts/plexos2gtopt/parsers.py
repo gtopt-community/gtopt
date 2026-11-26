@@ -2769,10 +2769,13 @@ def extract_generators(
 
 #: ``--el0-lines`` modes.  ``enforced`` is the CLI spelling of ``strict``.
 EL0_LINES_MODES: tuple[str, ...] = ("unenforced", "enforced", "strict", "extended")
-#: Default ``--el0-lines`` mode: ``unenforced`` mirrors PLEXOS — an EL=0 line,
-#: or an EL=1 line below the Transmission ``Constraint Voltage Threshold``,
-#: never has its rating enforced.
-EL0_LINES_DEFAULT = "unenforced"
+#: Default ``--el0-lines`` mode: ``strict`` (CLI ``enforced``), the clean
+#: formulation — every rating is a hard cap (``--lift-line-caps`` lifts the
+#: curated exceptions), so congestion shows as unserved energy rather than
+#: as flows PLEXOS never limits.  ``unenforced`` (``--legacy-profile cen``)
+#: mirrors PLEXOS: an EL=0 line, or an EL=1 line below the Transmission
+#: ``Constraint Voltage Threshold``, never has its rating enforced.
+EL0_LINES_DEFAULT = "strict"
 #: ``--el0-lines unenforced``: gtopt bounds every flow column, so a line PLEXOS
 #: never enforces gets a cap this many times its rating.  The cap is also the
 #: line's loss envelope: under ``tangent_signed_flow`` gtopt bounds ``|flow|``
@@ -5930,14 +5933,12 @@ def extract_reserve_provisions(
 
     Single ``ReserveProvisionSpec`` per (generator, direction-of-
     participation) covering ALL the gen's eligible reserve zones —
-    matches the legacy user_constraint ``reserve_provision(provision_<gen>)``
-    naming convention.  Per-type splitting (one provision per
-    (gen, type)) was investigated as Option B but discarded for CEN
-    PCP because the user_constraint coefficient references don't
-    carry a type — only a gen — and the LP economic difference was
-    negligible.  Type-aware splitting would need a coordinated
-    refactor of _DIRECT_COEFFS + Reserve.Provision Coefficient
-    expansion in extract_user_constraints to emit per-type refs.
+    matches the user_constraint ``reserve_provision(provision_<gen>)``
+    naming convention.  The converter splits it per reserve family
+    (CPF / CSF / CTF, ``shared_headroom``) after the native reserve
+    transform (:mod:`plexos2gtopt._provision_split`), redirecting the
+    user-constraint references, so one family's balance (the
+    ``CTF_UpMinProvision`` equality) no longer caps another's offer.
 
     Per-PLEXOS-type Min Provision floors (5 MW Regulation vs 10 MW
     Spinning/Replacement) are aggregated via MAX, giving the strictest
@@ -6303,6 +6304,11 @@ def _cf_maxresp_series(
             except ValueError:
                 continue  # header row ("VALUE")
     return vals if any(v > 0.0 for v in vals) else []
+
+
+#: Public aliases (per-family provision split, ``_provision_split``).
+CF_RESERVE_DIRS = _CF_RESERVE_DIRS
+cf_maxresp_series = _cf_maxresp_series
 
 
 def _cf_maxresp_aggregate(
@@ -7726,8 +7732,26 @@ def extract_decision_variables(
     objs = db.objects_of_class("Decision Variable")
     if not objs:
         return ()
+    coll = db.collection_for("System", "Decision Variable")
+    prop_include_st = (
+        db.property_by_name(coll.collection_id, "Include in ST Schedule")
+        if coll is not None
+        else None
+    )
+    active_scen_ids = db.active_scenario_ids()
     out: list[DecisionVariableSpec] = []
     for dv in objs:
+        mid = db.system_membership_id("Decision Variable", dv.object_id)
+        include = (
+            resolve_include_in_st(
+                db,
+                db.data_for(mid, prop_include_st),
+                active_scen_ids,
+                db.horizon_start,
+            )
+            if mid is not None and prop_include_st is not None
+            else True
+        )
         lower = db.static_property(
             "Decision Variable", dv.object_id, "Lower Bound", default=float("nan")
         )
@@ -7743,9 +7767,60 @@ def extract_decision_variables(
                 lower_bound=lower if not math.isnan(lower) else None,
                 upper_bound=upper if not math.isnan(upper) else None,
                 cost=cost,
+                active=include,
             )
         )
+    excluded = [d.name for d in out if not d.active]
+    if excluded:
+        logger.info(
+            "PLEXOS Decision Variable: %d/%d excluded from the ST run "
+            '("Include in ST Schedule" after scenario-tag resolution), pinned '
+            "at 0: %s",
+            len(excluded),
+            len(out),
+            ", ".join(excluded[:8]) + (" …" if len(excluded) > 8 else ""),
+        )
     return tuple(out)
+
+
+def resolve_include_in_st(
+    db: PlexosDb,
+    rows: Sequence[PlexosDataRow],
+    active_scen_ids: set[int],
+    when: datetime | None = None,
+) -> bool:
+    """PLEXOS ``Include in ST Schedule`` of one object, scenario-resolved.
+
+    Rows whose ``Date From`` / ``Date To`` window does not hold ``when``
+    (the horizon start) do not apply (``GEN_T4_MACHICURA``: its untagged
+    ``0`` is dated 2022-04-09 only, so the DV exists on 2025-09-16 and the
+    PLEXOS solution reports it).  The rest are tiered: tagged with an
+    ACTIVE scenario (tier 0) > untagged default (tier 1) > tagged only
+    with INACTIVE scenarios (ignored); ties → lowest ``data_id``.  The
+    winner's ``0`` excludes the object; ``-1`` / ``>= 1`` / no row
+    include it (project default).
+    """
+    if when is not None:
+        day = when.date()
+        rows = [
+            r
+            for r in rows
+            if (r.date_from is None or r.date_from.date() <= day)
+            and (r.date_to is None or day <= r.date_to.date())
+        ]
+
+    def _tier(r: PlexosDataRow) -> int:
+        tags = db.tag_for_data.get(r.data_id, [])
+        if not tags:
+            return 1
+        return 0 if any(t in active_scen_ids for t in tags) else 2
+
+    best = min(
+        (r for r in rows if _tier(r) < 2),
+        key=lambda r: (_tier(r), r.data_id),
+        default=None,
+    )
+    return best is None or best.value is None or best.value != 0.0
 
 
 def _shift_at(buf: list[float], idx: int) -> float:
@@ -8715,12 +8790,8 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
     include_st_excluded: set[int] = set()
     active_scen_ids = db.active_scenario_ids()
 
-    # Sort each constraint's ST-Schedule rows by priority:
-    #   tier 0: tagged with an ACTIVE scenario  (override fires)
-    #   tier 1: untagged (default — always applies)
-    #   tier 2: tagged only with INACTIVE scenarios (ignored entirely)
-    # Within the same tier, lowest ``data_id`` wins (matches the
-    # legacy single-row ordering).
+    # Row tier: 0 = tagged with an ACTIVE scenario, 1 = untagged,
+    # 2 = tagged only with inactive scenarios (ignored).
     def _row_tier(r: PlexosDataRow) -> int:
         tags = db.tag_for_data.get(r.data_id, [])
         if not tags:
@@ -8729,23 +8800,15 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
             return 0
         return 2
 
+    # Tiered resolution: :func:`resolve_include_in_st` (active-tagged >
+    # untagged default > inactive-tagged rows, ignored; ties → lowest
+    # ``data_id``; a winner ``0`` excludes).
     if prop_include_st is not None:
         for constr_oid, constr_mid in sys_mid_by_constr.items():
             rows = db.data_for(constr_mid, prop_include_st)
-            if not rows:
-                continue
-            best = min(
-                (r for r in rows if _row_tier(r) < 2),
-                key=lambda r: (_row_tier(r), r.data_id),
-                default=None,
-            )
-            if best is None:
-                # Every row is gated by an inactive scenario → PLEXOS
-                # treats the constraint as if no value were set → use
-                # project default (INCLUDE).
-                continue
-            val = best.value
-            if val is not None and val == 0.0:
+            if rows and not resolve_include_in_st(
+                db, rows, active_scen_ids, db.horizon_start
+            ):
                 include_st_excluded.add(constr_oid)
     if include_st_excluded:
         logger.info(

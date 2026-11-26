@@ -313,6 +313,27 @@ for every converter.
 
 ---
 
+### `--legacy-profile cen` (PLP parity)
+
+The default conversion is the clean gtopt formulation.
+`--legacy-profile cen` (shared with plexos2gtopt; `--plp-legacy` is a
+deprecated alias that logs a warning) applies the PLP-compatibility
+toggles, which bring gtopt closer to PLP at the cost of LP quality or
+size:
+
+| Toggle | Clean default | `cen` |
+|---|---|---|
+| `--method` | `sddp` | `sddp` |
+| `--line-losses-mode` | `tangent_signed_flow` | `piecewise_direct` (PLP `genpdlin.f`) |
+| `--use-line-losses` | unset (gtopt: true) | `true`, written explicitly |
+| `--pasada-mode` | `auto` | `flow-turbine` |
+| `--soft-storage-bounds` | off | off (PLP's `EmbVMin` / `EmbVFin` are hard) |
+| writer quirks (internal) | off | raw filtration segments (no q(vmin)=0 anchoring), PLP's capped seepage-outlet topology |
+
+An individual flag typed on the command line wins over the profile.  The
+log says `--legacy-profile cen: applying ...`; the state snapshot records
+`legacy_profile` and `legacy_toggles`.
+
 ## PLP Input File Format
 
 `plp2gtopt` reads the following `.dat` files from the input directory.  All
@@ -608,8 +629,8 @@ to absorb spills.
 **Pasada classification**: GTOpt has tech-detection that may divert
 some "pasada" centrals into the renewable-profile path (solar/wind
 look-alikes).  Use `--pasada-mode {hydro,flow-turbine,profile}` to
-override; `--plp-legacy` forces `flow-turbine` for byte-faithful PLP
-parity.
+override; `--legacy-profile cen` (deprecated alias `--plp-legacy`)
+forces `flow-turbine` for byte-faithful PLP parity.
 
 **Profile values are per-unit.**  A `GeneratorProfile` is a factor of
 the generator `capacity` (PLP `PotMax`), not MW.  PLP bounds a pasada

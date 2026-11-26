@@ -407,3 +407,134 @@ def build_overrides(
         eps = math.ceil(abs(d.worst_pair_sum) / 2.0 * safety)
         entries.append({"uid": d.uid, "loss_cost_eps": eps})
     return {"line_array": entries}
+
+
+# ---------------------------------------------------------------------------
+# Loss-eps acceptance: bus-hours priced below −ε
+# ---------------------------------------------------------------------------
+
+#: gtopt's built-in ``model_options.loss_cost_eps`` [$/MWh].
+DEFAULT_LOSS_COST_EPS = 0.1
+
+#: Finding text prefix of :func:`detect_loss_eps_invalidated`.
+EPS_INVALIDATED = "loss eps invalidated"
+
+
+@dataclass(frozen=True)
+class EpsViolation:
+    """One bus-hour whose price is below ``−ε`` of its lossy lines.
+
+    ``loss_cost_eps`` (ε) makes every MWh of loss cost ε, so booking a
+    fictitious loss only pays while the bus price is below ``−ε``: a
+    price under ``−ε`` means the guard no longer rules out loss
+    inflation there.  ``excess_mw`` is the booked loss beyond the
+    physical ``(R/V²)·f²`` summed over the bus's incident lines (0 when
+    the LP did not exploit it).
+    """
+
+    bus: str
+    scenario: int
+    stage: int
+    block: int
+    lam: float
+    eps: float
+    excess_mw: float
+    lines: tuple[str, ...]
+
+
+def _line_eps(planning: dict) -> dict[int, float]:
+    """Per-line effective ``loss_cost_eps`` (line > model option > 0.1)."""
+    opts = planning.get("options", {}).get("model_options", {}) or {}
+    raw = opts.get("loss_cost_eps")
+    default = DEFAULT_LOSS_COST_EPS if raw is None else float(raw)
+    out: dict[int, float] = {}
+    for line in planning.get("system", {}).get("line_array", []):
+        own = line.get("loss_cost_eps")
+        out[int(line.get("uid", 0))] = default if own is None else float(own)
+    return out
+
+
+def detect_loss_eps_invalidated(
+    results_dir: Path,
+    planning: dict,
+    *,
+    tol: float = 1e-3,
+) -> list[EpsViolation]:
+    """Bus-hours where ``λ < −ε`` for the bus's lossy lines.
+
+    ε of a bus is the smallest effective ``loss_cost_eps`` among its
+    incident lines with ``resistance > 0`` (buses without a lossy line
+    carry no loss guard and are skipped).  An ε of 0 disables the guard
+    and is skipped too.  The excess loss attached to each violation uses
+    the same ``(R/V²)·f²`` reference as :func:`detect_loss_arbitrage`,
+    counted only beyond *tol*.
+    """
+    duals = _load_long(results_dir, "Bus/balance_dual")
+    if duals is None:
+        return []
+    bus_map = _bus_uid_map(planning)
+    bus_name = {
+        int(b.get("uid", 0)): str(b.get("name", b.get("uid")))
+        for b in planning.get("system", {}).get("bus_array", [])
+    }
+    eps_of = _line_eps(planning)
+    incident: dict[int, list[int]] = {}
+    coef: dict[int, float] = {}
+    lname: dict[int, str] = {}
+    for line in planning.get("system", {}).get("line_array", []):
+        uid = int(line.get("uid", 0))
+        resistance = float(line.get("resistance") or 0.0)
+        if resistance <= 0.0 or eps_of.get(uid, 0.0) <= 0.0:
+            continue
+        voltage = float(line.get("voltage") or 0.0) or 1.0
+        coef[uid] = resistance / (voltage * voltage)
+        lname[uid] = str(line.get("name", uid))
+        for end in ("bus_a", "bus_b"):
+            bus = _resolve_bus_uid(line.get(end), bus_map)
+            if bus is not None:
+                incident.setdefault(bus, []).append(uid)
+    if not incident:
+        return []
+    bus_eps = {b: min(eps_of[u] for u in us) for b, us in incident.items()}
+
+    duals = duals[duals["uid"].isin(bus_eps)]
+    duals = duals[duals["value"] < -duals["uid"].map(bus_eps) - 1e-9]
+    if duals.empty:
+        return []
+
+    excess: dict[tuple[int, int, int, int], float] = {}
+    flow = _load_long(results_dir, "Line/flow_sol")
+    loss = _load_long(results_dir, "Line/loss_sol")
+    if flow is not None and loss is not None:
+        df = flow.rename(columns={"value": "flow"}).merge(
+            loss.rename(columns={"value": "loss"}), on=_KEY, how="inner"
+        )
+        df = df[df["uid"].isin(coef)]
+        df["excess"] = df["loss"] - df["uid"].map(coef) * df["flow"] ** 2
+        for r in df[df["excess"] > tol].itertuples(index=False):
+            excess[(int(r.scenario), int(r.stage), int(r.block), int(r.uid))] = float(
+                r.excess
+            )
+
+    out: list[EpsViolation] = []
+    for r in duals.itertuples(index=False):
+        bus = int(r.uid)
+        key = (int(r.scenario), int(r.stage), int(r.block))
+        lines = incident.get(bus, [])
+        ex = sum(excess.get((*key, u), 0.0) for u in lines)
+        out.append(
+            EpsViolation(
+                bus=bus_name.get(bus, str(bus)),
+                scenario=key[0],
+                stage=key[1],
+                block=key[2],
+                lam=float(r.value),
+                eps=bus_eps[bus],
+                excess_mw=ex,
+                lines=tuple(
+                    lname[u] for u in lines if excess.get((*key, u), 0.0) > 0.0
+                ),
+            )
+        )
+    out.sort(key=lambda v: (v.lam, v.bus, v.block))
+    return out

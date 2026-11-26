@@ -765,6 +765,19 @@ std::expected<MipStartReport, Error> apply_mip_start(
       verified ? MipStartEffort::solve_fixed : MipStartEffort::repair);
   report.injected = li.set_mip_start(*start, effort);
   report.source = source;
+  if (verified && li.sos2_set_count() > 0) {
+    // The dive verifies its start with a fixed-integer LP, and an SOS
+    // declaration is inert in an LP: the start's continuous part (and
+    // `start_obj`) may violate the SOS2 sets.  The backend re-solves the
+    // fixed problem with the sets (`solve_fixed`), so the MIP stays
+    // correct; only the "verified" objective below is a relaxation value.
+    spdlog::warn(
+        "MIP-start[{}]: the fixed-integer LP ignores the {} SOS2 set(s); "
+        "start_obj below is an SOS2-relaxed value, not a verified MIP "
+        "objective",
+        source,
+        li.sos2_set_count());
+  }
   if (verified) {
     const double relax = report.relax_obj.value_or(0.0);
     const double sobj = report.start_obj.value_or(0.0);

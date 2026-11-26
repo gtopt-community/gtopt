@@ -1,6 +1,6 @@
 /**
  * @file      json_schema.hpp
- * @brief     JSON Schema dump for the gtopt input data model (options)
+ * @brief     JSON Schema dump for the gtopt input data model
  * @date      2026-06-08
  * @author    marcelo
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
@@ -16,19 +16,18 @@
  * CLI integration
  * ---------------
  * Invoked by the ``--json-schema`` flag of the gtopt binary:
- *   - ``gtopt --json-schema``         dumps the default (``options``)
- *     schema.
- *   - ``gtopt --json-schema options`` selects a known top-level type by
- *     name.
+ *   - ``gtopt --json-schema``          dumps the full ``Planning`` input
+ *     scheme (options, simulation, system and every element type).
+ *   - ``gtopt --json-schema options``  only ``PlanningOptions``.
+ *   - ``gtopt --json-schema gas_pipe`` any contract type by its
+ *     snake_case name (or its C++ name, case-insensitive).
  *
- * Only top-level types that carry a ``json_data_contract`` *and* render
- * cleanly through ``daw::json::to_json_schema`` are exposed; see
- * ``known_schema_names()`` for the dispatch table.  The full ``Planning``
- * / ``System`` schemas are intentionally absent: their element-level
- * field schedules map to variants whose alternatives include bare scalar
- * types, which the bundled daw_json_link cannot render (it would fail to
- * compile).  ``PlanningOptions`` — the configuration contract operators
- * hand-edit most — is the renderable default.
+ * The output holds one ``$defs`` entry per contract type reachable from
+ * the selected root (properties in contract order, ``required`` = the
+ * non-nullable members, ``additionalProperties: false``) and ``$ref``
+ * links between them; field schedules render as ``oneOf`` of a scalar,
+ * nested arrays and a file-name string.  ``scripts/gtopt_shared``'s
+ * contract snapshot and the igtopt template generator consume it.
  */
 
 #pragma once
@@ -43,11 +42,11 @@ namespace gtopt
 /**
  * @brief Render the JSON Schema of a known top-level gtopt input type.
  *
- * @param type_name  Selects which top-level type to render.  An empty or
- *                   absent name yields the default schema (the
- *                   ``PlanningOptions`` configuration contract).  A
- *                   non-empty name selects a known top-level type
- *                   (case-insensitive), e.g. ``"options"``.
+ * @param type_name  Selects the root type.  An empty name yields the full
+ *                   ``Planning`` scheme; ``"options"`` selects
+ *                   ``PlanningOptions``; any other contract type is
+ *                   selected by snake_case or C++ name
+ *                   (case-insensitive), e.g. ``"gas_pipe"``.
  * @return The JSON Schema as a string.  For an UNKNOWN @p type_name, an
  *         error listing the known names is printed to ``stderr`` and an
  *         empty string is returned (mirrors the ``--list-dialects``
@@ -56,8 +55,9 @@ namespace gtopt
 [[nodiscard]] std::string dump_json_schema(std::string_view type_name = {});
 
 /**
- * @brief The set of known top-level schema names accepted by
- *        ``dump_json_schema`` (the first entry is the default).
+ * @brief The selector names accepted by ``dump_json_schema``:
+ *        ``planning`` (the default) and ``options`` first, then every
+ *        contract type in snake_case, sorted.
  *        Exposed for diagnostics and tests.
  */
 [[nodiscard]] const std::vector<std::string_view>& known_schema_names();

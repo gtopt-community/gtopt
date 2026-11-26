@@ -226,6 +226,39 @@ def test_polite_cache_pauses_and_caches(tmp_path: Path) -> None:
     assert len(slept) == 1 and slept[0] > 4.0
 
 
+def test_polite_cache_retries_transient_errors(tmp_path: Path) -> None:
+    import urllib.error
+
+    fails = [
+        ConnectionResetError("dropped"),
+        urllib.error.HTTPError("u", 503, "busy", {}, None),
+    ]  # type: ignore[arg-type]
+
+    def flaky(url: str) -> bytes:
+        if fails:
+            raise fails.pop(0)
+        return b"ok"
+
+    slept: list[float] = []
+    cache = tw.PoliteCache(
+        tmp_path, flaky, pause=0.0, sleep=slept.append, retries=2, backoff=10.0
+    )
+    assert cache.fetch("k", "http://x/a") == b"ok"
+    assert slept == [10.0, 20.0]
+
+    def missing(url: str) -> bytes:
+        raise urllib.error.HTTPError(url, 404, "nope", {}, None)  # type: ignore[arg-type]
+
+    strict = tw.PoliteCache(tmp_path, missing, pause=0.0, sleep=slept.append, retries=5)
+    with pytest.raises(urllib.error.HTTPError):
+        strict.fetch("k404", "http://x/b")
+    assert len(slept) == 2  # 4xx: no retry
+    once = tw.PoliteCache(tmp_path, flaky, pause=0.0, sleep=slept.append)
+    fails.append(TimeoutError("slow"))
+    with pytest.raises(TimeoutError):
+        once.fetch("k2", "http://x/c")  # retries=0 (library default)
+
+
 def test_infotecnica_client(tmp_path: Path) -> None:
     docs = [
         {"id": 7, "nombre": "Minuta", "extension": ".pdf"},
@@ -368,3 +401,14 @@ def test_pdf_free_layout_fallback(
 ) -> None:
     monkeypatch.setattr(tw, "pdf_to_text", lambda _p: FREE_PDF)
     assert len(tw.read_structure_file(tmp_path / "x.pdf", "L")) == 3
+
+
+def test_structure_rows_type_column() -> None:
+    """A 'Tipo' column is kept as the tower's structure type."""
+    rows = [
+        ["N°", "Tipo Estructura", "Latitud", "Longitud"],
+        [1, "22AD+3", -33.0, -70.0],
+        [2, None, -33.01, -70.0],
+    ]
+    t = tw.parse_structure_rows(rows, "L")
+    assert t[0].structure_type == "22AD+3" and t[1].structure_type is None

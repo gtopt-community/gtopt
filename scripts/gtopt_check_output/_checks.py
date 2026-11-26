@@ -8,8 +8,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ._loss_arbitrage import (
+    EPS_INVALIDATED,
     LossArbitrageReport,
     detect_loss_arbitrage,
+    detect_loss_eps_invalidated,
     format_table_lines,
 )
 from ._reader import (
@@ -1072,6 +1074,46 @@ def check_loss_arbitrage(
     return findings, la_report
 
 
+def check_loss_eps(
+    results_dir: Path, planning: dict, *, tol: float = 1e-3, top: int = 20
+) -> list[Finding]:
+    """Loss-eps acceptance: one WARNING per bus-hour priced below ``−ε``.
+
+    ``loss_cost_eps`` keeps fictitious losses unprofitable only while
+    every bus price stays at or above ``−ε``; below it the guard is
+    invalidated.  Each finding names the bus, hour, ``λ``, ``ε`` and the
+    excess loss ``ℓ − (R/V²)·f²`` booked on the bus's lines (the *top*
+    most negative bus-hours are listed, then a count).
+    """
+    viol = detect_loss_eps_invalidated(results_dir, planning, tol=tol)
+    if not viol:
+        return [Finding("loss_eps", "INFO", "loss eps holds: no bus price below -eps")]
+    findings = [
+        Finding(
+            "loss_eps",
+            "WARNING",
+            f"{EPS_INVALIDATED}: {len(viol)} bus-hour(s) priced below -eps "
+            f"({sum(1 for v in viol if v.excess_mw > 0.0)} with excess loss)",
+        )
+    ]
+    for v in viol[:top]:
+        where = f" on {', '.join(v.lines)}" if v.lines else ""
+        findings.append(
+            Finding(
+                "loss_eps",
+                "WARNING",
+                f"{EPS_INVALIDATED}: bus {v.bus} block {v.block} "
+                f"lambda={v.lam:.3f} < -eps={-v.eps:g}, "
+                f"excess loss {v.excess_mw:.3f} MW{where}",
+            )
+        )
+    if len(viol) > top:
+        findings.append(
+            Finding("loss_eps", "INFO", f"  ... {len(viol) - top} more bus-hour(s)")
+        )
+    return findings
+
+
 # ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
@@ -1121,5 +1163,8 @@ def run_all_checks(
     )
     report.findings.extend(la_findings)
     report.indicators["loss_arbitrage"] = la_report
+    report.findings.extend(
+        check_loss_eps(results_dir, planning, tol=loss_arbitrage_tol)
+    )
 
     return report

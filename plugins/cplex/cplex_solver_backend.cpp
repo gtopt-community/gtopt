@@ -144,7 +144,7 @@ using CplexParams = std::vector<CplexParam>;
 /// parameter to its default before applying the file — verified on CPLEX
 /// 22.1.1: Threads 1→0, EpOpt 1e-7→1e-6, PreInd 0→1, TiLim 123→1e75 after
 /// reading a file containing only `CPXPARAM_LPMethod 1`.
-[[nodiscard]] const CplexParams* cached_cplex_params(cpxenv* env,
+[[nodiscard]] const CplexParams* cached_cplex_params(const cpxenv* env,
                                                      const std::string& path)
 {
   static std::mutex mutex;
@@ -1330,10 +1330,104 @@ int CplexSolverBackend::relax_all_integers()
   const int bin_count = CPXgetnumbin(m_env_lp_.env(), m_env_lp_.lp());
   const int relaxed = int_count + bin_count;
 
+  // `CPXchgprobtype(... CPXPROB_LP)` also drops every SOS set: save them
+  // so `restore_integers` can put them back (see `m_relaxed_sos_`).
+  save_sos_sets();
+
   const int target_type =
       (cplex_type == CPXPROB_MIQP) ? CPXPROB_QP : CPXPROB_LP;
   CPXchgprobtype(m_env_lp_.env(), m_env_lp_.lp(), target_type);
   return relaxed;
+}
+
+void CplexSolverBackend::save_sos_sets()
+{
+  auto* env = m_env_lp_.env();
+  auto* lp = m_env_lp_.lp();
+  const int numsos = CPXgetnumsos(env, lp);
+  if (numsos <= 0) {
+    m_relaxed_sos_.reset();
+    return;
+  }
+  // Size query: sosspace = 0 returns CPXERR_NEGATIVE_SURPLUS and the
+  // (negated) number of members in `surplus`.
+  int numsosnz = 0;
+  int surplus = 0;
+  (void)CPXgetsos(env,
+                  lp,
+                  &numsosnz,
+                  nullptr,
+                  nullptr,
+                  nullptr,
+                  nullptr,
+                  0,
+                  &surplus,
+                  0,
+                  numsos - 1);
+  const int space = -surplus;
+  SavedSos saved {
+      .type = std::vector<char>(static_cast<std::size_t>(numsos)),
+      .beg = std::vector<int>(static_cast<std::size_t>(numsos)),
+      .ind = std::vector<int>(static_cast<std::size_t>(std::max(space, 0))),
+      .wt = std::vector<double>(static_cast<std::size_t>(std::max(space, 0))),
+  };
+  const int rc = CPXgetsos(env,
+                           lp,
+                           &numsosnz,
+                           saved.type.data(),
+                           saved.beg.data(),
+                           saved.ind.data(),
+                           saved.wt.data(),
+                           space,
+                           &surplus,
+                           0,
+                           numsos - 1);
+  if (rc != 0) {
+    std::array<char, CPXMESSAGEBUFSIZE> err_buf {};
+    CPXgeterrorstring(env, rc, err_buf.data());
+    gtopt::log_and_throw(
+        std::format("CplexSolverBackend::relax_all_integers CPXgetsos failed "
+                    "(rc={}, numsos={}): {}",
+                    rc,
+                    numsos,
+                    err_buf.data()));
+  }
+  saved.ind.resize(static_cast<std::size_t>(numsosnz));
+  saved.wt.resize(static_cast<std::size_t>(numsosnz));
+  m_relaxed_sos_ = std::move(saved);
+}
+
+void CplexSolverBackend::restore_sos_sets()
+{
+  if (!m_relaxed_sos_.has_value()) {
+    return;
+  }
+  auto saved = std::move(*m_relaxed_sos_);
+  m_relaxed_sos_.reset();
+  auto* env = m_env_lp_.env();
+  auto* lp = m_env_lp_.lp();
+  if (CPXgetnumsos(env, lp) > 0) {
+    return;  // still present (e.g. a CPLEX version that kept them)
+  }
+  const int rc = CPXaddsos(env,
+                           lp,
+                           static_cast<int>(saved.type.size()),
+                           static_cast<int>(saved.ind.size()),
+                           saved.type.data(),
+                           saved.beg.data(),
+                           saved.ind.data(),
+                           saved.wt.data(),
+                           nullptr);
+  if (rc != 0) {
+    std::array<char, CPXMESSAGEBUFSIZE> err_buf {};
+    CPXgeterrorstring(env, rc, err_buf.data());
+    gtopt::log_and_throw(
+        std::format("CplexSolverBackend::restore_integers CPXaddsos failed "
+                    "(rc={}, numsos={}): {}",
+                    rc,
+                    saved.type.size(),
+                    err_buf.data()));
+  }
 }
 
 int CplexSolverBackend::fix_mip_and_resolve_duals(
@@ -2010,6 +2104,9 @@ int CplexSolverBackend::restore_integers(std::span<const int> integer_cols)
   } else if (cplex_type == CPXPROB_QP) {
     CPXchgprobtype(m_env_lp_.env(), m_env_lp_.lp(), CPXPROB_MIQP);
   }
+  // The LP flip also dropped the SOS sets; re-add the ones saved by
+  // relax_all_integers (no-op when there were none).
+  restore_sos_sets();
   if (integer_cols.empty()) {
     return 0;
   }

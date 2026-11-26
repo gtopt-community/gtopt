@@ -134,6 +134,36 @@ def filename_to_class(path: Path) -> str:
     return stem[len("json_") :]
 
 
+def _snake(name: str) -> str:
+    """`GasPipe` → `gas_pipe` (namespace prefix dropped)."""
+    name = name.rsplit("::", 1)[-1]
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
+
+
+def element_array_classes() -> frozenset[str]:
+    """Element classes that own a `System` / `Simulation` array.
+
+    `json_system.hpp` / `json_simulation.hpp` declare one
+    `json_array_null<"<class>_array", …>` member per element class.
+    """
+    out: set[str] = set()
+    for name in ("json_system.hpp", "json_simulation.hpp"):
+        path = JSON_HEADERS_DIR / name
+        if path.is_file():
+            out.update(
+                re.findall(r'json_array(?:_null)?<\s*"(\w+)_array"', path.read_text())
+            )
+    return frozenset(out)
+
+
+def _contract_class(file_class: str, cpp_type: str, arrays: frozenset[str]) -> str:
+    """Dictionary class of a contract: its own array class when the header
+    holds several element contracts (`json_gas_network.hpp` → `gas_pipe`,
+    `gas_node`, …), else the file-derived class."""
+    snake = _snake(cpp_type) if cpp_type else ""
+    return snake if snake in arrays and snake != file_class else file_class
+
+
 def extract_contract_fields(path: Path) -> list[ContractField]:
     """Parse one `json_*.hpp` file and yield (class, canonical) entries.
 
@@ -145,6 +175,7 @@ def extract_contract_fields(path: Path) -> list[ContractField]:
     """
     text = path.read_text(encoding="utf-8")
     klass = filename_to_class(path)
+    arrays = element_array_classes()
     out: list[ContractField] = []
 
     # Split text on contract boundaries.  We can't perfectly bracket-match
@@ -158,7 +189,11 @@ def extract_contract_fields(path: Path) -> list[ContractField]:
         # Process any json_*<"…"> from previous block.
         for m in JSON_MEMBER_RE.finditer(text, cursor, ctr_m.start()):
             out.append(
-                ContractField(klass=klass, field=m["name"], cpp_type=current_cpp_type)
+                ContractField(
+                    klass=_contract_class(klass, current_cpp_type, arrays),
+                    field=m["name"],
+                    cpp_type=current_cpp_type,
+                )
             )
         current_cpp_type = ctr_m["typ"].strip()
         cursor = ctr_m.end()
@@ -166,7 +201,11 @@ def extract_contract_fields(path: Path) -> list[ContractField]:
     # Tail: members after the last contract header.
     for m in JSON_MEMBER_RE.finditer(text, cursor):
         out.append(
-            ContractField(klass=klass, field=m["name"], cpp_type=current_cpp_type)
+            ContractField(
+                klass=_contract_class(klass, current_cpp_type, arrays),
+                field=m["name"],
+                cpp_type=current_cpp_type,
+            )
         )
 
     return out

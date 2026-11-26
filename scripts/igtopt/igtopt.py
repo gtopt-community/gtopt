@@ -20,15 +20,20 @@ from gtopt_shared.future_cost import (
     resolve_legacy_future_cost_keys,
     set_future_cost_fields,
 )
+from gtopt_shared.json_contracts import array_types, load_snapshot
 from gtopt_shared.options_meta import (
+    CASCADE_OPTION_KEYS,
     FUTURE_COST_OPTION_PREFIX,
+    GAS_OPTION_KEYS,
     LP_MATRIX_OPTION_KEYS,
+    SANITY_OPTION_KEYS,
 )
 
 from igtopt.template_builder import (
     _find_repo_root,
     _build_workbook,
     _list_sheets,
+    load_template_contract,
     SDDP_OPTION_KEYS,
     MONOLITHIC_OPTION_KEYS,
     SOLVER_OPTION_KEYS,
@@ -52,82 +57,13 @@ from gtopt_shared.parquet import (  # noqa: E402,F401  pylint: disable=wrong-imp
     probe_parquet_codec as _probe_parquet_codec,
 )
 
-# Sheets that belong to the ``simulation`` section of the gtopt JSON schema.
-# Must match the ``*_array`` members of ``json_data_contract<Simulation>``
-# (``include/gtopt/json/json_simulation.hpp``) — enforced by
-# ``gtopt_shared/tests/test_json_contracts_sync.py``.
-_SIMULATION_SHEETS = frozenset(
-    {
-        "block_array",
-        "stage_array",
-        "scenario_array",
-        "phase_array",
-        "scene_array",
-        "aperture_array",
-        "iteration_array",
-    }
-)
-
-# Sheets that belong to the ``system`` section of the gtopt JSON schema.
-# Must match the ``*_array`` members of ``json_data_contract<System>``
-# (``include/gtopt/json/json_system.hpp``) — same sync test.
-_SYSTEM_SHEETS = frozenset(
-    {
-        "bus_array",
-        "demand_array",
-        "generator_array",
-        "line_array",
-        "generator_profile_array",
-        "demand_profile_array",
-        "capacity_profile_array",
-        "battery_array",
-        "converter_array",
-        "thermal_node_array",
-        "thermal_storage_array",
-        "hydrogen_node_array",
-        "hydrogen_storage_array",
-        "hydrogen_demand_array",
-        "ammonia_node_array",
-        "ammonia_storage_array",
-        "carrier_converter_array",
-        "allowance_pool_array",
-        "lng_terminal_array",
-        "gas_node_array",
-        "gas_supply_array",
-        "gas_demand_array",
-        "gas_pipe_array",
-        "gas_compressor_array",
-        "gas_turbine_array",
-        "reserve_zone_array",
-        "reserve_provision_array",
-        "fuel_array",
-        "emission_array",
-        "emission_zone_array",
-        "emission_source_array",
-        "commitment_array",
-        "simple_commitment_array",
-        "line_commitment_array",
-        "inertia_zone_array",
-        "inertia_provision_array",
-        "junction_array",
-        "waterway_array",
-        "flow_array",
-        "reservoir_array",
-        "reservoir_seepage_array",
-        "reservoir_discharge_limit_array",
-        "turbine_array",
-        "pump_array",
-        "reservoir_production_factor_array",
-        "flow_right_array",
-        "volume_right_array",
-        "user_param_array",
-        "decision_variable_array",
-        "future_cost_array",
-        "plant_array",
-        "user_constraint_array",
-        "user_model_array",
-    }
-)
+# Sheets of the ``simulation`` / ``system`` sections: the ``*_array``
+# members of ``json_data_contract<Simulation>`` / ``<System>``, read from
+# the bundled contract snapshot (``gtopt_shared/data/json_contracts.json``,
+# kept fresh by ``gtopt_shared/tests/test_json_contracts_sync.py``), so a
+# new element class is accepted without touching igtopt.
+_SIMULATION_SHEETS = frozenset(array_types("Simulation"))
+_SYSTEM_SHEETS = frozenset(array_types("System"))
 
 # All known sheet names.  None of these are strictly required; sheets that
 # are absent in the input workbook are simply not generated.  The list is
@@ -203,7 +139,7 @@ examples:
   # Show debug log messages
   igtopt system.xlsx -l DEBUG
 
-  # Generate the igtopt Excel template from C++ JSON headers
+  # Generate the igtopt Excel template from the gtopt input contract
   igtopt --make-template
 
   # Write template to a custom path
@@ -412,7 +348,10 @@ def df_to_file(
 
 def df_to_opts(df, options):
     if "option" in df.columns and "value" in df.columns:
-        opts = dict(zip(df.option, df.value))
+        opts = {
+            key: _try_parse_json_container(value)
+            for key, value in zip(df.option, df.value)
+        }
         for key, value in options.items():
             opts[key] = value
         # use_lp_names was removed from the C++ PlanningOptions struct
@@ -450,10 +389,50 @@ def _try_parse_json(value):
         return value
 
 
+def _try_parse_json_container(value):
+    """Parse an options-sheet cell holding a JSON object / array.
+
+    Options such as ``cascade_level_array`` or ``forward_solver_options``
+    take a JSON value; any other cell is returned unchanged.
+    """
+    if isinstance(value, str) and value.strip()[:1] in ("{", "["):
+        return _try_parse_json(value)
+    return value
+
+
+def _contract_bool_columns(sheet_name: str) -> frozenset[str]:
+    """Columns of ``sheet_name`` that gtopt reads as JSON booleans."""
+    element = {**array_types("Simulation"), **array_types("System")}.get(sheet_name)
+    if element is None:
+        return frozenset()
+    kinds = load_snapshot()["types"].get(element, {}).get("kinds", {})
+    return frozenset(k for k, v in kinds.items() if v == "bool")
+
+
+def _as_json_bool(value: Any) -> Any:
+    """0 / 1 (also 0.0 / 1.0) as ``False`` / ``True``; other values unchanged.
+
+    pandas reads an Excel boolean column with blank cells as float, so a
+    ``FALSE`` cell would reach gtopt as ``0``, which its bool members reject.
+    """
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, (int, float, np.integer, np.floating)) and value in (0, 1):
+        return bool(value)
+    return value
+
+
 def df_to_str(
-    df, skip_nulls=True, indent=_COMPACT_INDENT, separators=_COMPACT_SEPARATORS
+    df,
+    skip_nulls=True,
+    indent=_COMPACT_INDENT,
+    separators=_COMPACT_SEPARATORS,
+    bool_columns: frozenset[str] = frozenset(),
 ):
-    """Convert a DataFrame to a JSON string representation."""
+    """Convert a DataFrame to a JSON string representation.
+
+    ``bool_columns`` are written as JSON booleans (0 / 1 cells included).
+    """
     dropc = []
     for c in df.columns:
         if c[0] == ".":
@@ -467,6 +446,8 @@ def df_to_str(
         if c in df.columns:
             types[c] = np.int64
     df = df.astype(types)
+    for c in bool_columns & set(df.columns):
+        df[c] = df[c].map(_as_json_bool, na_action="ignore").astype(object)
 
     if skip_nulls:
         records = []
@@ -619,86 +600,75 @@ def _nest_sub_options(
 ) -> dict[str, Any]:
     """Partition flat options into sub-objects.
 
-    Keys listed in :data:`SDDP_OPTION_KEYS` are moved into a nested
-    ``sddp_options`` dict.  Keys listed in :data:`MODEL_OPTION_KEYS` are
-    moved into a nested ``model_options`` dict and keys listed in
-    :data:`LP_MATRIX_OPTION_KEYS` into ``lp_matrix_options``.  Keys whose
-    name starts
-    with ``monolithic_`` are moved into a nested ``monolithic_options``
-    dict with the prefix stripped.  Keys whose name starts with
-    ``solver_`` are moved into a nested ``solver_options`` dict with the
-    prefix stripped.  ``cascade_options`` is passed through as-is (it
-    uses a hierarchical ``levels`` array that cannot be flattened).
+    Routing (first match wins):
 
-    Keys listed in :data:`SIMULATION_OPTION_KEYS` (e.g.
-    ``annual_discount_rate``) are removed from options and placed into
-    the *simulation* dict (if provided) instead.
-
-    All remaining keys stay at the top level.
-
-    If the flat dict already contains a ``sddp_options``,
-    ``cascade_options``, ``monolithic_options``, ``model_options``, or
-    ``solver_options`` sub-dict (e.g. injected by another handler), its
-    contents are merged with the keys extracted here.
+    * an already-nested ``<section>`` dict (e.g. injected by another
+      handler) is merged into that section;
+    * :data:`SIMULATION_OPTION_KEYS` (``annual_discount_rate``) move to the
+      *simulation* dict (when given) instead of ``options``;
+    * keys of :data:`SDDP_OPTION_KEYS`, :data:`MODEL_OPTION_KEYS`,
+      :data:`LP_MATRIX_OPTION_KEYS` and :data:`GAS_OPTION_KEYS` go to
+      ``sddp_options`` / ``model_options`` / ``lp_matrix_options`` /
+      ``gas_options`` by name;
+    * ``solver_`` / ``monolithic_`` / ``sanity_`` / ``cascade_`` prefixed
+      keys go to their section with the prefix stripped (``solver_`` only
+      for :data:`SOLVER_OPTION_KEYS`; a bare :data:`MONOLITHIC_OPTION_KEYS`
+      name is accepted too);
+    * everything else stays at the top level.
     """
     top: dict[str, Any] = {}
-    sddp: dict[str, Any] = {}
-    mono: dict[str, Any] = {}
-    solver: dict[str, Any] = {}
-    model: dict[str, Any] = {}
-    lp_matrix: dict[str, Any] = {}
+    sections: dict[str, dict[str, Any]] = {}
+    by_name = (
+        (SDDP_OPTION_KEYS, "sddp_options"),
+        (MODEL_OPTION_KEYS, "model_options"),
+        (LP_MATRIX_OPTION_KEYS, "lp_matrix_options"),
+        (GAS_OPTION_KEYS, "gas_options"),
+    )
+    by_prefix = {
+        _SOLVER_PREFIX: ("solver_options", SOLVER_OPTION_KEYS),
+        _MONOLITHIC_PREFIX: ("monolithic_options", MONOLITHIC_OPTION_KEYS),
+        "sanity_": ("sanity_options", SANITY_OPTION_KEYS),
+        "cascade_": ("cascade_options", CASCADE_OPTION_KEYS),
+    }
+    nested_names = {sec for sec, _keys in by_prefix.values()} | {
+        sec for _keys, sec in by_name
+    }
+
+    def put(section: str, key: str, value: Any) -> None:
+        sections.setdefault(section, {})[key] = value
 
     for key, value in flat.items():
-        if key == "sddp_options" and isinstance(value, dict):
-            # Already-nested sub-dict (e.g. from boundary_cuts handler)
-            sddp.update(value)
-        elif key == "cascade_options" and isinstance(value, dict):
-            # Cascade uses a hierarchical levels array — pass through as-is.
-            top["cascade_options"] = value
-        elif key == "monolithic_options" and isinstance(value, dict):
-            mono.update(value)
-        elif key == "solver_options" and isinstance(value, dict):
-            solver.update(value)
-        elif key == "model_options" and isinstance(value, dict):
-            model.update(value)
-        elif key == "lp_matrix_options" and isinstance(value, dict):
-            lp_matrix.update(value)
-        elif key in SIMULATION_OPTION_KEYS:
-            # Move to simulation section (canonical location).
+        if key in nested_names and isinstance(value, dict):
+            sections.setdefault(key, {}).update(value)
+            continue
+        if key in SIMULATION_OPTION_KEYS:
             if simulation is not None:
                 simulation[key] = value
-        elif key in SDDP_OPTION_KEYS:
-            sddp[key] = value
-        elif key in MODEL_OPTION_KEYS:
-            model[key] = value
-        elif key in LP_MATRIX_OPTION_KEYS:
-            lp_matrix[key] = value
-        elif key.startswith(_MONOLITHIC_PREFIX) and key != _MONOLITHIC_PREFIX:
-            # Strip the ``monolithic_`` prefix for the nested key name.
-            inner_key = key[len(_MONOLITHIC_PREFIX) :]
-            mono[inner_key] = value
+            continue
+        section = next((sec for keys, sec in by_name if key in keys), None)
+        if section is not None:
+            put(section, key, value)
+            continue
+        prefix = next((p for p in by_prefix if key.startswith(p) and key != p), None)
+        if prefix is not None and key[len(prefix) :] in by_prefix[prefix][1]:
+            put(by_prefix[prefix][0], key[len(prefix) :], value)
         elif key in MONOLITHIC_OPTION_KEYS:
-            mono[key] = value
-        elif key.startswith(_SOLVER_PREFIX) and key != _SOLVER_PREFIX:
-            # Strip the ``solver_`` prefix for the nested key name.
-            inner_key = key[len(_SOLVER_PREFIX) :]
-            if inner_key in SOLVER_OPTION_KEYS:
-                solver[inner_key] = value
-            else:
-                top[key] = value
+            put("monolithic_options", key, value)
         else:
             top[key] = value
 
-    if sddp:
-        top["sddp_options"] = sddp
-    if mono:
-        top["monolithic_options"] = mono
-    if solver:
-        top["solver_options"] = solver
-    if model:
-        top["model_options"] = model
-    if lp_matrix:
-        top["lp_matrix_options"] = lp_matrix
+    for section in (
+        "sddp_options",
+        "monolithic_options",
+        "solver_options",
+        "model_options",
+        "lp_matrix_options",
+        "gas_options",
+        "sanity_options",
+        "cascade_options",
+    ):
+        if section in sections:
+            top[section] = sections[section]
     return top
 
 
@@ -891,7 +861,11 @@ def _run(args) -> int:
             try:
                 df_parsed = json.loads(
                     df_to_str(
-                        df, args.skip_nulls, indent=_indent, separators=_separators
+                        df,
+                        args.skip_nulls,
+                        indent=_indent,
+                        separators=_separators,
+                        bool_columns=_contract_bool_columns(sheet_name),
                     )
                 )
             except Exception as exc:  # pylint: disable=broad-except
@@ -1120,24 +1094,47 @@ def main(argv: list[str] | None = None) -> None:
             action="store_true",
             default=False,
             help=(
-                "generate the GTOpt igtopt Excel template from C++ JSON headers "
-                "instead of converting a workbook; see also --header-dir, --list-sheets"
+                "generate the GTOpt igtopt Excel template from the GTOpt input "
+                "contract instead of converting a workbook; see also "
+                "--schema-source, --list-sheets"
             ),
+        )
+        parser.add_argument(
+            "--schema-source",
+            choices=("auto", "gtopt", "snapshot"),
+            default="auto",
+            help=(
+                "where the template's sheets and columns come from: 'gtopt' runs "
+                "`gtopt --json-schema` (GTOPT_BIN / PATH / build dir), 'snapshot' "
+                "uses the contract snapshot bundled with the scripts, 'auto' "
+                "(default) prefers gtopt and falls back to the snapshot; only "
+                "used with --make-template / --list-sheets"
+            ),
+        )
+        parser.add_argument(
+            "--schema-file",
+            metavar="FILE",
+            help=(
+                "use a saved `gtopt --json-schema` dump instead of running "
+                "gtopt; only used with --make-template / --list-sheets"
+            ),
+        )
+        parser.add_argument(
+            "--gtopt-bin",
+            metavar="PATH",
+            help="gtopt binary for --schema-source gtopt/auto (default: autodetect)",
         )
         parser.add_argument(
             "--header-dir",
             metavar="DIR",
-            help=(
-                "path to include/gtopt/ (auto-detected from the repo root if omitted); "
-                "only used with --make-template"
-            ),
+            help=argparse.SUPPRESS,  # deprecated: the template no longer parses headers
         )
         parser.add_argument(
             "--list-sheets",
             action="store_true",
             default=False,
             help=(
-                "print the list of sheets derived from C++ headers and exit; "
+                "print the sheets (and column counts) of the template and exit; "
                 "only used with --make-template"
             ),
         )
@@ -1167,31 +1164,33 @@ def main(argv: list[str] | None = None) -> None:
 
         # --make-template mode: generate the Excel template and exit
         if args.make_template or args.list_sheets:
-            repo_root = _find_repo_root(pathlib.Path(__file__).parent)
             if args.header_dir:
-                header_dir = pathlib.Path(args.header_dir)
-            else:
-                header_dir = repo_root / "include" / "gtopt"
-
-            if not header_dir.is_dir():
-                logging.error(
-                    "header directory '%s' not found; "
-                    "use --header-dir to specify the path to include/gtopt/",
-                    header_dir,
+                logging.warning(
+                    "--header-dir is deprecated and ignored: the template is "
+                    "built from `gtopt --json-schema` or the bundled snapshot "
+                    "(see --schema-source)"
                 )
-                sys.exit(1)
+            contract = load_template_contract(
+                args.schema_source,
+                gtopt_bin=args.gtopt_bin,
+                schema_file=(
+                    pathlib.Path(args.schema_file) if args.schema_file else None
+                ),
+            )
+            logging.info("template contract: %s", contract.source)
 
             if args.list_sheets:
-                _list_sheets(header_dir)
+                _list_sheets(contract)
                 return
 
             if args.json_file:
                 output_path = pathlib.Path(args.json_file)
             else:
+                repo_root = _find_repo_root(pathlib.Path(__file__).parent)
                 output_path = repo_root / "docs" / "templates" / "gtopt_template.xlsx"
 
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            _build_workbook(output_path, header_dir)
+            _build_workbook(output_path, contract)
             logging.info("Template written to %s", output_path)
             return
 

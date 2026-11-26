@@ -221,6 +221,49 @@ def test_open_meteo_weather_batches(tmp_path: Path) -> None:
     assert len(single) == 1
 
 
+def test_open_meteo_archive_url_and_snap(tmp_path: Path) -> None:
+    url = wx.open_meteo_url(
+        [-31.9], [-71.5], model="era5", start_date="2024-01-01", end_date="2025-12-31"
+    )
+    assert url.startswith(wx.OPEN_METEO_ARCHIVE_URL)
+    assert "start_date=2024-01-01" in url and "end_date=2025-12-31" in url
+    assert "wind_speed_100m" in url and "forecast_days" not in url
+    paid = wx.open_meteo_url([-31.9], [-71.5], api_key="K", start_date="2024-01-01")
+    assert paid.startswith(wx.OPEN_METEO_CUSTOMER_ARCHIVE_URL)
+    assert "end_date=2024-01-01" in paid
+
+    reply = om_reply(1)
+    h = reply["hourly"]
+    for old, new in (
+        ("wind_speed_80m", "wind_speed_100m"),
+        ("wind_direction_80m", "wind_direction_100m"),
+    ):
+        h[new] = h.pop(old)
+    del h["temperature_80m"]
+    calls: list[str] = []
+
+    def get(url: str) -> bytes:
+        calls.append(url)
+        n = url.split("latitude=")[1].split("&")[0].count(",") + 1
+        return json.dumps(reply if n == 1 else [reply] * n).encode()
+
+    spans = make_spans(6)  # all within one 0.25 deg cell
+    w = wx.open_meteo_weather(
+        PoliteCache(tmp_path, get, pause=0.0),
+        spans,
+        snap=0.25,
+        height=15.0,
+        model="era5",
+        start_date="2024-01-01",
+    )
+    assert len(calls) == 1 and "latitude=-32.00000&" in calls[0] + "&"
+    assert w.data["wind_speed"].shape == (4, 5)
+    assert w.data["ambient_temperature"][0, 0] == pytest.approx(20.0)  # 2 m only
+    assert w.data["wind_speed"][0, 0] == pytest.approx(
+        3.0 + 3.0 * np.log(1.5) / np.log(10.0)
+    )
+
+
 def ecmwf_fields(hours: int = 3) -> dict[str, wx.GridField]:
     """Synthetic 0.25 deg fields (descending latitudes, like IFS)."""
     t0 = datetime(2026, 11, 25)
@@ -388,3 +431,32 @@ def test_interpolate_without_ghi(caplog: pytest.LogCaptureFixture) -> None:
             grid, sp, {(0, 0): ns}, [datetime(2026, 1, 1)] * 2, method="nearest"
         )
     assert "solar_irradiance" not in w.data
+
+
+def test_interpolate_per_span_heights() -> None:
+    """``span_heights`` uses each span's own height; blanks use the scalar."""
+    ns = wx.NodeSeries(
+        {10.0: np.full(2, 4.0), 80.0: np.full(2, 8.0)},
+        {10.0: np.zeros(2), 80.0: np.zeros(2)},
+        {2.0: np.full(2, 20.0), 80.0: np.full(2, 12.2)},
+        np.zeros(2),
+    )
+    grid = wx.RegularGrid(1.0, 1.0)
+    sp = [
+        Span("L", 1, 0.0, 0.0, 0.0, 1.0, 0.0, height=30.0),
+        Span("L", 2, 0.0, 0.0, 0.0, 1.0, 0.0),
+        Span("L", 3, 0.0, 0.0, 0.0, 1.0, 0.0, height=10.0),
+    ]
+    t = [datetime(2026, 1, 1)] * 2
+    kw: dict[str, Any] = {"method": "nearest", "height": 20.0, "profile": "power"}
+    one = wx.interpolate_spans(grid, sp, {(0, 0): ns}, t, **kw)
+    per = wx.interpolate_spans(grid, sp, {(0, 0): ns}, t, span_heights=True, **kw)
+    ws1, ws2 = one.data["wind_speed"], per.data["wind_speed"]
+    # default: every span at the scalar height
+    assert ws1[0, 0] == pytest.approx(ws1[0, 1]) == pytest.approx(ws1[0, 2])
+    # per-span: higher span sees more wind, blank span keeps the scalar
+    assert ws2[0, 0] > ws2[0, 1] > ws2[0, 2]
+    assert ws2[0, 1] == pytest.approx(ws1[0, 1])
+    assert ws2[0, 2] == pytest.approx(4.0)
+    ta = per.data["ambient_temperature"]
+    assert ta[0, 2] == pytest.approx(20.0 - 7.8 * 8 / 78)

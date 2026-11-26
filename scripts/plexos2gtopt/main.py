@@ -16,6 +16,8 @@ from typing import Any
 
 from gtopt_config import add_color_argument
 from gtopt_shared.cli_flags import (
+    LegacyToggle,
+    add_legacy_profile_argument,
     add_lift_line_caps_argument,
     add_line_losses_mode_argument,
     add_loss_cost_eps_argument,
@@ -24,6 +26,7 @@ from gtopt_shared.cli_flags import (
     add_scale_theta_argument,
     add_soft_storage_bounds_argument,
     add_use_single_bus_argument,
+    apply_legacy_profile,
 )
 from gtopt_shared.operator import add_operator_argument, select_operator
 from gtopt_shared.sanity_report import add_sanity_report_argument
@@ -40,6 +43,7 @@ from gtopt_shared.source_versions import add_source_version_argument
 from ._commitment_policy import UC_RELAX_MODES
 from ._horizon import BOUNDARY_CUT_MODES, END_TARGET_MODES, parse_constraint_rules
 from ._plexos_versions import SOURCE_FORMAT, versions_help
+from ._renewable_floor import RENEWABLE_FLOOR_MODES
 from ._reserve_load import reserve_load_factor_arg
 from .auto_lift_lines import DEFAULT_THRESHOLD
 from ._native_reserve import (
@@ -57,7 +61,6 @@ from ._lng_inflexible import (
 )
 from .info_display import display_plexos_info
 from .parsers import (
-    EL0_LINES_DEFAULT,
     EL0_LINES_MODES,
     LINE_UNENFORCED_FACTOR,
     PERIOD_RHS_MODES,
@@ -72,6 +75,66 @@ from .plexos2gtopt import (
 
 
 __version__ = "0.1.0"
+
+#: ``--legacy-profile`` toggle sets (``--plexos-legacy`` = ``cen``).  The
+#: default (no profile) is the clean gtopt formulation: exogenous CPF load
+#: term, inertia from commitment, native BESS reserve, enforced line
+#: ratings, hard reserves (VoRS switches and surplus slacks dropped), free
+#: renewable curtailment.  ``cen`` replicates CEN's PLEXOS PCP model,
+#: quirks included, for reconciliation with its published prices.
+PLEXOS_LEGACY_PROFILES: dict[str, tuple[LegacyToggle, ...]] = {
+    "cen": (
+        LegacyToggle(
+            "reserve_load_term",
+            "endogenous",
+            "CPF load term = Generation_SEN as an LP column (every MWh "
+            "earns sum(beta*mu): negative LMPs)",
+            ("--reserve-load-term",),
+        ),
+        LegacyToggle(
+            "reserve_inertia_term",
+            "endogenous",
+            "inertia = dispatch-based provisions, as Inertia_SEN",
+            ("--reserve-inertia-term",),
+        ),
+        LegacyToggle(
+            "bess_reserve",
+            "uc",
+            "BESS SSCC rows as PLEXOS user constraints",
+            ("--bess-reserve",),
+        ),
+        LegacyToggle(
+            "el0_lines",
+            "unenforced",
+            "EL=0 / below-threshold line ratings never enforced",
+            ("--el0-lines",),
+        ),
+        LegacyToggle(
+            "cf_comp_equality",
+            True,
+            "BAT_*_CF_GEN_COMP / CF_LOAD_COMP Sense unset read as '='",
+        ),
+        LegacyToggle(
+            "reserve_surplus_equality",
+            True,
+            "Sense-0 reserve balances kept as equalities with the priced "
+            "-Slack surplus (CPF5mUp_Slack 1 $/MW) instead of '>='",
+        ),
+        LegacyToggle(
+            "no_plp_embalses",
+            True,
+            "no PLP embalses.csv cross-reference patch",
+            ("--plp-embalses", "--no-plp-embalses"),
+        ),
+        LegacyToggle(
+            "renewable_floors",
+            "plexos",
+            "Min Stable Level / forced-ON (Commit=+1) floors kept on "
+            "solar, wind and run-of-river units",
+            ("--renewable-floors",),
+        ),
+    ),
+}
 
 
 _DESCRIPTION = """\
@@ -390,8 +453,8 @@ def make_parser() -> argparse.ArgumentParser:
             "row is emitted instead of silently dropped.  When omitted "
             "and ``--no-plp-embalses`` is not set, the converter auto-"
             "detects ``embalses.csv[.xz]`` next to the input bundle.  "
-            "Suppressed when ``--plexos-legacy`` is on (legacy mode = "
-            "no cross-bundle data mixing)."
+            "Auto-detection is off under ``--legacy-profile cen`` (no "
+            "cross-bundle data mixing); an explicit path still applies."
         ),
     )
     plp_emb.add_argument(
@@ -405,29 +468,11 @@ def make_parser() -> argparse.ArgumentParser:
             "water-value slopes for non-bundle reservoirs are dropped."
         ),
     )
-    parser.add_argument(
-        "--plexos-legacy",
-        action="store_true",
-        help=(
-            "EMIT PLEXOS-FAITHFUL FORMULATIONS even when they're not the "
-            "physically / economically right choice.  Use for PLEXOS-"
-            "comparison testing (closer LMP/dual reproduction); leave OFF "
-            "for normal GTOpt use (cleaner LP, no artifact negative duals).\n"
-            "\n"
-            "Mirrors plp2gtopt's ``--plp-legacy`` (single switch gating a "
-            "growing list of source-reproduction quirks).\n"
-            "\n"
-            "Toggles:\n"
-            "  * BAT_*_CF_GEN_COMP / CF_LOAD_COMP sense — PLEXOS treats "
-            "Sense=unset as EQUALITY (=).  Default (--plexos-legacy OFF) "
-            "emits ``<=`` (physical upper bound: reserve provision capped "
-            "by battery activity).  With --plexos-legacy emits ``=`` "
-            "(PLEXOS-faithful complementarity, produces negative duals in "
-            "the LP shadow as in PLEXOS sol — for LMP-reproduction tests).\n"
-            "\n"
-            "Add new entries here as we discover PLEXOS reproduction quirks "
-            "that diverge from the physics-correct default."
-        ),
+    add_legacy_profile_argument(
+        parser,
+        profiles=PLEXOS_LEGACY_PROFILES,
+        alias="--plexos-legacy",
+        alias_dest="plexos_legacy",
     )
     parser.add_argument(
         "--bess-reserve",
@@ -1117,23 +1162,41 @@ def make_parser() -> argparse.ArgumentParser:
     add_lift_line_caps_argument(parser, dialect="plexos")
     add_no_lift_lines_argument(parser, dialect="plexos")
     parser.add_argument(
+        "--renewable-floors",
+        choices=RENEWABLE_FLOOR_MODES,
+        default="free",
+        help=(
+            "Floors of solar, wind and run-of-river commitments "
+            "(PLEXOS Min Stable Level and Commit=+1 forcing).  'free' "
+            "(DEFAULT, clean): dropped, so the unit can always curtail to 0 "
+            "(forced-OFF blocks and the status column stay).  'plexos' "
+            "(--legacy-profile cen): kept as PLEXOS gives them.  Storage "
+            "hydro and units with a start-up / shut-down / no-load cost are "
+            "never touched; ramp and min up / down limits stay.  The "
+            "dropped units are recorded in the provenance sidecar "
+            "('renewable_floors')."
+        ),
+    )
+    parser.add_argument(
         "--el0-lines",
         choices=EL0_LINES_MODES,
-        default=EL0_LINES_DEFAULT,
+        # CLI spelling of EL0_LINES_DEFAULT ("strict").
+        default="enforced",
         help=(
             "How to model PLEXOS lines whose rating PLEXOS does not enforce "
             "(EL=0 'Never enforce', and EL=1 lines below the Transmission "
             "'Constraint Voltage Threshold'):\n"
-            "  'unenforced' (DEFAULT, mirrors PLEXOS): the rating is never "
+            "  'enforced' (alias 'strict', DEFAULT, clean): treat EL=0 like "
+            "EL=2, a hard cap at the rating; --lift-line-caps (whose default "
+            "ships a curated set) lifts the known exceptions to a soft cap.\n"
+            "  'unenforced' (--legacy-profile cen, mirrors PLEXOS): the "
+            "rating is never "
             "enforced and carries no penalty.  GTOpt bounds every flow "
             f"column, so the cap is {LINE_UNENFORCED_FACTOR:g}x the rating "
             "(a flow AT that cap is a DC-OPF artefact, not a limit); the "
             "loss envelope stays at the rating.  Overrides --lift-line-caps "
             "for these lines; only --no-lift-lines still pins one to a hard "
             "cap.\n"
-            "  'enforced' (alias 'strict', opt-in): treat EL=0 like EL=2, a "
-            "hard cap at the rating; --lift-line-caps (whose default ships a "
-            "curated set) lifts the known exceptions to a soft cap.\n"
             "  'extended' (opt-in): soft cap for every EL=0 line, free up to "
             "the rating, penalised up to a headroom multiple, hard there.\n"
             "The mode is recorded in the provenance sidecar ('el0_lines')."
@@ -1541,6 +1604,13 @@ def main(argv: list[str] | None = None) -> None:
         level=getattr(logging, args.log_level),
         format="%(asctime)s %(levelname)s %(message)s",
     )
+    apply_legacy_profile(
+        args,
+        PLEXOS_LEGACY_PROFILES,
+        alias_dest="plexos_legacy",
+        alias_flag="--plexos-legacy",
+        argv=list(argv) if argv is not None else sys.argv[1:],
+    )
 
     bundle = _resolve_bundle(args)
     if bundle is None:
@@ -1604,6 +1674,7 @@ def main(argv: list[str] | None = None) -> None:
         "lift_line_caps": args.lift_line_caps,
         "no_lift_lines": args.no_lift_lines,
         "el0_lines": args.el0_lines,
+        "renewable_floors": getattr(args, "renewable_floors", "free"),
         "horizon_mode": args.horizon_mode,
         "horizon_days": args.horizon_days,
         "horizon_end_targets": getattr(args, "horizon_end_targets", "auto"),
@@ -1628,6 +1699,10 @@ def main(argv: list[str] | None = None) -> None:
         "compare_json": args.compare_json,
         "lax_uc_refs": args.lax_uc_refs,
         "plexos_legacy": args.plexos_legacy,
+        "legacy_profile": getattr(args, "legacy_profile", None),
+        "legacy_toggles": list(getattr(args, "legacy_toggles", None) or ()),
+        "cf_comp_equality": getattr(args, "cf_comp_equality", False),
+        "reserve_surplus_equality": getattr(args, "reserve_surplus_equality", False),
         "bess_reserve": getattr(args, "bess_reserve", "native"),
         "reserve_model": getattr(args, "reserve_model", "native"),
         "reserve_load_term": getattr(args, "reserve_load_term", "exogenous"),

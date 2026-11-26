@@ -919,41 +919,85 @@ elements. It includes:
   sheets, and usage instructions
 - An `options` sheet with all supported option keys pre-filled (one per row)
   and a description / default value in adjacent columns
-- All simulation sheets (`block_array`, `stage_array`, `scenario_array`,
-  `phase_array`, `scene_array`) with column headers and inline help text
-- All 17 system sheets with column headers, per-column type hints, and
-  required/optional markers
+- One sheet per simulation array (`block_array`, `stage_array`,
+  `scenario_array`, `phase_array`, `scene_array`, `aperture_array`,
+  `iteration_array`)
+- One sheet per system array gtopt accepts — every element class, including
+  the gas network (`gas_node_array`, `gas_pipe_array`, `gas_compressor_array`,
+  `gas_supply_array`, `gas_demand_array`, `gas_turbine_array`),
+  `lng_terminal_array`, the hydrogen / ammonia / thermal carrier nodes and
+  storages, `hydrogen_demand_array`, `carrier_converter_array`,
+  `allowance_pool_array`, `line_commitment_array`, inertia zones and
+  provisions and `decision_variable_array` — with one column per field, a
+  type hint, required/optional markers and a description.  Only
+  `user_model_array` (nested variable / constraint blocks) is JSON-only.
 - Example `Demand@lmax` and `GeneratorProfile@profile` time-series sheets
 
 Start from this template and fill in your data to build a complete case.
 
+### The `options` sheet
+
+One row per option gtopt accepts.  `igtopt` routes each row into the right
+JSON sub-object:
+
+| Row name | Lands in |
+|----------|----------|
+| model keys (`demand_fail_cost`, `line_losses_mode`, …) | `options.model_options` |
+| SDDP keys (`max_iterations`, `aperture_chunk_mode`, …) | `options.sddp_options` |
+| LP-matrix keys (`equilibration_method`, `compute_stats`, …) | `options.lp_matrix_options` |
+| gas keys (`gas_temperature`, `slp_iterations`, `linepack_cyclic`, …) | `options.gas_options` |
+| `solver_<key>` (`solver_mip_gap`, …) | `options.solver_options.<key>` |
+| `monolithic_<key>` | `options.monolithic_options.<key>` |
+| `sanity_<key>` (`sanity_enable`, …) | `options.sanity_options.<key>` |
+| `cascade_<key>` (`cascade_level_array`, …) | `options.cascade_options.<key>` |
+| `annual_discount_rate` | `simulation` |
+| `future_cost_<field>` | `system.future_cost_array[0].<field>` |
+| anything else | top level of `options` |
+
+Rows whose description ends in "(JSON value)" — `cascade_level_array`,
+`forward_solver_options`, `monolithic_mip_start`, `variable_scales`, … —
+take a JSON object or array typed into the cell, e.g.
+`[{"name": "uninodal", "model_options": {"use_single_bus": true}}]`.
+
 ### Regenerating the Template
 
-The template is generated automatically from the GTOpt C++ JSON headers by
-`scripts/make_igtopt_template.py`.  Run this tool after adding new JSON elements
-to the C++ source to produce an up-to-date workbook:
+The sheets and columns come from the GTOpt input contract — the
+`gtopt --json-schema` dump of the C++ JSON contracts — so a new element
+class or field appears in the template without touching igtopt:
 
 ```bash
 # Regenerate docs/templates/gtopt_template.xlsx (default output)
-python scripts/make_igtopt_template.py
+igtopt --make-template
 
 # Write to a custom path
-python scripts/make_igtopt_template.py -o /tmp/my_template.xlsx
+igtopt --make-template -j /tmp/my_template.xlsx
 
-# Print the sheet list parsed from C++ headers without writing a file
-python scripts/make_igtopt_template.py --list-sheets
+# Print the sheet list (with column counts) without writing a file
+igtopt --make-template --list-sheets
+
+# Pin the contract source: run gtopt, or use the bundled snapshot
+igtopt --make-template --schema-source gtopt --gtopt-bin build/standalone/gtopt
+igtopt --make-template --schema-source snapshot
+
+# Use a saved `gtopt --json-schema > schema.json` dump
+igtopt --make-template --schema-file schema.json
 ```
 
-The tool reads `include/gtopt/json/json_system.hpp` and
-`include/gtopt/json/json_simulation.hpp` to determine which arrays are part of
-the JSON schema, so adding a new C++ element and re-running this script
-produces a template that already contains the new sheet.
+`--schema-source auto` (the default) runs `gtopt --json-schema` when a gtopt
+binary is found (`GTOPT_BIN`, `PATH`, the build directory) and otherwise
+falls back to the contract snapshot bundled with the scripts
+(`gtopt_shared/data/json_contracts.json`, regenerated with
+`python -m gtopt_shared.json_contracts --update`).
 
-> **Keeping igtopt in sync**: after adding a new JSON array to the C++ code,
-> also update the `_SYSTEM_SHEETS` or `_SIMULATION_SHEETS` frozensets in
-> `scripts/igtopt/igtopt.py` to match `json_system.hpp` / `json_simulation.hpp`.
-> The sheet list output by `make_igtopt_template.py --list-sheets` shows the
-> current canonical set.
+Column types, help text and examples come from `FIELD_META`
+(`scripts/gtopt_shared/field_meta.py`).  A field gtopt accepts but
+`FIELD_META` does not describe still gets a column, marked
+"undocumented", and a warning; `FIELD_META` columns gtopt would reject are
+dropped.  The drift tests in
+`scripts/gtopt_shared/tests/test_json_contracts_sync.py` fail when a C++
+field, array or option is missing from `FIELD_META` / the options sheet, when
+a column type disagrees with the C++ member kind, and — with a gtopt binary
+available — when `gtopt --json-schema` differs from the bundled snapshot.
 
 ---
 
@@ -1070,5 +1114,5 @@ python -m pytest igtopt/tests/ -m integration -q
 - [gtopt_compare.md](gtopt_compare.md) — Validating GTOpt results
   against pandapower DC OPF
 - [plp2gtopt.md](plp2gtopt.md) — Converting PLP cases to GTOpt format
-- [`scripts/make_igtopt_template.py`](../../scripts/make_igtopt_template.py) —
-  Tool that reads C++ JSON headers and regenerates the Excel template
+- [`igtopt/template_builder.py`](../../scripts/igtopt/template_builder.py) —
+  Builds the Excel template from `gtopt --json-schema` (`igtopt --make-template`)

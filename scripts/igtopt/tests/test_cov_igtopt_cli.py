@@ -149,19 +149,18 @@ def test_main_reports_value_errors(
 # ── main(): template modes ──────────────────────────────────────────────
 
 
-def test_main_template_missing_header_dir(tmp_path: pathlib.Path, caplog) -> None:
-    rc = _main(["--make-template", "--header-dir", str(tmp_path / "nope")])
+def test_main_template_gtopt_source_unavailable(tmp_path: pathlib.Path, caplog) -> None:
+    rc = _main(
+        [
+            "--make-template",
+            "--schema-source",
+            "gtopt",
+            "--gtopt-bin",
+            str(tmp_path / "nope"),
+        ]
+    )
     assert rc == 1
-    assert "header directory" in caplog.text
-
-
-def test_main_list_sheets_fallback(tmp_path: pathlib.Path, capsys) -> None:
-    hdr = tmp_path / "hdr"
-    hdr.mkdir()
-    ig.main(["--list-sheets", "--header-dir", str(hdr)])
-    out = capsys.readouterr().out
-    assert "json_simulation.hpp not found" in out
-    assert "json_system.hpp not found" in out
+    assert "gtopt --json-schema is unavailable" in caplog.text
 
 
 def test_main_make_template_default_path(
@@ -169,7 +168,7 @@ def test_main_make_template_default_path(
 ) -> None:
     (tmp_path / "include" / "gtopt").mkdir(parents=True)
     monkeypatch.setattr(ig, "_find_repo_root", lambda _start: tmp_path)
-    ig.main(["--make-template"])
+    ig.main(["--make-template", "--schema-source", "snapshot"])
     assert (tmp_path / "docs" / "templates" / "gtopt_template.xlsx").is_file()
 
 
@@ -178,7 +177,7 @@ def test_build_workbook_requires_openpyxl(
 ) -> None:
     monkeypatch.setitem(sys.modules, "openpyxl", None)
     with pytest.raises(SystemExit) as exc:
-        tb._build_workbook(tmp_path / "t.xlsx", tmp_path)
+        tb._build_workbook(tmp_path / "t.xlsx")
     assert exc.value.code == 1
     assert "openpyxl is required" in capsys.readouterr().err
 
@@ -190,20 +189,6 @@ def test_build_array_sheets_skips_unknown(monkeypatch: pytest.MonkeyPatch) -> No
     )
     tb._build_array_sheets(object(), tb._WorkbookStyles(), ["no_such_array"])
     assert not added
-
-
-def test_list_sheets_reads_headers_without_json_subdir(
-    tmp_path: pathlib.Path, capsys
-) -> None:
-    (tmp_path / "json_simulation.hpp").write_text(
-        'json_array_null<"block_array", Array<Block>, &Simulation::block_array>\n'
-    )
-    (tmp_path / "json_system.hpp").write_text(
-        'json_array_null<"bus_array", Array<Bus>, &System::bus_array>\n'
-    )
-    tb._list_sheets(tmp_path)
-    out = capsys.readouterr().out
-    assert "fallback" not in out
 
 
 # ── _run(): error collection ────────────────────────────────────────────

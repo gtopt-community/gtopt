@@ -4,12 +4,14 @@
   "Auction Volume",
   "Barra",
   "Build Cost",
+  "CAlm",
   "CFix",
   "CO2 Equivalent",
   "CO2 Production Rate",
   "CTransporte",
   "CVU",
   "CVar",
+  "CVer",
   "Capac",
   "CapacRev",
   "Carbon Capture Rate",
@@ -93,10 +95,12 @@
   "Market",
   "Max Capacity",
   "Max Flow",
+  "Max Flow Day",
   "Max Load",
   "Max Power",
   "Max Power Charge",
   "Max Power Discharge",
+  "Max Production",
   "Max Provision",
   "Max Provision Down",
   "Max Ramp Down",
@@ -144,6 +148,7 @@
   "PotMinTec",
   "Precio",
   "Price",
+  "Production Cost",
   "Production Rate",
   "QMax",
   "QMin",
@@ -180,8 +185,10 @@
   "Upper Bound",
   "Upstream Emission Rate",
   "Upstream Production Rate",
+  "VMax",
   "VarMax",
   "VarMin",
+  "Vini",
   "Vinic",
   "Violation Cost",
   "Violation Cost Down",
@@ -197,6 +204,8 @@
   "annual_loss",
   "auction_volume",
   "battery_annual_loss",
+  "bus0",
+  "bus1",
   "capital_cost",
   "capture_cost",
   "capture_rate",
@@ -211,6 +220,8 @@
   "deficit_segments_global",
   "demand_option_c",
   "derating_rate",
+  "e_cyclic",
+  "e_initial",
   "efficiency_charge",
   "efficiency_discharge",
   "eta",
@@ -249,6 +260,7 @@
   "p_max_pu",
   "p_min_pu",
   "p_mw",
+  "p_nom",
   "p_nom_charge",
   "p_nom_discharge",
   "p_nom_extendable",
@@ -350,7 +362,11 @@
     "uid": "number",
     "use_state_variable": "bool"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name"
+   ]
   },
   "AmmoniaNode": {
    "fields": [
@@ -364,7 +380,11 @@
     "name": "string",
     "uid": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name"
+   ]
   },
   "AmmoniaStorage": {
    "fields": [
@@ -422,7 +442,11 @@
     "uid": "number",
     "use_state_variable": "bool"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name"
+   ]
   },
   "Aperture": {
    "fields": [
@@ -440,7 +464,11 @@
     "source_scenario": "number",
     "uid": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "source_scenario"
+   ]
   },
   "Battery": {
    "fields": [
@@ -544,7 +572,11 @@
     "uid": "number",
     "use_state_variable": "bool"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name"
+   ]
   },
   "Block": {
    "fields": [
@@ -562,7 +594,11 @@
     "time": "number",
     "uid": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "duration"
+   ]
   },
   "Bus": {
    "fields": [
@@ -586,7 +622,11 @@
     "use_kirchhoff": "bool",
     "voltage": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name"
+   ]
   },
   "CapacityProfile": {
    "fields": [
@@ -608,7 +648,14 @@
     "scost": "variant",
     "uid": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name",
+    "owner_kind",
+    "owner",
+    "profile"
+   ]
   },
   "CarrierConverter": {
    "fields": [
@@ -650,7 +697,13 @@
     "type": "string",
     "uid": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name",
+    "from_carrier",
+    "to_carrier"
+   ]
   },
   "CascadeLevel": {
    "fields": [
@@ -678,7 +731,8 @@
     "model_options": "ModelOptions",
     "sddp_options": "CascadeLevelMethod",
     "transition": "CascadeTransition"
-   }
+   },
+   "required": []
   },
   "CascadeLevelMethod": {
    "fields": [
@@ -725,7 +779,8 @@
    "nested": {
     "backward_solver_options": "SolverOptions",
     "forward_solver_options": "SolverOptions"
-   }
+   },
+   "required": []
   },
   "CascadeOptions": {
    "fields": [
@@ -745,7 +800,8 @@
     "level_array": "CascadeLevel",
     "model_options": "ModelOptions",
     "sddp_options": "SddpOptions"
-   }
+   },
+   "required": []
   },
   "CascadeTransition": {
    "fields": [
@@ -755,7 +811,8 @@
    "kinds": {
     "inherit_optimality_cuts": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": []
   },
   "Commitment": {
    "fields": [
@@ -857,7 +914,12 @@
     "uid": "number",
     "warm_start_cost": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name",
+    "generator"
+   ]
   },
   "ConstraintDirective": {
    "fields": [
@@ -873,7 +935,10 @@
     "scope": "string",
     "window_hours": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "kind"
+   ]
   },
   "Converter": {
    "fields": [
@@ -915,7 +980,14 @@
     "name": "string",
     "uid": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name",
+    "battery",
+    "generator",
+    "demand"
+   ]
   },
   "CriticalSpan": {
    "fields": [
@@ -947,7 +1019,8 @@
     "wind_direction": "variant",
     "wind_speed": "variant"
    },
-   "nested": {}
+   "nested": {},
+   "required": []
   },
   "DecisionVariable": {
    "fields": [
@@ -993,7 +1066,11 @@
     "uid": "number",
     "upper_bound": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name"
+   ]
   },
   "Demand": {
    "fields": [
@@ -1045,7 +1122,12 @@
    },
    "nested": {
     "fail_segments": "FailSegment"
-   }
+   },
+   "required": [
+    "uid",
+    "name",
+    "bus"
+   ]
   },
   "DemandAttrs": {
    "fields": [
@@ -1091,7 +1173,10 @@
    },
    "nested": {
     "fail_segments": "FailSegment"
-   }
+   },
+   "required": [
+    "bus"
+   ]
   },
   "DemandProfile": {
    "fields": [
@@ -1111,7 +1196,13 @@
     "scost": "variant",
     "uid": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name",
+    "demand",
+    "profile"
+   ]
   },
   "DlrConductor": {
    "fields": [
@@ -1137,7 +1228,8 @@
     "r75": "number",
     "subconductors": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": []
   },
   "Emission": {
    "fields": [
@@ -1151,7 +1243,11 @@
     "name": "string",
     "uid": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name"
+   ]
   },
   "EmissionCapture": {
    "fields": [
@@ -1165,7 +1261,10 @@
     "emission": "variant",
     "rate": "variant"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "emission"
+   ]
   },
   "EmissionSource": {
    "fields": [
@@ -1193,7 +1292,11 @@
     "upstream_rate": "variant",
     "zone": "variant"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "zone",
+    "emission"
+   ]
   },
   "EmissionZone": {
    "fields": [
@@ -1223,7 +1326,11 @@
    },
    "nested": {
     "emissions": "EmissionZoneFactor"
-   }
+   },
+   "required": [
+    "uid",
+    "name"
+   ]
   },
   "EmissionZoneFactor": {
    "fields": [
@@ -1235,7 +1342,10 @@
     "emission": "variant",
     "weight": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "emission"
+   ]
   },
   "FailSegment": {
    "fields": [
@@ -1247,7 +1357,8 @@
     "cost": "variant",
     "fraction": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": []
   },
   "Flow": {
    "fields": [
@@ -1277,7 +1388,11 @@
    },
    "nested": {
     "inflow_model": "InflowModel"
-   }
+   },
+   "required": [
+    "uid",
+    "name"
+   ]
   },
   "FlowRight": {
    "fields": [
@@ -1329,7 +1444,11 @@
    },
    "nested": {
     "bound_rule": "RightBoundRule"
-   }
+   },
+   "required": [
+    "uid",
+    "name"
+   ]
   },
   "Fuel": {
    "fields": [
@@ -1373,7 +1492,11 @@
    },
    "nested": {
     "emission_factors": "FuelEmissionFactor"
-   }
+   },
+   "required": [
+    "uid",
+    "name"
+   ]
   },
   "FuelEmissionFactor": {
    "fields": [
@@ -1387,7 +1510,10 @@
     "emission": "variant",
     "upstream": "variant"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "emission"
+   ]
   },
   "FutureCost": {
    "fields": [
@@ -1425,7 +1551,11 @@
     "user_alpha_uid": "number",
     "valuation": "string"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name"
+   ]
   },
   "GasCompressor": {
    "fields": [
@@ -1479,7 +1609,13 @@
     "type": "string",
     "uid": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name",
+    "gas_node_in",
+    "gas_node_out"
+   ]
   },
   "GasDemand": {
    "fields": [
@@ -1501,7 +1637,12 @@
     "type": "string",
     "uid": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name",
+    "gas_node"
+   ]
   },
   "GasNode": {
    "fields": [
@@ -1527,7 +1668,11 @@
     "type": "string",
     "uid": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name"
+   ]
   },
   "GasOptions": {
    "fields": [
@@ -1555,7 +1700,8 @@
     "slp_proximal_cost": "number",
     "slp_tolerance": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": []
   },
   "GasPipe": {
    "fields": [
@@ -1611,7 +1757,13 @@
     "weymouth_mode": "string",
     "z": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name",
+    "gas_node_a",
+    "gas_node_b"
+   ]
   },
   "GasSupply": {
    "fields": [
@@ -1637,7 +1789,12 @@
     "uid": "number",
     "volume": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name",
+    "gas_node"
+   ]
   },
   "GasTurbine": {
    "fields": [
@@ -1667,7 +1824,13 @@
     "type": "string",
     "uid": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name",
+    "generator",
+    "gas_node"
+   ]
   },
   "Generator": {
    "fields": [
@@ -1736,7 +1899,12 @@
    "nested": {
     "emission_captures": "EmissionCapture",
     "emissions": "EmissionSource"
-   }
+   },
+   "required": [
+    "uid",
+    "name",
+    "bus"
+   ]
   },
   "GeneratorAttrs": {
    "fields": [
@@ -1786,7 +1954,10 @@
     "pmin_fcost": "variant",
     "uini": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "bus"
+   ]
   },
   "GeneratorProfile": {
    "fields": [
@@ -1806,7 +1977,13 @@
     "scost": "variant",
     "uid": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name",
+    "generator",
+    "profile"
+   ]
   },
   "HourBlockEntry": {
    "fields": [
@@ -1820,7 +1997,12 @@
     "hour": "number",
     "stage": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "hour",
+    "stage",
+    "block"
+   ]
   },
   "HydrogenDemand": {
    "fields": [
@@ -1850,7 +2032,11 @@
     "type": "string",
     "uid": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name"
+   ]
   },
   "HydrogenNode": {
    "fields": [
@@ -1864,7 +2050,11 @@
     "name": "string",
     "uid": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name"
+   ]
   },
   "HydrogenStorage": {
    "fields": [
@@ -1922,7 +2112,11 @@
     "uid": "number",
     "use_state_variable": "bool"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name"
+   ]
   },
   "InertiaProvision": {
    "fields": [
@@ -1950,7 +2144,12 @@
     "rated_power": "number",
     "uid": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name",
+    "generator"
+   ]
   },
   "InertiaRequirementCredit": {
    "fields": [
@@ -1968,7 +2167,8 @@
     "name": "string",
     "units": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": []
   },
   "InertiaZone": {
    "fields": [
@@ -1990,7 +2190,11 @@
    },
    "nested": {
     "requirement_credits": "InertiaRequirementCredit"
-   }
+   },
+   "required": [
+    "uid",
+    "name"
+   ]
   },
   "InflowModel": {
    "fields": [
@@ -2004,7 +2208,8 @@
     "sigma": "number",
     "type": "string"
    },
-   "nested": {}
+   "nested": {},
+   "required": []
   },
   "Iteration": {
    "fields": [
@@ -2016,7 +2221,10 @@
     "index": "number",
     "update_lp": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "index"
+   ]
   },
   "Junction": {
    "fields": [
@@ -2040,7 +2248,11 @@
     "type": "string",
     "uid": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name"
+   ]
   },
   "Line": {
    "fields": [
@@ -2168,7 +2380,13 @@
    },
    "nested": {
     "dlr": "LineDlr"
-   }
+   },
+   "required": [
+    "uid",
+    "name",
+    "bus_a",
+    "bus_b"
+   ]
   },
   "LineCommitment": {
    "fields": [
@@ -2224,7 +2442,12 @@
     "uid": "number",
     "warm_start_cost": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name",
+    "line"
+   ]
   },
   "LineDlr": {
    "fields": [
@@ -2263,7 +2486,8 @@
    "nested": {
     "conductor": "DlrConductor",
     "critical_spans": "CriticalSpan"
-   }
+   },
+   "required": []
   },
   "LngGeneratorLink": {
    "fields": [
@@ -2275,7 +2499,11 @@
     "generator": "variant",
     "heat_rate": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "generator",
+    "heat_rate"
+   ]
   },
   "LngTerminal": {
    "fields": [
@@ -2329,7 +2557,11 @@
    },
    "nested": {
     "generators": "LngGeneratorLink"
-   }
+   },
+   "required": [
+    "uid",
+    "name"
+   ]
   },
   "LpMatrixOptions": {
    "fields": [
@@ -2373,7 +2605,8 @@
    },
    "nested": {
     "validation": "LpValidationOptions"
-   }
+   },
+   "required": []
   },
   "LpScales": {
    "fields": [
@@ -2414,7 +2647,21 @@
     "objective": "LpScalesObjective",
     "stages": "LpScalesStage",
     "tables": "LpScalesTables"
-   }
+   },
+   "required": [
+    "schema",
+    "level",
+    "gtopt",
+    "lp_file",
+    "scene_uid",
+    "phase_uid",
+    "num_cols",
+    "num_rows",
+    "objective",
+    "blocks",
+    "stages",
+    "numerics"
+   ]
   },
   "LpScalesBlock": {
    "fields": [
@@ -2436,7 +2683,16 @@
     "scenario": "number",
     "stage": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "scenario",
+    "stage",
+    "block",
+    "duration",
+    "probability",
+    "discount",
+    "cost_factor"
+   ]
   },
   "LpScalesBuild": {
    "fields": [
@@ -2448,7 +2704,11 @@
     "git_revision": "string",
     "version": "string"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "version",
+    "git_revision"
+   ]
   },
   "LpScalesNumerics": {
    "fields": [
@@ -2480,7 +2740,12 @@
    },
    "nested": {
     "row_types": "LpScalesRowType"
-   }
+   },
+   "required": [
+    "equilibration_method",
+    "nnz",
+    "row_types"
+   ]
   },
   "LpScalesObjective": {
    "fields": [
@@ -2494,7 +2759,12 @@
     "scale_objective": "number",
     "sense": "string"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "scale_objective",
+    "constant",
+    "sense"
+   ]
   },
   "LpScalesRange": {
    "fields": [
@@ -2508,7 +2778,12 @@
     "max_abs": "number",
     "min_abs": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "min_abs",
+    "max_abs",
+    "log10_ratio"
+   ]
   },
   "LpScalesRowType": {
    "fields": [
@@ -2526,7 +2801,14 @@
     "nnz": "number",
     "type": "string"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "type",
+    "count",
+    "nnz",
+    "min_abs",
+    "max_abs"
+   ]
   },
   "LpScalesStage": {
    "fields": [
@@ -2546,7 +2828,15 @@
     "scenario": "number",
     "stage": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "scenario",
+    "stage",
+    "duration",
+    "probability",
+    "discount",
+    "cost_factor"
+   ]
   },
   "LpScalesTables": {
    "fields": [
@@ -2562,7 +2852,13 @@
     "num_scaled_rows": "number",
     "rows": "string"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "columns",
+    "rows",
+    "num_scaled_columns",
+    "num_scaled_rows"
+   ]
   },
   "LpValidationOptions": {
    "fields": [
@@ -2584,7 +2880,8 @@
     "obj_warn_max": "number",
     "rhs_warn_max": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": []
   },
   "MipStartDive": {
    "fields": [
@@ -2606,7 +2903,8 @@
     "sub_mip_time_limit": "number",
     "verify": "bool"
    },
-   "nested": {}
+   "nested": {},
+   "required": []
   },
   "MipStartDomainRules": {
    "fields": [
@@ -2622,7 +2920,8 @@
    },
    "nested": {
     "peak_injection": "MipStartPeakInjection"
-   }
+   },
+   "required": []
   },
   "MipStartInject": {
    "fields": [
@@ -2632,7 +2931,8 @@
    "kinds": {
     "effort": "string"
    },
-   "nested": {}
+   "nested": {},
+   "required": []
   },
   "MipStartOptions": {
    "fields": [
@@ -2671,7 +2971,8 @@
     "relax": "MipStartRelax",
     "round": "MipStartRound",
     "scip_repair": "MipStartScipRepair"
-   }
+   },
+   "required": []
   },
   "MipStartPeakInjection": {
    "fields": [
@@ -2688,7 +2989,8 @@
    "nested": {
     "peak_window": "MipStartWindow",
     "solar_window": "MipStartWindow"
-   }
+   },
+   "required": []
   },
   "MipStartRelax": {
    "fields": [
@@ -2706,7 +3008,8 @@
    },
    "nested": {
     "solver_options": "SolverOptions"
-   }
+   },
+   "required": []
   },
   "MipStartRound": {
    "fields": [
@@ -2716,7 +3019,8 @@
    "kinds": {
     "threshold": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": []
   },
   "MipStartScipRepair": {
    "fields": [
@@ -2726,7 +3030,8 @@
    "kinds": {
     "enabled": "bool"
    },
-   "nested": {}
+   "nested": {},
+   "required": []
   },
   "MipStartWindow": {
    "fields": [
@@ -2738,7 +3043,8 @@
     "end": "number",
     "start": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": []
   },
   "ModelOptions": {
    "fields": [
@@ -2862,7 +3168,8 @@
    },
    "nested": {
     "demand_fail_segments": "ScalarFailSegment"
-   }
+   },
+   "required": []
   },
   "MonolithicOptions": {
    "fields": [
@@ -2887,7 +3194,8 @@
    "nested": {
     "mip_start": "MipStartOptions",
     "solver_options": "SolverOptions"
-   }
+   },
+   "required": []
   },
   "Phase": {
    "fields": [
@@ -2911,7 +3219,12 @@
     "name": "string",
     "uid": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "first_stage",
+    "count_stage"
+   ]
   },
   "Planning": {
    "fields": [
@@ -2932,7 +3245,8 @@
     "options": "PlanningOptions",
     "simulation": "Simulation",
     "system": "System"
-   }
+   },
+   "required": []
   },
   "PlanningOptions": {
    "fields": [
@@ -3014,7 +3328,8 @@
     "sddp_options": "SddpOptions",
     "solver_options": "SolverOptions",
     "variable_scales": "VariableScale"
-   }
+   },
+   "required": []
   },
   "Plant": {
    "fields": [
@@ -3038,7 +3353,11 @@
     "uid": "number",
     "uniq_mutex": "bool"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name"
+   ]
   },
   "ProductionFactorSegment": {
    "fields": [
@@ -3052,7 +3371,12 @@
     "slope": "number",
     "volume": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "volume",
+    "slope",
+    "constant"
+   ]
   },
   "Pump": {
    "fields": [
@@ -3078,7 +3402,13 @@
     "uid": "number",
     "waterway": "variant"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name",
+    "waterway",
+    "demand"
+   ]
   },
   "ReserveContingency": {
    "fields": [
@@ -3102,7 +3432,8 @@
     "name": "string",
     "offset": "variant"
    },
-   "nested": {}
+   "nested": {},
+   "required": []
   },
   "ReserveProvision": {
    "fields": [
@@ -3166,7 +3497,12 @@
     "urmax_response": "variant",
     "urmin": "variant"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name",
+    "generator"
+   ]
   },
   "ReserveRequirementPlane": {
    "fields": [
@@ -3184,7 +3520,8 @@
     "flow_coef": "variant",
     "inertia_coef": "variant"
    },
-   "nested": {}
+   "nested": {},
+   "required": []
   },
   "ReserveZone": {
    "fields": [
@@ -3255,7 +3592,11 @@
     "drreq_planes": "ReserveRequirementPlane",
     "urcontingencies": "ReserveContingency",
     "urreq_planes": "ReserveRequirementPlane"
-   }
+   },
+   "required": [
+    "uid",
+    "name"
+   ]
   },
   "Reservoir": {
    "fields": [
@@ -3331,7 +3672,12 @@
     "discharge_limit": "ReservoirDischargeLimit",
     "production_factor": "ReservoirProductionFactor",
     "seepage": "ReservoirSeepage"
-   }
+   },
+   "required": [
+    "uid",
+    "name",
+    "junction"
+   ]
   },
   "ReservoirDischargeLimit": {
    "fields": [
@@ -3355,7 +3701,12 @@
    },
    "nested": {
     "segments": "ReservoirDischargeLimitSegment"
-   }
+   },
+   "required": [
+    "uid",
+    "name",
+    "reservoir"
+   ]
   },
   "ReservoirDischargeLimitSegment": {
    "fields": [
@@ -3369,7 +3720,12 @@
     "slope": "number",
     "volume": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "volume",
+    "slope",
+    "intercept"
+   ]
   },
   "ReservoirProductionFactor": {
    "fields": [
@@ -3393,7 +3749,13 @@
    },
    "nested": {
     "segments": "ProductionFactorSegment"
-   }
+   },
+   "required": [
+    "uid",
+    "name",
+    "turbine",
+    "reservoir"
+   ]
   },
   "ReservoirSeepage": {
    "fields": [
@@ -3419,7 +3781,13 @@
    },
    "nested": {
     "segments": "ReservoirSeepageSegment"
-   }
+   },
+   "required": [
+    "uid",
+    "name",
+    "waterway",
+    "reservoir"
+   ]
   },
   "ReservoirSeepageSegment": {
    "fields": [
@@ -3433,7 +3801,12 @@
     "slope": "number",
     "volume": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "volume",
+    "slope",
+    "constant"
+   ]
   },
   "RightBoundRule": {
    "fields": [
@@ -3453,7 +3826,8 @@
    },
    "nested": {
     "segments": "RightBoundSegment"
-   }
+   },
+   "required": []
   },
   "RightBoundSegment": {
    "fields": [
@@ -3467,7 +3841,12 @@
     "slope": "number",
     "volume": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "volume",
+    "slope",
+    "constant"
+   ]
   },
   "SanityOptions": {
    "fields": [
@@ -3491,7 +3870,8 @@
     "profile_tolerance": "number",
     "reward_fail_cost_ratio": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": []
   },
   "ScalarFailSegment": {
    "fields": [
@@ -3503,7 +3883,8 @@
     "cost": "number",
     "fraction": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": []
   },
   "Scenario": {
    "fields": [
@@ -3521,7 +3902,10 @@
     "probability_factor": "number",
     "uid": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid"
+   ]
   },
   "Scene": {
    "fields": [
@@ -3539,7 +3923,12 @@
     "name": "string",
     "uid": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "first_scenario",
+    "count_scenario"
+   ]
   },
   "SddpOptions": {
    "fields": [
@@ -3704,7 +4093,8 @@
    "nested": {
     "backward_solver_options": "SolverOptions",
     "forward_solver_options": "SolverOptions"
-   }
+   },
+   "required": []
   },
   "SimpleCommitment": {
    "fields": [
@@ -3726,7 +4116,12 @@
     "relax": "bool",
     "uid": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name",
+    "generator"
+   ]
   },
   "Simulation": {
    "fields": [
@@ -3770,7 +4165,8 @@
     "scenario_array": "Scenario",
     "scene_array": "Scene",
     "stage_array": "Stage"
-   }
+   },
+   "required": []
   },
   "SolverOptions": {
    "fields": [
@@ -3828,7 +4224,8 @@
     "threads": "number",
     "time_limit": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": []
   },
   "Stage": {
    "fields": [
@@ -3862,7 +4259,12 @@
     "sampling": "string",
     "uid": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "first_block",
+    "count_block"
+   ]
   },
   "System": {
    "fields": [
@@ -4038,7 +4440,8 @@
     "user_param_array": "UserParam",
     "volume_right_array": "VolumeRight",
     "waterway_array": "Waterway"
-   }
+   },
+   "required": []
   },
   "ThermalNode": {
    "fields": [
@@ -4052,7 +4455,11 @@
     "name": "string",
     "uid": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name"
+   ]
   },
   "ThermalStorage": {
    "fields": [
@@ -4110,7 +4517,11 @@
     "uid": "number",
     "use_state_variable": "bool"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name"
+   ]
   },
   "Turbine": {
    "fields": [
@@ -4148,7 +4559,12 @@
     "uid": "number",
     "waterway": "variant"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name",
+    "generator"
+   ]
   },
   "UserConstraint": {
    "fields": [
@@ -4186,7 +4602,12 @@
    },
    "nested": {
     "directive": "ConstraintDirective"
-   }
+   },
+   "required": [
+    "uid",
+    "name",
+    "expression"
+   ]
   },
   "UserModel": {
    "fields": [
@@ -4211,7 +4632,11 @@
    "nested": {
     "constraint_array": "UserConstraint",
     "variable_array": "DecisionVariable"
-   }
+   },
+   "required": [
+    "uid",
+    "name"
+   ]
   },
   "UserParam": {
    "fields": [
@@ -4225,7 +4650,10 @@
     "name": "string",
     "value": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "name"
+   ]
   },
   "VariableScale": {
    "fields": [
@@ -4243,7 +4671,13 @@
     "uid": "number",
     "variable": "string"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "class_name",
+    "variable",
+    "uid",
+    "scale"
+   ]
   },
   "VolumeRight": {
    "fields": [
@@ -4313,7 +4747,11 @@
    },
    "nested": {
     "bound_rule": "RightBoundRule"
-   }
+   },
+   "required": [
+    "uid",
+    "name"
+   ]
   },
   "Waterway": {
    "fields": [
@@ -4347,7 +4785,12 @@
     "type": "string",
     "uid": "number"
    },
-   "nested": {}
+   "nested": {},
+   "required": [
+    "uid",
+    "name",
+    "junction_a"
+   ]
   }
  }
 }

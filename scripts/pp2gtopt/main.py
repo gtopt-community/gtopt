@@ -28,6 +28,7 @@ from gtopt_shared.sanity_report import (
 )
 from gtopt_shared.cli_flags import (
     add_demand_fail_cost_argument,
+    add_line_losses_mode_argument,
     add_scale_objective_argument,
     add_use_kirchhoff_argument,
     add_use_single_bus_argument,
@@ -48,6 +49,7 @@ from gtopt_shared.time_grid import (
 
 from .convert import (
     DEFAULT_SOLVER,
+    LineLossOptions,
     SUPPORTED_SOLVERS,
     _SUPPORTED_FORMATS,
     TimeSeriesData,
@@ -326,6 +328,31 @@ def make_parser() -> argparse.ArgumentParser:
     add_demand_fail_cost_argument(parser, default=1000.0)
     add_use_kirchhoff_argument(parser, default=True)
     add_use_single_bus_argument(parser, default=False, dialect="boolean_optional")
+    add_line_losses_mode_argument(parser, default=None)
+    parser.add_argument(
+        "--loss-segments",
+        dest="loss_segments",
+        type=int,
+        metavar="K",
+        default=None,
+        help=(
+            "piecewise-linear loss segments, emitted as "
+            "model_options.loss_segments (default: unset, gtopt default)"
+        ),
+    )
+    parser.add_argument(
+        "--line-thermal-limit-mode",
+        dest="line_thermal_limit_mode",
+        choices=["flow", "sending", "full"],
+        default=None,
+        help=(
+            "which quantity the line rating limits when losses are on: "
+            "'flow' (the flow variable), 'sending' (the sending-end power "
+            "f + a*loss, the physical current limit) or 'full' (f + loss); "
+            "emitted as model_options.line_thermal_limit_mode (default: "
+            "unset, gtopt default 'flow')"
+        ),
+    )
 
     add_source_version_argument(parser, SOURCE_FORMAT)
     add_log_level_argument(parser)
@@ -785,6 +812,11 @@ def main(argv: list[str] | None = None) -> int:
         output_format=args.output_format,
         sddp_max_iterations=args.sddp_max_iterations,
         sddp_convergence_tol=args.sddp_convergence_tol,
+        losses=LineLossOptions(
+            line_losses_mode=args.line_losses_mode,
+            loss_segments=args.loss_segments,
+            line_thermal_limit_mode=args.line_thermal_limit_mode,
+        ),
     )
     if timeseries is not None and solver_type == "monolithic":
         logger.info(

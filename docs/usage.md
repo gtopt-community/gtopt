@@ -110,7 +110,7 @@ Multiple system files can be provided and will be merged.
 | | `--plugin-check` | `warning\|error` | What a failed solver-plugin integrity check does: `error` refuses the plugin, `warning` logs and loads it. Overrides `$GTOPT_PLUGIN_CHECK`; the built-in default is `error` (CMake `GTOPT_PLUGIN_CHECK_DEFAULT`). See [Plugin integrity](solvers.md#plugin-integrity) |
 | | `--config` | `FILE` | Read option defaults from this `.gtopt.conf`-style file instead of `$GTOPT_CONFIG` / `~/.gtopt.conf`. A `./.gtopt.conf` is used only when named here (see [Configuration File](#configuration-file-gtoptconf)) |
 | | `--list-dialects` | `[=name]` | List the naming-dialect aliases (and units) and exit; with a name, only that dialect (e.g. `plexos`) |
-| | `--json-schema` | `[=type]` | Print the JSON Schema of the input options model and exit (default `PlanningOptions`; e.g. `--json-schema options`) |
+| | `--json-schema` | `[=type]` | Print the JSON Schema (draft 2020-12) of the input model and exit: without a type, the full `Planning` scheme (options, simulation, system and every element type, one `$defs` entry per type); `options` for `PlanningOptions` only; any element or option type by snake_case name (e.g. `--json-schema gas_pipe`). Drives the igtopt template (`igtopt --make-template`) |
 | | `--sddp-num-apertures` | `arg` | SDDP backward-pass apertures per phase: unset (default) = every aperture in the phase's list, `0` = none (deterministic Benders backward pass), `N > 0` = the first `N` of each phase's list. Same as `--set sddp_options.num_apertures=<n>` |
 | | `--aperture-chunk-mode` | `arg` | How backward apertures are grouped into tasks: `per_scene` (default), `per_aperture`, `chunked`. Same as `--set sddp_options.aperture_chunk_mode=<name>`; see [Aperture task grouping](methods/sddp.md#aperture-task-grouping) |
 | | `--aperture-chunk-size` | `arg` | Apertures per task for `--aperture-chunk-mode chunked` (`auto` or `0` = automatic). Without `--aperture-chunk-mode`, still accepted as the deprecated mode selector (`-1` = `per_scene`, `1` = `per_aperture`, `K > 1` = `chunked`) |
@@ -932,6 +932,22 @@ gtopt logs the override, warns when it lacks entries of the built-in
 dictionary (probably a stale copy), and falls back to the built-in one
 when the file is missing, empty or invalid.  See
 [naming conventions §12.4a](analysis/naming-conventions.md).
+
+Every alias is global: the input canonicaliser rewrites it on any element,
+and `--naming-dialect <name>` writes each canonical key with the first
+alias of that dialect, whatever the element.  The `class` tag of a row is
+documentation (and the scope of the `class_aliases[]` section, which only
+the AMPL resolver reads).  Besides the classic elements, the dictionary
+covers the newer classes where the source tool has a 1:1 name:
+
+| Dialect | Newer-class aliases |
+|---------|---------------------|
+| `plp` | LNG terminal (`plpcnfgnl.dat`): `VMax` → `emax`, `Vini` → `eini`, `CVer` → `spillway_cost`, `CAlm` → `ecost` |
+| `pypsa` | carrier stores: `e_initial` → `eini`, `e_cyclic` → `daily_cycle`; carrier converter (Link): `bus0` → `from_node`, `bus1` → `to_node`, `p_nom` → `capacity`; hydrogen demand: `p_set` → `lmax` |
+| `plexos` | gas supply (Gas Field): `Production Cost` → `cost`, `Max Production` → `fmax`; gas pipe: `Max Flow Day` → `fmax`; LNG terminal: `Max Volume`, `Initial Volume`; line commitment: `Start Cost`, `Min Up Time`, `Min Down Time`, `Initial State` |
+
+`tools/check_naming_dialects.py` reports stale or colliding rows and the
+fields that have no alias.
 
 ### Merging multiple system files
 

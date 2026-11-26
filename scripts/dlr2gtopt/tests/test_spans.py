@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 
 import pytest
@@ -67,3 +68,20 @@ def test_read_towers_line_argument(tmp_path: Path) -> None:
     assert read_towers(p, "X")[0].line == "X"
     with pytest.raises(ValueError, match="no 'line'"):
         read_towers(p)
+
+
+def test_spans_height_column_round_trip(tmp_path: Path) -> None:
+    """The optional per-span ``height`` column survives write/read; old
+    files without it read as ``None``."""
+    spans = build_spans(make_towers(4))
+    spans[1] = dataclasses.replace(spans[1], height=21.5)
+    write_spans(tmp_path / "s.csv", spans)
+    back = read_spans(tmp_path / "s.csv")
+    assert back[1].height == pytest.approx(21.5)
+    assert back[0].height is None
+    old = tmp_path / "old.csv"
+    old.write_text(
+        "line,span,lat,lon,azimuth,length_m,chainage_km\nL,1,-33,-70,0,300,0\n",
+        encoding="utf-8",
+    )
+    assert read_spans(old)[0].height is None

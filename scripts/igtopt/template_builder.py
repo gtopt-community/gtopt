@@ -1,5 +1,15 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
-"""Template builder for igtopt – generates the gtopt Excel template from C++ headers.
+"""Template builder for igtopt – generates the gtopt Excel template.
+
+The sheet list and the columns of every sheet come from the gtopt input
+contract: ``gtopt --json-schema`` when a gtopt binary is available, else
+the bundled contract snapshot (:mod:`gtopt_shared.json_contracts`, a
+committed parse of ``include/gtopt/json``).  Column types, help text and
+example values come from :data:`FIELD_META`; a contract field without a
+``FIELD_META`` row still gets a column (typed from the schema, flagged as
+undocumented) and a warning, so the template never misses a field gtopt
+accepts.  ``gtopt_shared/tests/test_json_contracts_sync.py`` fails when
+``FIELD_META`` drifts from the contract.
 
 The bulk of the static data (per-array field metadata, options metadata,
 introduction-sheet content) lives in sibling modules:
@@ -15,10 +25,13 @@ Public names are re-exported from this module for back-compat with
 
 from __future__ import annotations
 
+import logging
 import pathlib
-import re
 import sys
+from dataclasses import dataclass
 from typing import Any
+
+from gtopt_shared.json_contracts import load_contract_types
 
 from igtopt._field_meta import FIELD_META
 from igtopt._intro_sheet import (
@@ -45,83 +58,130 @@ __all__ = [
     "SOLVER_OPTION_KEYS",
     "MODEL_OPTION_KEYS",
     "SIMULATION_OPTION_KEYS",
-    # Public functions
-    "parse_json_header_fields",
-    "parse_system_arrays",
-    "parse_simulation_arrays",
+    # Public API
+    "TEMPLATE_EXCLUDED_ARRAYS",
+    "TemplateContract",
+    "load_template_contract",
 ]
 
-# ------------------------------------------------------------------
-# Ordered sheet list (determines workbook tab order)
-# ------------------------------------------------------------------
-_TEMPLATE_SIMULATION_SHEETS = [
-    "block_array",
-    "stage_array",
-    "scenario_array",
-    "phase_array",
-    "scene_array",
-    "aperture_array",
-    "iteration_array",
-]
+#: System arrays deliberately absent from the Excel template: nested
+#: ``variable_array`` / ``constraint_array`` blocks that do not flatten
+#: into one sheet — author them in JSON.
+TEMPLATE_EXCLUDED_ARRAYS = frozenset({"user_model_array"})
 
-# Every ``*_array`` member of ``json_data_contract<System>`` in contract
-# order, except ``user_model_array`` (nested variable/constraint arrays that
-# do not flatten into one sheet — author it in JSON).  Enforced by
+#: FIELD_META entries that describe an ``options`` sub-object, not a sheet
+#: of the contract (rendered by their own handlers).
+_OPTION_META_ENTRIES = frozenset({"variable_scales", "solver_options"})
+
+#: Help-row type of a contract field that has no FIELD_META row, by kind.
+_KIND_TYPE = {
+    "number": "number",
+    "bool": "boolean (true/false)",
+    "string": "string",
+    "variant": "number | array | filename",
+    "array": "JSON array",
+    "class": "JSON object",
+}
+
+FieldRow = tuple[str, str, bool, str, Any]
+
+
+@dataclass(frozen=True)
+class TemplateContract:
+    """The contract types the template is generated from, plus provenance."""
+
+    types: dict[str, dict[str, Any]]
+    source: str
+
+    def arrays(self, section: str) -> list[str]:
+        """``*_array`` keys of ``Simulation`` / ``System`` in contract order."""
+        info = self.types.get(section, {})
+        nested = info.get("nested", {})
+        return [
+            key
+            for key in info.get("fields", [])
+            if key.endswith("_array")
+            and key in nested
+            and key not in TEMPLATE_EXCLUDED_ARRAYS
+        ]
+
+    def element_type(self, sheet: str) -> str | None:
+        for section in ("Simulation", "System"):
+            target = self.types.get(section, {}).get("nested", {}).get(sheet)
+            if target is not None:
+                return str(target)
+        return None
+
+    def sheet_fields(self, sheet: str) -> list[FieldRow]:
+        """Template columns of ``sheet``.
+
+        FIELD_META rows (curated order, types, help) for every contract
+        field, then a generated row for each contract field FIELD_META
+        lacks.  FIELD_META columns gtopt would reject are dropped.
+        """
+        meta = FIELD_META.get(sheet, [])
+        contract = self.element_type(sheet)
+        if contract is None or contract not in self.types:
+            return list(meta)
+        info = self.types[contract]
+        fields = list(info["fields"])
+        known = set(fields)
+        rows: list[FieldRow] = [row for row in meta if row[0] in known]
+        have = {row[0] for row in rows}
+        required = set(info.get("required", []))
+        for field in fields:
+            if field in have:
+                continue
+            kind = info.get("kinds", {}).get(field, "string")
+            rows.append(
+                (
+                    field,
+                    _KIND_TYPE.get(kind, "string"),
+                    field in required,
+                    "(undocumented in igtopt; see gtopt --json-schema)",
+                    None,
+                )
+            )
+        return rows
+
+    def undocumented(self, sheet: str) -> list[str]:
+        """Contract fields of ``sheet`` without a FIELD_META row."""
+        have = {row[0] for row in FIELD_META.get(sheet, [])}
+        return [row[0] for row in self.sheet_fields(sheet) if row[0] not in have]
+
+    def stale(self, sheet: str) -> list[str]:
+        """FIELD_META columns of ``sheet`` that are not contract fields."""
+        contract = self.element_type(sheet)
+        if contract is None or contract not in self.types:
+            return []
+        known = set(self.types[contract]["fields"])
+        return [row[0] for row in FIELD_META.get(sheet, []) if row[0] not in known]
+
+
+def load_template_contract(
+    source: str = "snapshot",
+    *,
+    gtopt_bin: str | None = None,
+    schema_file: pathlib.Path | None = None,
+) -> TemplateContract:
+    """Load the contract (see :func:`gtopt_shared.json_contracts.load_contract_types`)."""
+    types, label = load_contract_types(
+        source, gtopt_bin=gtopt_bin, schema_file=schema_file
+    )
+    return TemplateContract(types=types, source=label)
+
+
+def _snapshot_arrays(section: str) -> list[str]:
+    return load_template_contract("snapshot").arrays(section)
+
+
+# ------------------------------------------------------------------
+# Ordered sheet lists (determine workbook tab order) — contract order of
+# the bundled snapshot; enforced by
 # ``gtopt_shared/tests/test_json_contracts_sync.py``.
-_TEMPLATE_SYSTEM_SHEETS = [
-    "bus_array",
-    "demand_array",
-    "generator_array",
-    "line_array",
-    "generator_profile_array",
-    "demand_profile_array",
-    "capacity_profile_array",
-    "battery_array",
-    "converter_array",
-    "thermal_node_array",
-    "thermal_storage_array",
-    "hydrogen_node_array",
-    "hydrogen_storage_array",
-    "hydrogen_demand_array",
-    "ammonia_node_array",
-    "ammonia_storage_array",
-    "carrier_converter_array",
-    "allowance_pool_array",
-    "lng_terminal_array",
-    "gas_node_array",
-    "gas_supply_array",
-    "gas_demand_array",
-    "gas_pipe_array",
-    "gas_compressor_array",
-    "gas_turbine_array",
-    "reserve_zone_array",
-    "reserve_provision_array",
-    "fuel_array",
-    "emission_array",
-    "emission_zone_array",
-    "emission_source_array",
-    "commitment_array",
-    "simple_commitment_array",
-    "line_commitment_array",
-    "inertia_zone_array",
-    "inertia_provision_array",
-    "junction_array",
-    "waterway_array",
-    "flow_array",
-    "reservoir_array",
-    "reservoir_seepage_array",
-    "reservoir_discharge_limit_array",
-    "turbine_array",
-    "pump_array",
-    "reservoir_production_factor_array",
-    "flow_right_array",
-    "volume_right_array",
-    "user_param_array",
-    "decision_variable_array",
-    "future_cost_array",
-    "plant_array",
-    "user_constraint_array",
-]
+# ------------------------------------------------------------------
+_TEMPLATE_SIMULATION_SHEETS = _snapshot_arrays("Simulation")
+_TEMPLATE_SYSTEM_SHEETS = _snapshot_arrays("System")
 
 
 def _find_repo_root(start: pathlib.Path) -> pathlib.Path:
@@ -131,40 +191,6 @@ def _find_repo_root(start: pathlib.Path) -> pathlib.Path:
         if (parent / "include" / "gtopt").is_dir():
             return parent
     return resolved
-
-
-# Regex to extract json_member field names from JSON headers
-_FIELD_NAME_RE = re.compile(r'json_\w+<"([^"]+)"')
-
-
-def parse_json_header_fields(header_path: pathlib.Path) -> list[str]:
-    """Extract JSON field names from a json_*.hpp header file.
-
-    Returns the ordered list of field names as they appear in the
-    json_member_list for the *last* struct defined in the file
-    (which is typically the main user-facing struct, not the Attrs variant).
-    """
-    text = header_path.read_text(encoding="utf-8", errors="ignore")
-    fields = _FIELD_NAME_RE.findall(text)
-    seen: set[str] = set()
-    result = []
-    for f in fields:
-        if f not in seen:
-            seen.add(f)
-            result.append(f)
-    return result
-
-
-def parse_system_arrays(json_system_hpp: pathlib.Path) -> list[str]:
-    """Parse json_system.hpp to get the ordered list of array field names."""
-    text = json_system_hpp.read_text(encoding="utf-8", errors="ignore")
-    return re.findall(r'json_array_null<"([^"]+)"', text)
-
-
-def parse_simulation_arrays(json_simulation_hpp: pathlib.Path) -> list[str]:
-    """Parse json_simulation.hpp to get the ordered list of array field names."""
-    text = json_simulation_hpp.read_text(encoding="utf-8", errors="ignore")
-    return re.findall(r'json_array_null<"([^"]+)"', text)
 
 
 class _WorkbookStyles:
@@ -289,12 +315,28 @@ def _build_array_sheets(
     wb: Any,
     styles: _WorkbookStyles,
     sheet_list: list[str],
+    contract: TemplateContract | None = None,
 ) -> None:
-    """Create data sheets for a list of array names from FIELD_META."""
+    """Create one data sheet per array name (columns from the contract)."""
     for sheet in sheet_list:
-        fields = FIELD_META.get(sheet, [])
+        fields = contract.sheet_fields(sheet) if contract else FIELD_META.get(sheet, [])
         if not fields:
             continue
+        if contract is not None:
+            for name in contract.undocumented(sheet):
+                logging.warning(
+                    "%s.%s: contract field without FIELD_META row "
+                    "(column added as undocumented)",
+                    sheet,
+                    name,
+                )
+            for name in contract.stale(sheet):
+                logging.warning(
+                    "%s.%s: FIELD_META column is not accepted by gtopt (%s) — dropped",
+                    sheet,
+                    name,
+                    contract.source,
+                )
         examples = _EXAMPLES.get(sheet)
         _add_data_sheet(wb, styles, sheet, fields, examples)
 
@@ -331,8 +373,13 @@ def _build_timeseries_sheets(wb: Any, styles: _WorkbookStyles) -> None:
     ws_ts2.freeze_panes = "A2"
 
 
-def _build_workbook(output_path: pathlib.Path, header_dir: pathlib.Path) -> None:
-    """Build the Excel template workbook and write to *output_path*."""
+def _build_workbook(
+    output_path: pathlib.Path, contract: TemplateContract | None = None
+) -> None:
+    """Build the Excel template workbook and write to *output_path*.
+
+    ``contract`` defaults to the bundled snapshot.
+    """
     try:
         import openpyxl
     except ImportError as exc:
@@ -342,44 +389,35 @@ def _build_workbook(output_path: pathlib.Path, header_dir: pathlib.Path) -> None
         )
         sys.exit(1)
 
+    contract = contract or load_template_contract("snapshot")
     styles = _WorkbookStyles()
-
     wb = openpyxl.Workbook()
+
     default_sheet = wb.active
     default_sheet.title = ".introduction"
-
     _build_introduction_sheet(default_sheet, styles)
+
     _build_options_sheet(wb, styles)
-    _build_array_sheets(wb, styles, _TEMPLATE_SIMULATION_SHEETS)
-    _build_array_sheets(wb, styles, _TEMPLATE_SYSTEM_SHEETS)
+    _build_array_sheets(wb, styles, contract.arrays("Simulation"), contract)
+    _build_array_sheets(wb, styles, contract.arrays("System"), contract)
     _build_timeseries_sheets(wb, styles)
     _build_boundary_cuts_sheet(wb, styles)
 
     wb.save(output_path)
-    print(f"Template written to: {output_path}", file=sys.stderr)
+    print(
+        f"Template written to: {output_path} (contract: {contract.source})",
+        file=sys.stderr,
+    )
 
 
-def _list_sheets(header_dir: pathlib.Path) -> None:
+def _list_sheets(contract: TemplateContract | None = None) -> None:
     """Print the sheets that would be generated (does not write a file)."""
-    json_dir = header_dir / "json"
-    if not json_dir.is_dir():
-        json_dir = header_dir
-
-    sim_file = json_dir / "json_simulation.hpp"
-    sys_file = json_dir / "json_system.hpp"
-
-    print("# Simulation sheets (from json_simulation.hpp):")
-    if sim_file.exists():
-        for arr in parse_simulation_arrays(sim_file):
-            print(f"  {arr}")
-    else:
-        for arr in _TEMPLATE_SIMULATION_SHEETS:
-            print(f"  {arr}  (fallback — json_simulation.hpp not found)")
-
-    print("\n# System sheets (from json_system.hpp):")
-    if sys_file.exists():
-        for arr in parse_system_arrays(sys_file):
-            print(f"  {arr}")
-    else:
-        for arr in _TEMPLATE_SYSTEM_SHEETS:
-            print(f"  {arr}  (fallback — json_system.hpp not found)")
+    contract = contract or load_template_contract("snapshot")
+    print(f"# contract source: {contract.source}")
+    for section in ("Simulation", "System"):
+        print(f"\n# {section} sheets:")
+        for sheet in contract.arrays(section):
+            fields = contract.sheet_fields(sheet)
+            undoc = contract.undocumented(sheet)
+            note = f"  ({len(undoc)} undocumented)" if undoc else ""
+            print(f"  {sheet}  [{len(fields)} columns]{note}")
