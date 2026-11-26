@@ -664,4 +664,11 @@ and comparisons.
 
 ## Studies using GTOpt
 
-*None listed yet — add yours with a pull request.*
+Studies made with GTOpt, with their questions, method, findings and what
+they changed in GTOpt, are described in
+[`docs/studies/README.md`](docs/studies/README.md):
+
+- Line losses in CEN's daily schedule (PCP), with the Coordinador
+  Eléctrico Nacional, 2026.
+
+Add yours with a pull request.

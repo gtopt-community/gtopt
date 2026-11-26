@@ -1,10 +1,9 @@
 # CEN's BESS ancillary-services (SSCC) constraints in PCP: negative CMg and a native replacement
 
-> Study note, November 2026.  Branch `feat/bess-reserve`.  Data: CEN PCP
-> PLEXOS bundles (`DATOS*.zip.xz`, `RES*.zip.xz`) from `gtopt-cases-dev`
-> (`chile/daily_scheduling/pcp_*`) and `support/plexos/perdidas_cen`
-> (2026-05-25, 2026-11-03, 2026-11-09).  Everything here is about the
-> *model* CEN feeds PLEXOS; no PLEXOS run times are reported.
+> Study note, November 2026, part of the line-loss study with CEN
+> ([`README.md`](README.md)).  Data: the PLEXOS input and solution bundles
+> of CEN's daily schedule (PCP) for 2025-10 to 2026-11.  Everything here is
+> about the *model* CEN feeds PLEXOS; no PLEXOS run times are reported.
 
 ## 1. What CEN implemented
 
