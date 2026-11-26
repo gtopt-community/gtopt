@@ -29,7 +29,24 @@ gtopt system_config.json
 The system file defines the power system (generators, demands, buses, lines),
 the simulation parameters (stages, blocks, scenarios), and solver options. By
 default, input data is read from the directory specified inside the JSON and
-output is written to the current directory.
+output is written to `output/` next to the JSON file (see
+[Where the output goes](#where-the-output-goes)).
+
+### Where the output goes
+
+One rule covers every way of choosing the output directory:
+
+| Given by | Relative to |
+| -------- | ----------- |
+| the command line: `--set output_directory=DIR` (or the deprecated `-d DIR`) | the current directory |
+| `options.output_directory` in the planning JSON | the JSON file's directory |
+| nothing (default) | `output/` next to the JSON file; `results/` inside the case directory when gtopt is given a directory (`gtopt case/`) |
+
+The command line wins over the JSON.  `--set output_directory=.` and
+`-d .` both write into the current directory, and `gtopt case/` and
+`gtopt case/case.json` both honour the case's `options.output_directory`.
+`--set input_directory=DIR` follows the same rule (CWD-relative), while
+a JSON `input_directory` is relative to the JSON file.
 
 The case argument may take several forms:
 

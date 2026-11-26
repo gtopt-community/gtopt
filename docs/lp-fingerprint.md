@@ -1,9 +1,17 @@
-# LP Fingerprint — Formulation Integrity Verification
+# LP Fingerprint — Structural Regression Check
 
-The **LP Fingerprint** is an audit feature that captures the structural identity
-of an LP formulation — which types of variables and constraints exist — without
+The **LP Fingerprint** captures the structural identity of an LP
+formulation — which types of variables and constraints exist — without
 depending on element counts.  A system with 100 generators or 20 generators
 produces the **same** structural fingerprint.
+
+> **What it is not.**  The fingerprint is a *structural regression*
+> fingerprint, not an integrity control.  It is the set of
+> `(class, variable, context)` types, so it does not change when a cost, a
+> bound or a coefficient changes, nor when a row or column of an existing
+> type is added or removed.  Use it to detect formulation drift between
+> gtopt versions; it does not prove that an LP file or a result was not
+> altered.
 
 This enables:
 
@@ -265,6 +273,17 @@ Enable with `--set options.lp_fingerprint=true`.
 
 A standalone tool that reads an LP file written by the solver and independently
 computes the same fingerprint by reverse-parsing column and row names.
+Columns are collected from every section of the LP file (objective,
+constraints, bounds, integer sections) — writers omit default `[0, +inf)`
+bounds, so the `Bounds` section alone misses most columns.
+
+An LP label is `lowercase(class)_variable_uid_<context uids>`: it loses the
+class name's case and carries only the number of context fields (both
+`StageContext` and `ScenePhaseContext` have 2).  `verify` therefore
+compares an LP file and a golden on `(lowercase class, variable, context
+arity)`; a golden written by gtopt (`lp_fingerprint_*.json`) and one
+computed from an LP file both work.  The LP must be written with names
+(`--lp-file`); an LP without gtopt labels is an error.
 
 ```bash
 # Compute fingerprint from an LP file
@@ -312,7 +331,11 @@ python -m gtopt_check_fingerprint compare \
   --expected golden/lp_fingerprint_scene_0_phase_0.json
 ```
 
-Exit code 0 = match, 1 = mismatch.
+Exit code 0 = match, 1 = mismatch, 2 = error.  The checker never
+trusts a stored hash: it recomputes every hash from the templates and
+rejects (exit 2) a file whose hash is empty (the run did not compute the
+fingerprint), whose template is empty, or whose stored hashes do not match
+its templates (an edited or corrupt file).
 
 ---
 

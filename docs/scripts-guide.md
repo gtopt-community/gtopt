@@ -651,6 +651,12 @@ gtopt-fetch verify case/source                     # sha256 vs MANIFEST.jsonl
   commit those files.
 - Exit status: 0 ok, 1 error, 2 missing credential, 3 manual download
   required.
+- TLS: every operator client (`gtopt-fetch`, `cen2gtopt*`) verifies
+  server certificates.  Set `GTOPT_CA_BUNDLE=/path/ca.pem` behind a
+  proxy or private CA; `GTOPT_INSECURE_TLS=1` turns verification off
+  (local debugging only, logged as a warning).  Public intermediate
+  certificates that a server omits from its chain ship in
+  `gtopt_operators/<op>/certs/`.
 
 ## sddp2gtopt
 
@@ -727,7 +733,7 @@ costs), loads → `Demand`.  Optional AMM side-car inputs: `--nomenclatura`
 ```bash
 psse2gtopt --info case.raw                 # case summary
 psse2gtopt -i case.raw -o gtopt_case        # convert
-gtopt -s gtopt_case/gtopt_case.json -d out  # solve DC OPF
+gtopt -s gtopt_case/gtopt_case.json --set output_directory=out  # solve DC OPF
 ```
 
 ---
@@ -1306,10 +1312,12 @@ run_gtopt --attach 12345      # PID from `run_gtopt --list`
 ```
 
 Everything after a bare `--` goes to `gtopt` unchanged.  The output
-directory is resolved the way gtopt resolves it: `-- -d DIR` (relative to
-the CWD) > `-- --set output_directory=DIR` > `options.output_directory` in
-the planning JSON > `output`; relative values from the last three are
-anchored at the planning JSON's directory.  The dashboard, the stop
+directory is resolved the way gtopt resolves it: `-- -d DIR` >
+`-- --set output_directory=DIR` > `options.output_directory` in the
+planning JSON > the default (`results` inside a case directory, `output`
+next to a planning JSON).  Command-line values are relative to the CWD;
+the JSON value and the default are anchored at the planning JSON's
+directory.  The dashboard, the stop
 request, the post-run report and the post-flight checks all use this
 directory.
 
@@ -1349,10 +1357,13 @@ stdout is not a terminal it streams gtopt's log instead.
   yellow, errors red, repeats folded as `(×N)`), resource usage.  Below
   100 columns or 40 rows a compact layout is used.  Keys: `1`/`2`/`3`
   views, `s` graceful stop, `o` paths (output dir, log, status, error
-  LPs), `i` system stats, `h` help, `q` quit (asks y/N after the first
-  minute).  When gtopt ends, the last frame stays on screen followed by a
-  summary (last 10 iterations, step timings, warning/error counts and the
-  first warnings) and a banner with the outcome — Converged / Optimal
+  LPs, and the `gtopt_monitor` command that charts the same status
+  file), `i` system stats, `h` help, `q` quit (asks y/N after the first
+  minute).  If the dashboard itself fails, a warning says so and the run
+  continues with gtopt's log printed as in plain mode.  When gtopt ends,
+  the last frame stays on screen followed by a summary (last 10
+  iterations, step timings, warning/error counts and the first
+  warnings) and a banner with the outcome — Converged / Optimal
   (green), NOT converged / stopped (yellow), unknown (cyan), failed /
   NOT optimal / killed (red) — and the paths of the output directory,
   gtopt log, status file and captured solver output.
@@ -2051,6 +2062,13 @@ gtopt_check_cases --repo ~/gtopt-cases --update   # refresh size.lp
 (`{"cases": [{"id": ..., "reference": {"objective": ...}}]}`), compares
 the objective with relative tolerance `--rtol`.  `--cpus`/`--cpus-base`
 pin jobs with `taskset`; core dumps are enabled for every gtopt run.
+
+A solved case that sheds load is always flagged: the report line gets
+`WARNING: unserved energy <MWh> in <N> block(s), peak <MW>` (from
+`Demand/fail_sol`, weighted by the case's block durations), and the
+summary lists the cases with unserved energy.  It is an `ERROR` (exit
+code 1) with `--fail-on-unserved`, or for a catalog entry with
+`"serves_all_load": true` (cases whose README says all load is served).
 
 ## plp_compress_case
 

@@ -221,11 +221,49 @@ generator $g$ and time period $t$:
 | Variable | Type | Domain | Meaning |
 |----------|------|--------|---------|
 | $u_{g,t}$ | Binary | $\{0, 1\}$ | **Status**: 1 if generator $g$ is online at time $t$ |
-| $v_{g,t}$ | Binary | $\{0, 1\}$ | **Startup**: 1 if generator $g$ starts up at time $t$ |
-| $w_{g,t}$ | Binary | $\{0, 1\}$ | **Shutdown**: 1 if generator $g$ shuts down at time $t$ |
+| $v_{g,t}$ | Continuous, binary at every integer point (see below) | $\{0, 1\}$ | **Startup**: 1 if generator $g$ starts up at time $t$ |
+| $w_{g,t}$ | Continuous, binary at every integer point (see below) | $\{0, 1\}$ | **Shutdown**: 1 if generator $g$ shuts down at time $t$ |
 
-When `relax = true` or the phase is in `continuous_phases`, these variables
-become continuous in $[0, 1]$.
+$u$ is always declared integer on a MIP build.  The integrality of $v$
+and $w$ is selected by `transition_integrality` (per unit, else
+`model_options`):
+
+| Value | $v$, $w$ |
+|---|---|
+| `auto` (default) | continuous while the C3 status rows are on (`transition_status_rows`, default), binary when they are off |
+| `continuous` | always continuous in $[0, 1]$ |
+| `binary` | always binary (the original three-binary model) |
+
+**Why continuous $v$, $w$ are exact.**  With C1
+($u_t - u_{t-1} = v_t - w_t$) and the C3 rows $v_t \le u_t$,
+$w_t \le 1 - u_t$, an integral $u$ (and an integral `initial_status`,
+which gtopt rounds at 0.5) forces $v, w \in \{0, 1\}$ in all four cases
+of $(u_{t-1}, u_t)$: $(0,0)$ and $(1,1)$ give $v = w$ with $v \le 0$ or
+$w \le 0$, so both are 0; $(0,1)$ gives $v - w = 1$, so $v = 1, w = 0$;
+$(1,0)$ gives $w = 1, v = 0$.  Every further row — ramps with
+$SU\cdot v$ / $SD\cdot w$, min up / down, start-up tiers, user
+constraints — only removes points, so only $u$ needs to branch
+(Knueven, Ostrowski & Watson [K20]; Rajan & Takriti [RT05]).  Without
+the status rows, C1 and $v + w \le 1$ admit $v = w = \tfrac12$ on a unit
+that stays on, which the start/stop ramp terms reward; `auto` then
+declares $v$, $w$ binary.
+
+The hot / warm / cold start selectors (§4.6) follow
+`startup_tier_integrality` (per unit, else `model_options`):
+`continuous` (default) — with $v$, $w$ integral the tier rows
+($\sum y = v$ plus the cumulative offline-window rows) form an interval
+matrix, hence totally unimodular, so the optimal vertices are integral —
+or `integer`.
+
+[K20] B. Knueven, J. Ostrowski, J.-P. Watson, "On Mixed-Integer
+Programming Formulations for the Unit Commitment Problem", *INFORMS J.
+Computing* 32(4):857-876, 2020, doi:10.1287/ijoc.2019.0944.
+[RT05] D. Rajan, S. Takriti, "Minimum up/down polytopes of the unit
+commitment problem with start-up costs", IBM Research Report RC23628,
+2005.
+
+When `relax = true`, the phase is in `continuous_phases`, or `--no-mip`
+is given, all three become continuous in $[0, 1]$.
 
 ### 4.2 Core Constraints (C1–C3)
 
@@ -259,9 +297,17 @@ rows. This allows the LP relaxation to produce fractional commitment states.
 
 #### C3: Exclusion
 
-$$v_{g,t} + w_{g,t} \leq 1$$
+$$v_{g,t} + w_{g,t} \leq 1, \qquad v_{g,t} \leq u_{g,t}, \qquad w_{g,t} \leq 1 - u_{g,t}$$
 
-A unit cannot simultaneously start up and shut down in the same period.
+A unit cannot simultaneously start up and shut down in the same period; a
+start leaves it on and a stop leaves it off.  With an integer $u$, C1 and
+the last two rows make $v$, $w$ the exact 0/1 transition (§4.1), so they
+stay continuous by default, and the rows also tighten the LP relaxation.
+C1 and $v + w \leq 1$ alone would let a unit that stays on (or off) take
+$v = w = 0.5$ and buy $SU/2$ / $SD/2$ of extra ramp in C4 / C5 for half a
+start-stop cost.  `transition_status_rows = false` (per unit or in
+`model_options`) drops the last two rows, i.e. the formulation before
+2026-11-25; `transition_integrality = auto` then makes $v$, $w$ binary.
 
 ### 4.3 Ramp Constraints (C4–C5)
 
@@ -780,6 +826,9 @@ to exactly one generator via a foreign key.
 | `initial_hours` | real | no | — | hours | Hours in current state at $t = 0$ |
 | `relax` | boolean | no | `false` | — | LP relaxation: $u, v, w \in [0, 1]$ |
 | `must_run` | boolean | no | `false` | — | Force $u = 1$ at all times |
+| `transition_integrality` | string | no | `model_options` (`auto`) | — | Startup / shutdown integrality: `auto` (continuous with the C3 status rows, binary without), `continuous`, `binary` ([§4.1](#41-decision-variables)) |
+| `startup_tier_integrality` | string | no | `model_options` (`continuous`) | — | Hot / warm / cold selector integrality: `continuous` (TU tier rows) or `integer` ([§4.1](#41-decision-variables)) |
+| `transition_status_rows` | boolean | no | `model_options` (`true`) | — | Emit `v ≤ u` / `w ≤ 1 − u` (C3) |
 | `fast_start` | boolean | no | auto | — | Fast-start unit for `pricing_mode = "fast_start"`; unset = auto rule (min up and min down ≤ `fast_start_max_hours`) |
 | `commitment_period` | real | no | — | hours | Coarser binary variable resolution |
 | `hot_start_cost` | real | no | — | $/start | Startup cost for hot start |
@@ -882,6 +931,9 @@ The sources only report emissions until a zone they point to has a
 | `objective_mode` | string | `"cost"` | — | `"emissions"` minimises emissions instead of cost ([§6.3](#63-combined-use)) |
 | `pricing_mode` | string | `"fixed"` | — | LP used for the nodal prices: `fixed`, `relaxed`, `fast_start` ([§11.1](#111-pricing-modes)) |
 | `fast_start_max_hours` | real | 1 | hours | Auto fast-start rule threshold |
+| `transition_integrality` | string | `"auto"` | — | Default startup / shutdown integrality ([§4.1](#41-decision-variables)) |
+| `startup_tier_integrality` | string | `"continuous"` | — | Default start-up tier selector integrality ([§4.1](#41-decision-variables)) |
+| `transition_status_rows` | bool | `true` | — | Default for the C3 rows `v ≤ u`, `w ≤ 1 − u` |
 
 Emission prices and caps are not model options; they live on
 `EmissionZone` ([§6](#6-emission-cost-and-cap)).
@@ -974,7 +1026,7 @@ are typed in from the papers.  ✓ = matches the published value;
 | PJM [4] Ex. 1, 3 buses | restricted 67.5 / 50 / 32.5; integer relaxation 117 / 76 / 35; G2 uplift 2600 → 0 | ✓ ✓ | ✓ (same LP) | ✓ PJM pricing run |
 | PJM [4] Ex. 2 | restricted 75 / −15 / 30; integer relaxation 69.8 / 11 / 40.4 | ✓ bus 3, ≠ (b) bus 1 / 2 | ✓ | ✓ |
 | Hua & Baldick [5] Ex. 1 | LMP 50, CHP 12, CHPq 52; uplift 100 + 1900, 1430, 30 | ✓ 50; ✓ uplift | ✓ 12; ✓ uplift | ✓ 52 = CHPq with only unit 1 fast-start (c) |
-| Hua & Baldick [5] Ex. 2, ramp-coupled, 3 h | LMP 60 / 60 / 60 (U2 560); aCHP1 60 / 60 / 64; CHP 60 / 60 / 65.6 | ✓ prices, ✓ U2 560 | ≠ 60 / 60 / 63.08 (d) | = `relaxed` |
+| Hua & Baldick [5] Ex. 2, ramp-coupled, 3 h | LMP 60 / 60 / 60 (U2 560); aCHP1 60 / 60 / 64; CHP 60 / 60 / 65.6 | ✓ prices, ✓ U2 560 | ≠ 60 / 60 / 62.8 (d) | = `relaxed` |
 | Eldridge, O'Neill & Hobbs [6] replicated example (N = 0) | LMP 25, idle Gen1 LOC 250 | ✓ 25, ✓ 250 | 15 (derived; not tabulated) | = `relaxed` |
 
 (a) GHP's "dispatchable" model spreads the fixed cost over the full
@@ -994,10 +1046,12 @@ still reports unit 2's 2000 lost opportunity, which CHPq does not pay.
 
 (d) With ramp limits the LP relaxation of a unit is not the convex
 hull of its multi-period set (H&B add valid inequalities to reach it).
-gtopt's relaxed hour-3 price is 820/13 ≈ 63.08 $/MWh: the relaxation
+gtopt's relaxed hour-3 price is 314/5 = 62.8 $/MWh: the relaxation
 runs both units at fractional commitment and the fractional `u` also
-scales the start-up ramp.  The same LP written out by hand (scipy /
-HiGHS) gives the same duals.  So LMP 60 < gtopt 63.08 < aCHP1 64 <
+scales the start-up ramp.  Without the transition status rows
+(`transition_status_rows = false`, the formulation before 2026-11-25)
+it is 820/13 ≈ 63.08; the same LP written out by hand (scipy / HiGHS)
+gives those duals.  So LMP 60 < gtopt 62.8 (63.08) < aCHP1 64 <
 CHP 65.6.  The uplift tool also ignores ramps, so at the aCHP1 / CHP
 prices it reports \$360 for unit 2 instead of the published 160 / 0.
 

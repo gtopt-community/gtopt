@@ -1119,6 +1119,30 @@ price or SOS2 do that.  With split allocation the relaxation is exact
 only while $\tfrac12(\pi_a + \pi_b) > 0$ [[36]](#ref36).  `full` / `sending` add a second bound that
 binds once the line is loaded, $\ell \le (\overline{F} - f)/a$.
 
+**Validation against literature.**  The three modes reproduce the
+thermal-limit conventions of the reference tools:
+
+| Mode | Reference convention |
+|------|----------------------|
+| `flow` | Lossless DC OPF (MATPOWER `rundcopf` [[45]](#ref45), PowerModels `DCPPowerModel` [[46]](#ref46)): no loss term |
+| `sending` | Limit at **both** branch ends, so the sending end binds: MATPOWER AC OPF ($\lvert S_f\rvert, \lvert S_t\rvert \le$ `RATE_A`) [[45]](#ref45), PowerModels DCPLL [[34]](#ref34), [[46]](#ref46) and LPAC [[47]](#ref47) |
+| `full` | PyPSA $\lvert p\rvert + \psi \le \overline{P}$ [[35]](#ref35) |
+
+The tests pin this.  `test/source/test_pm_case5_asym.cpp` solves
+PowerModels' `case5_asym` (`cases/pm_case5_asym`, angle limits widened
+to ±30°).  Lossless gtopt matches PowerModels `DCPPowerModel` to
+$10^{-6}$ relative.  With piecewise losses, `sending` and the DCPLL
+loss side per branch, gtopt converges to the `DCPLLPowerModel` optimum
+from above as the segments grow.  `test_line_thermal_limit.cpp` checks
+the sending-end identity $f + a\,\ell = \overline{F}$ in both
+directions under every allocation, and checks that
+`flow` = `sending` under `receiver`, $f + \ell = \overline{F}$ under
+`full`, cost(`full`) ≥ cost(`sending`) ≥ cost(`flow`), and the thermal-row
+duals against finite differences.  `test_ieee738.cpp` checks the
+IEEE 738 heat balance [[38]](#ref38) against the Annex B worked examples
+and the NREL static ratings (OEDI 6231, DOI
+[10.2172/2476805](https://doi.org/10.2172/2476805)).
+
 #### Dynamic Line Rating through Critical Spans (`Line.dlr`)
 
 A line with a `dlr` object carries a set $\mathcal{K}_l$ of **critical
@@ -1180,12 +1204,40 @@ emergency tier.
 **`span_mode = min` (default).**  The effective rating is
 
 $$ \overline{T}_{l,b} \;=\; \min\Bigl(\min_{k\in\mathcal{K}_l} T_{k,b},\;
-   \overline{F}^{dir}_{l,b}\Bigr) $$
+   \widehat{F}^{dir}_{l,b}\Bigr) $$
 
-applied exactly where $\overline{F}^{dir}$ is applied: the flow column
-bound under `flow` (and `linear`'s $\overline{T}/(1+a\lambda)$), the
-`thermalp` / `thermaln` rows under `sending` / `full`.  The static
-`tmax` stays an independent equipment cap.  The argmin span
+where $\widehat{F}^{dir}_{l,b}$ is the remaining static cap: the min over
+the **set** limit fields of the line in that block and direction (an unset
+field is $+\infty$, never 0),
+
+$$ \widehat{F}^{dir}_{l,b} \;=\; \min\bigl(F^{flow},\; R,\; O\,[u_b>0],\;
+   C,\; E,\; S\bigr)^{dir}_{l,b} $$
+
+with $F^{flow}$ the flow limit (`tmax` / `max_flow`, default `capacity`),
+$R$ the rating (`max_rating`; the `overload_max_rating` when the overload
+band is priced, with $R$ as its threshold), $O$ the outage rating
+(`outage_max_rating`, only where `units_out` $u_b > 0$), $C$ the conductor
+rating, $E$ the series-equipment rating and $S$ the security limit (B→A:
+the `_ba` fields and the magnitudes of the signed `min_*` fields).  Under
+`limit_mode = replace` the DLR rating is the conductor's thermal capacity
+and replaces $C$ (without a conductor rating, an explicit `replace`
+replaces $R$).  Under `min` every set part applies.  Unset, the mode is
+`replace` on lines with a conductor rating and `min` otherwise, which is
+the historical $\min(\texttt{tmax}, T)$.  When no field is set, the stage
+DLR envelope stands in for $\widehat{F}$.  Under `replace` the static
+normal rating `tmax_normal` is replaced too, and the overload band uses
+the DLR normal rating.  All parts bound the same loaded quantity, so one
+bound or row per direction suffices.  The binding part is identified by
+value (ties: conductor/DLR, rating, outage, equipment, security, flow),
+and the dual of that bound or row is reported as `<part>{p,n}_dual`.
+On lines with such fields the loss geometry uses the stage maximum of
+$\widehat{F}$, and the block value enters only as that bound or RHS, so
+the dual is not split with the segment bounds.
+
+$\overline{T}$ is applied exactly where $\overline{F}^{dir}$ is applied:
+as the flow column bound under `flow` (and as `linear`'s
+$\overline{T}/(1+a\lambda)$), and in the `thermalp` / `thermaln` rows
+under `sending` / `full`.  The argmin span
 $k^*_b$ is recorded.  With an emergency tier and a positive
 `overload_penalty` in the block, the hard cap is
 $\min_k T^e_{k,b}$ and $\min_k T_{k,b}$ becomes the normal threshold
@@ -1204,12 +1256,24 @@ row is dropped (ties are kept), so the LP is the `min` LP plus at most
 the tied rows, and both modes have the same optimum.  Spans that are
 never critical are logged.
 
+**Thermal-limit mode.**  In both span modes, both directions, the
+emergency tier and for precomputed ratings, $T$ caps the same loaded
+quantity as the static `tmax`: $|f| \le T$ under `flow`,
+$|f| + a_l\,\ell \le T$ under `sending` ($a_l$ the sending-bus loss
+share) and $|f| + \ell \le T$ under `full` ($a_l = 1$).  Under `flow`
+the DLR adds no row in `min` mode; under `sending` / `full` it only
+lowers the RHS of the existing thermal rows.  The flow-only DLR is
+`line_thermal_limit_mode = flow`.
+
 **Loss envelope.**  The per-block DLR rating never drives the loss PWL:
 the segments keep the static `tmax` (or `capacity`, or `loss_envelope`)
 envelope.  Without any of them the stage envelope
 $1.05\,\max_b \min_k T^{(e)}_{k,b}$ stands in as the static cap and
 loss range, so the loss geometry is block-independent and identical in
-both span modes.
+both span modes.  Under `limit_mode = replace` (non-expandable lines)
+the range is the larger of the static limit maximum (over all set fields)
+and that stage envelope, so flow above the static rating keeps its loss
+curve.
 
 **Duals.**  `Line/span_thermal_dual` reports $\partial z/\partial T_{k,b}$
 per span (keyed by span uid).  In `min` mode it is the dual of the
@@ -3597,11 +3661,30 @@ $$
 
 $$
 \begin{aligned}
-v_{g,s,t,p} \;+\; w_{g,s,t,p} \;\leq\; 1
+v_{g,s,t,p} \;+\; w_{g,s,t,p} \;\leq\; 1,
+\qquad v_{g,s,t,p} \;\leq\; u_{g,s,t,p},
+\qquad w_{g,s,t,p} \;\leq\; 1 - u_{g,s,t,p}
 \qquad \forall \; g,\; s,t,p
 \end{aligned}
 $$
 <!-- source: source/commitment_lp.cpp:291-304 -->
+
+Integrality: $u$ is binary; `initial_status` is rounded at 0.5.  With
+an integral $u$, C1 and the last two rows (`startup_status`,
+`shutdown_status`) force $v, w \in \{0,1\}$ in all four
+$(u_{t-1}, u_t)$ cases, and every further row (ramps, min up/down,
+tiers, user rows) only removes points (Knueven, Ostrowski & Watson
+2020; Rajan & Takriti 2005).  So $v$, $w$ follow
+`transition_integrality` (per unit, else `model_options`): `auto`
+(default) keeps them continuous while the two rows are emitted
+(`transition_status_rows`, default true) and makes them binary when
+they are not — C1 and the exclusion alone admit $v = w = \tfrac12$ for a
+unit that stays on or off, which the start/stop ramp terms of C4 / C5
+reward; `continuous` and `binary` force either.  The start-up tier
+selectors follow `startup_tier_integrality` (default `continuous`: the
+tier rows are an interval matrix, totally unimodular once $v$, $w$ are
+integral).  `relax`, `continuous_phases` and `--no-mip` relax all of
+them together.
 
 #### C3 — Generation Bounds Coupled to Status
 
@@ -3688,7 +3771,8 @@ duals, §5.1) of a UC run come from an LP derived from the solved MIP.
 The dispatch (primal) is the polished MIP solution in every mode; only
 the LP that supplies the duals changes.  Let $\hat x$ be the MIP
 incumbent and $\mathcal{I}$ the integer columns (the status $u$ of every
-non-relaxed commitment; $v, w$ are continuous and made binary by C1/C3).
+non-relaxed commitment, plus $v, w$ on units with ramp rows; otherwise
+$v, w$ are continuous and made binary by C1/C2).
 
 | `pricing_mode` | Pricing LP | Integer columns |
 |---|---|---|
@@ -5757,6 +5841,7 @@ DOI: [10.1109/TPWRS.2019.2932184](https://doi.org/10.1109/TPWRS.2019.2932184).
 **[38]** IEEE Std 738-2012. "IEEE Standard for Calculating the
 Current-Temperature Relationship of Bare Overhead Conductors." IEEE,
 2013.
+DOI: [10.1109/IEEESTD.2013.6692858](https://doi.org/10.1109/IEEESTD.2013.6692858).
 
 > Steady-state heat balance used for the per-span DLR rating.
 
@@ -5790,6 +5875,28 @@ procedures.
 
 > [39]–[44]: DLR gains reported in practice and emergency-rating
 > practice, behind the `max_overload_ratio` default.
+
+<a id="ref45"></a>
+**[45]** Zimmerman, R.D., Murillo-Sánchez, C.E., and Thomas, R.J.
+(2011). "MATPOWER: Steady-State Operations, Planning, and Analysis Tools
+for Power Systems Research and Education." *IEEE Trans. Power Systems*,
+26(1), pp. 12–19.
+DOI: [10.1109/TPWRS.2010.2051168](https://doi.org/10.1109/TPWRS.2010.2051168).
+
+<a id="ref46"></a>
+**[46]** Coffrin, C., Bent, R., Sundar, K., Ng, Y., and Lubin, M. (2018).
+"PowerModels.jl: An Open-Source Framework for Exploring Power Flow
+Formulations." *Power Systems Computation Conference (PSCC)*.
+DOI: [10.23919/PSCC.2018.8442948](https://doi.org/10.23919/PSCC.2018.8442948).
+
+<a id="ref47"></a>
+**[47]** Coffrin, C., and Van Hentenryck, P. (2014). "A Linear-Programming
+Approximation of AC Power Flows." *INFORMS Journal on Computing*, 26(4),
+pp. 718–734.
+DOI: [10.1287/ijoc.2014.0594](https://doi.org/10.1287/ijoc.2014.0594).
+
+> [45]–[47]: thermal-limit conventions that `line_thermal_limit_mode`
+> reproduces (see "Validation against literature").
 
 ### Classification and Surveys
 

@@ -528,6 +528,15 @@ same aperture is dropped on every iteration.  The LB freezes at a
 tie-break-dependent level and describes a **rescaled (typically
 wetter) distribution** rather than the declared one.
 
+The high-storage side needs the same care.  A reservoir has no spill
+column unless `spillway_cost` is set (`0` is allowed), so its only
+outlets are the turbines and any other waterways.  If the forward pass
+fills it to `emax` and a wetter aperture brings more water than the
+system can turbine (generation is capped by the demand), that aperture
+LP is infeasible and is dropped as well.  Give such reservoirs a
+spillway (a small `spillway_cost` is enough) when the apertures can be
+wetter than the forward hydrology.
+
 gtopt makes this visible and refuses to call it convergence:
 
 - every (scene, phase, aperture) dropped in 3 consecutive iterations
@@ -1899,17 +1908,22 @@ mitigate this:
 4. **Low-memory mode** (`low_memory_mode`): controls how aggressively the
    per-(scene, phase) LP backend is released between solves.
 
-   - `off`: backend stays loaded, and an uncompressed FlatLinearProblem
-     is kept per cell (aperture clones are built from it).  Maximum
-     throughput, maximum memory.  Under SDDP / cascade the element LP
-     wrappers that `update_lp` does not need are dropped after the build
-     and rebuilt only for write-out, exactly as under `compress`
-     (`lp_matrix_options.drop_element_collections`, default `true`;
-     `false` keeps them resident).  With
-     `sddp_options.release_backends = true` the backends are released
+   - `off`: an uncompressed FlatLinearProblem is kept per cell
+     (aperture clones are built from it).  Under SDDP / cascade the
+     element LP wrappers that `update_lp` does not need are dropped after
+     the build and rebuilt only for write-out, exactly as under
+     `compress` (`lp_matrix_options.drop_element_collections`, default
+     `true`; `false` keeps them resident).  By default
+     (`sddp_options.release_backends = true`) the backends are released
      after every solve as under `compress`, but the snapshot stays
      uncompressed (equivalent to `compress` + `memory_codec =
-     uncompressed`).  Only the simplex basis (~30 KB per cell) carries
+     uncompressed`).  On CEN 2y with CPLEX this cuts the peak from
+     22.3 GiB to 3.7 GiB at the same wall time (within run-to-run
+     noise); the bounds match `compress` exactly and differ from the
+     live backends by ~0.025 % (degenerate ties).
+     `sddp_options.release_backends = false` keeps every backend loaded
+     for the whole run (the old `off`: maximum memory).  Only the
+     simplex basis (~30 KB per cell) carries
      the warm start across the release: the next solve rebuilds the LP
      from the snapshot, installs the saved basis (`basis_cross_mode`)
      and resumes with dual simplex.

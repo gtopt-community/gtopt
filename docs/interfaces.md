@@ -105,6 +105,29 @@ gtopt_guisrv --port 8080
 The service binds to `127.0.0.1` by default. `--debug` is for local
 development only and is refused on non-loopback addresses.
 
+### Access token (non-loopback binds)
+
+On `127.0.0.1` the GUI is open, for single-user local use.  When it
+listens on another address (`--host` / `GTOPT_GUI_HOST`) an **access
+token** is required (`GTOPT_GUI_AUTH=auto`, the default):
+
+```bash
+export GTOPT_GUI_AUTH_TOKEN=$(openssl rand -hex 32)   # or let it generate one
+gtopt_guisrv --host 0.0.0.0
+# open http://<server>:5001/?token=<token> once; a session cookie is set
+```
+
+Without `GTOPT_GUI_AUTH_TOKEN` a random token is generated at start-up
+and a login link (`/?token=...`) is printed, as Jupyter does.  Scripted
+clients send `Authorization: Bearer <token>` (or `X-GTOpt-Auth`).
+`GTOPT_GUI_AUTH=on` requires the token on loopback too (shared hosts);
+`off` disables it (only behind an authenticating reverse proxy).  An SSH
+tunnel (`ssh -L 5001:127.0.0.1:5001 server`) keeps the service on
+loopback instead.  See the Security section of
+[guiservice/GTOPT_GUISRV.md](../guiservice/GTOPT_GUISRV.md#security).
+
+For detailed usage and systemd service setup, see [guiservice/GTOPT_GUISRV.md](../guiservice/GTOPT_GUISRV.md).
+
 ### Manual Start
 
 You can also run the GUI service directly:

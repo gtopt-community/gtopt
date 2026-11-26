@@ -875,6 +875,15 @@ A transmission line connecting two buses.
 | `phase_shift_deg`  | number\|array\|string| degrees     | No       | Phase-shift angle φ in degrees (default 0). Models a Phase-Shifting Transformer (PST); shifts the Kirchhoff constraint RHS by $-\sigma_\theta \cdot \phi_{\text{rad}}$. |
 | `tmax_ab`          | number\|array\|string| MW          | No       | Max flow in A→B direction |
 | `tmax_ba`          | number\|array\|string| MW          | No       | Max flow in B→A direction |
+| `max_flow`, `min_flow` | number\|array\|string | MW | No | PLEXOS `Max Flow` / `Min Flow`: aliases of `tmax_ab` and `-tmax_ba` (`min_flow` is **signed**, ≤ 0). Give either the alias or `tmax_*`, not both. Never replaced by a DLR rating. See [Line limits](#line-limits) |
+| `max_rating`, `min_rating` | number\|array\|string | MW | No | PLEXOS `Max Rating` / `Min Rating` (normal rating; `min_rating` signed, ≤ 0). The limit is `min` with every other set field |
+| `overload_max_rating`, `overload_min_rating` | number\|array\|string | MW | No | PLEXOS `Overload Max/Min Rating` (emergency rating; min signed). The hard cap when `overload_penalty` / `limit_penalty` > 0 in the block, with the normal rating as the priced threshold; unused otherwise |
+| `outage_max_rating`, `outage_min_rating` | number\|array\|string | MW | No | PLEXOS `Outage Max/Min Rating` (min signed): the rating in blocks with `units_out > 0` (maintenance derate); never replaced by a DLR rating |
+| `units_out` | number\|array\|string | — | No | PLEXOS `Units Out`: `> 0` applies `outage_*_rating` in that block |
+| `limit_penalty` | number\|array\|string | $/MWh | No | PLEXOS `Limit Penalty`: alias of `overload_penalty` (give one) |
+| `conductor_rating_ab`, `conductor_rating_ba` | number\|array\|string | MW | No | Conductor (thermal) rating per direction; a `dlr` rating replaces it by default |
+| `equipment_rating_ab`, `equipment_rating_ba` | number\|array\|string | MW | No | Series-equipment rating per direction (current transformers/TTCC, series capacitors/CCSS, wave traps, breakers); never weather-scaled |
+| `security_limit_ab`, `security_limit_ba` | number\|array\|string | MW | No | Security / operational limit per direction (voltage or angle stability, N-1 transfer limits); never weather-scaled |
 | `tmax_normal_ab`   | number\|array\|string| MW          | No       | Soft (normal) A→B threshold. With `overload_penalty > 0`, flow above it (up to `tmax_ab`) pays the penalty; ignored when unset or `≥ tmax_ab` |
 | `tmax_normal_ba`   | number\|array\|string| MW          | No       | Soft (normal) B→A threshold (same semantics as `tmax_normal_ab`) |
 | `overload_penalty` | number\|array\|string| $/MWh       | No       | Price per MWh of flow above `tmax_normal_*` (per-(stage, block), weighted by block duration like any energy cost). `0` / unset: no overload columns |
@@ -891,6 +900,77 @@ A transmission line connecting two buses.
 | `annual_capcost`   | number\|array\|string| $/MW-year   | No       | Annualized investment cost |
 | `annual_derating`  | number\|array\|string| p.u./year   | No       | Annual capacity derating factor |
 | `integer_expmod`   | boolean             | —            | No       | Build whole expansion modules only (integer `expmod`, MIP) |
+
+#### Line limits
+
+Every limit field is **optional**. An unset field gives no limit; it is
+never read as 0. In each block and direction the line limit is the **min
+over the fields that are set**. With none set, the line is bounded only by
+`capacity` (unbounded without one), as before.
+
+- **Directions.** An unset B→A field does **not** copy the A→B value; this
+  is the same convention as `tmax_ba`. Set both directions when the limit
+  is symmetric.
+- **Signs (PLEXOS).** `min_flow`, `min_rating`, `overload_min_rating` and
+  `outage_min_rating` are signed, as in PLEXOS: `min_rating = -490` limits
+  the B→A flow to 490 MW. Validation rejects a positive `min_*` value and a
+  negative `max_*` value. The `_ab` / `_ba` fields are magnitudes (≥ 0).
+- **Unset cells.** In a schedule, a NaN cell (or a missing value in a
+  file) means "unset in this block". An explicit `0` is a real limit of
+  0 MW.
+
+**PLEXOS ↔ gtopt.**
+
+| PLEXOS (Line / Transformer) | gtopt field | Notes |
+|-----------------------------|-------------|-------|
+| Max Flow / Min Flow | `max_flow` / `min_flow` | Aliases of `tmax_ab` / `-tmax_ba` |
+| Max Rating / Min Rating (Transformer: Rating) | `max_rating` / `min_rating` | Normal rating |
+| Overload Max Rating / Overload Min Rating (Transformer: Overload Rating) | `overload_max_rating` / `overload_min_rating` | Emergency rating, used when the band is priced |
+| Outage Max Rating / Outage Min Rating | `outage_max_rating` / `outage_min_rating` | Applies where `units_out > 0` |
+| Units Out | `units_out` | Maintenance flag per block |
+| Limit Penalty | `limit_penalty` | Alias of `overload_penalty` |
+| Units | `in_service` | `0` opens the line |
+
+**Limit causes.** A limit also has a **cause**, and the cause decides
+whether a dynamic line rating may replace it. The CEN ERST study gives
+each Chilean transmission limit a cause:
+
+| Part | Fields | ERST causes (examples) | DLR |
+|------|--------|------------------------|-----|
+| Conductor | `conductor_rating_ab` / `_ba` | Conductor (conductor heating) | Replaced by the DLR rating (default when a conductor rating is set) |
+| Equipment | `equipment_rating_ab` / `_ba` | TTCC (current transformers), CCSS (series capacitors), wave traps, breakers | Never weather-scaled |
+| Security | `security_limit_ab` / `_ba` | Estabilidad de Tensión (voltage stability), angle stability, N-1 transfer limits | Never weather-scaled |
+
+A converter that knows the cause writes the classified field. One that
+does not writes `max_rating` (or `max_flow`). The fields combine freely,
+because the limit is always the min over the set fields.
+
+**One bound per direction, duals per part.** Every part bounds the same
+loaded quantity, set by `line_thermal_limit_mode`: `|f|`, `|f| + a·ℓ` or
+`|f| + ℓ`. The min is carried by one flow-column bound, one
+`thermal{p,n}` row, or the DLR span row or bound. No row is added per
+part. The binding part is found by comparing values; on a tie the order
+is conductor (the DLR included), rating, outage, equipment, security,
+flow. The dual of that bound or row is written as
+`Line/<part>{p,n}_dual`: `conductor`, `rating`, `outage`, `equipment`,
+`security` or `flowlimit` (for example `securityp_dual`). These outputs
+are written only for lines that have a rating, outage or classified
+field. `thermal{p,n}_dual` and `span_thermal_dual` are unchanged. On
+these lines the loss segments are spread over the stage maximum of the
+limit, and the block limit is then applied as a bound or row RHS (as for a
+DLR rating). This keeps the segment widths from tying with the limit, a
+tie that would split the dual arbitrarily.
+
+- **Expansion.** On an expandable line, the installed capacity (the
+  capacity rows) is the equipment that the investment adds. A DLR rating
+  never replaces it.
+- **PAMPL.** Every field is a `line.<field>` parameter (for example
+  `line.max_rating`, `line.security_limit_ba`); the signed `min_*` fields
+  are returned as given. `line.tmax_ba` also resolves `min_flow`.
+- **Interfaces (follow-up).** PLEXOS `Interface` limits span several
+  circuits, for example NPA–Polpaico at 2000 MW over two circuits. They
+  are not modelled as line fields. Write them today as a user constraint
+  on the sum of the circuit flows.
 
 #### Dynamic line rating (DLR)
 
@@ -944,6 +1024,7 @@ per-block right-hand side: the LP stays linear. See formulation §5.5
 | `low_wind_speed`            | number  | m/s   | 0.5     | Below this speed the wind direction is ignored and `low_wind_angle` is used (`0` disables the rule) |
 | `low_wind_angle`            | number  | deg   | 45      | Attack angle of the low-wind rule, in [0, 90] |
 | `solar_mode`                | string  | —     | `ghi`   | `ghi`: `solar_irradiance` is the global horizontal irradiance used directly as absorbed flux, `q_s = α·S·D` (conservative; same convention as the Python critical-span tooling); `none`: `q_s = 0` and `solar_irradiance` becomes optional |
+| `limit_mode`                | string  | —     | `model_options.dlr_limit_mode`; unset: `replace` with `conductor_rating_*`, else `min` | `replace`: the DLR rating replaces `conductor_rating_*` (without one: `max_rating` / `min_rating`) and `tmax_normal_*`; `min`: `min(static, rating)` in every block. Flow, outage, equipment and security limits apply in both |
 | `critical_spans`            | array   | —     | —       | One or more spans (non-empty) |
 
 | Field (`critical_spans[k].*`) | Type | Units | Default | Description |
@@ -988,11 +1069,50 @@ Apertures represent hydrology; DLR weather does not vary per aperture.
 **Loss envelope.** The loss PWL is never driven by the per-block DLR rating:
 it keeps the static `tmax` (or `capacity`), or `loss_envelope` when set.
 With neither `tmax` nor `capacity` the stage envelope `1.05 · max_b T̄_b`
-stands in as the static cap and loss range.
+stands in as the static cap and loss range. On lines that cannot be expanded, the range under `limit_mode = "replace"`
+is the larger of the static limit maximum and that envelope. The static
+limit maximum covers every set field, with the overload rating where one is
+given.
 
-**Outputs** (`Line/…`): `dlr_rating_sol` (effective normal rating, A→B, static
-`tmax_ab` included), `dlr_rating_emergency_sol` (emergency tier),
-`critical_span_sol` (uid of the binding span; `-1` when the static `tmax` is
+**DLR vs static limits (`limit_mode`).** The DLR rating *is* the
+conductor's thermal capacity. It replaces the conductor rating, but never
+another part (see [Line limits](#line-limits)):
+
+- **Line with `conductor_rating_*`.** The default is `replace`. The DLR
+  rating replaces the conductor rating, and the limit is the min of the
+  DLR rating and the other set fields (equipment, security, rating,
+  outage, flow). You no longer need to inflate `tmax` as a guard.
+- **Line without a conductor rating.** The default is `min`:
+  `min(static, DLR)`, which is the original `min(tmax, DLR)`. An explicit
+  `replace` (`dlr.limit_mode` or `model_options.dlr_limit_mode`) replaces
+  `max_rating` / `min_rating` instead. `max_flow` / `tmax` is never
+  replaced.
+- **Maintenance derate.** Use `outage_max_rating` with `units_out`. It
+  always applies, so `min(DLR, outage)` holds in the maintenance blocks.
+  `in_service = 0` opens the line.
+
+Under `replace` the static `tmax_normal_*` (a thermal rating) is ignored.
+When the emergency tier is active, the DLR normal rating sets the overload
+band. On expandable lines the installed-capacity rows always stay in
+place. When the DLR rating exceeds the static limit, the loss PWL is
+stretched to the DLR envelope.
+
+**Thermal-limit mode.** The DLR rating is a thermal limit like `tmax` and
+follows the same `line_thermal_limit_mode` (per line, else
+`model_options.line_thermal_limit_mode`), in both directions, both span modes,
+the emergency tier and precomputed `rating`s: `flow` caps `|f| ≤ T` (no extra
+row: `span_mode = min` only tightens the flow-column bound), `sending` caps
+`|f| + a·ℓ ≤ T` (`a` = sending-bus loss share) and `full` caps
+`|f| + ℓ ≤ T` (`min` lowers the RHS of the existing `thermalp` / `thermaln`
+rows, no extra row). `line_thermal_limit_mode = flow` is the flow-only DLR.
+To audit a run, take `ℓ` from `Line/loss_sol`, which is already the line's
+total loss (`lossp + lossn`); `Line/lossn_sol` is only its B→A part, so
+adding it to `loss_sol` counts a reverse-direction loss twice.
+
+**Outputs** (`Line/…`): `dlr_rating_sol` (effective normal rating, A→B, the
+remaining static cap included: a security or equipment limit, an outage
+rating, or the static rating under `limit_mode = "min"`), `dlr_rating_emergency_sol` (emergency tier),
+`critical_span_sol` (uid of the binding span; `-1` when a static cap is
 lower) and `span_thermal_dual` (per-span rating dual `∂obj/∂T_k`, keyed by the
 **span** uid; same unfolding as the other `*_dual` outputs).
 
@@ -1797,6 +1917,9 @@ Commitments.
 | `initial_hours` | number | hours | No | Hours in current state at t=0 |
 | `relax` | boolean | — | No | LP relaxation: u,v,w ∈ [0,1] instead of {0,1} |
 | `must_run` | boolean | — | No | Force u = 1 at all times |
+| `transition_integrality` | string | — | No | Startup / shutdown integrality for this unit: `auto` (continuous with the `v ≤ u` / `w ≤ 1 − u` rows, binary without), `continuous`, `binary`; unset = `model_options.transition_integrality` (default `auto`) |
+| `startup_tier_integrality` | string | — | No | Hot / warm / cold selector integrality: `continuous` or `integer`; unset = `model_options.startup_tier_integrality` (default `continuous`) |
+| `transition_status_rows` | boolean | — | No | Emit `v ≤ u` / `w ≤ 1 − u` for this unit; unset = `model_options.transition_status_rows` (default `true`) |
 | `fast_start` | boolean | — | No | Fast-start unit for `pricing_mode = "fast_start"` (unset = auto: min up and min down ≤ `fast_start_max_hours`) |
 | `commitment_period` | number | hours | No | Coarser binary variable resolution |
 | `hot_start_cost` | number | $/start | No | Startup cost for hot start |

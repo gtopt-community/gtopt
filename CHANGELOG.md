@@ -9,6 +9,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **`solver_options.deterministic_parallel`** (bool, default unset =
+  opportunistic, the former behaviour). `true` runs CPLEX in
+  deterministic parallel mode (`CPX_PARAM_PARALLELMODE = 1`): the same
+  LP gives the same basis, duals and reduced costs whatever the machine
+  load. Also under `--set`, per SDDP pass and in `monolithic_options`.
+  The e2e golden tests (`run_gtopt.cmake`) now set it: under a loaded
+  `ctest -j20` CPLEX run, the opportunistic barrier + crossover ended
+  `exp_bat_4b_24` (a dual-degenerate LP) on another optimal basis in ~1
+  run of 15, failing its `Demand/load_cost` and
+  `Generator/generation_cost` reduced-cost goldens.
 - **Numerical-stability monitor.** Tests that fail when a change worsens
   the scaling or conditioning of the LP (docs/numerical-stability.md):
   - `test_numerical_stability.cpp`: six canonical cases (Kirchhoff
@@ -32,6 +42,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   ampacity with the IEEE Std 738 steady-state heat balance, converts it
   to MW and limits the line flow by it. The weather is input data, so
   the model stays linear.
+  - **PLEXOS line limits.** New optional per-block line fields
+    `max_flow` / `min_flow` (aliases of `tmax_ab` / `-tmax_ba`),
+    `max_rating` / `min_rating`, `overload_max_rating` /
+    `overload_min_rating` (the hard cap when the band is priced),
+    `outage_max_rating` / `outage_min_rating` with `units_out`
+    (maintenance derate), and `limit_penalty` (alias of
+    `overload_penalty`). `min_*` are signed (≤ 0), as in PLEXOS.
+  - **Limit causes.** `conductor_rating_ab/ba` (replaced by DLR),
+    `equipment_rating_ab/ba` (TTCC, CCSS, wave trap, breaker) and
+    `security_limit_ab/ba` (stability, N-1). These follow the CEN ERST
+    causes.
+  - **Combining the limits.** Every field is optional: unset means no
+    limit, NaN cells are unset, and an unset B→A field never copies A→B.
+    The limit is the min over the set fields, carried by one bound or row
+    per direction. The binding part's dual goes to
+    `Line/<part>{p,n}_dual`. Every field is also a PAMPL parameter.
+  - `dlr.limit_mode` / `model_options.dlr_limit_mode`: `replace` or
+    `min`. `replace` makes the DLR rating replace `conductor_rating_*`
+    (without one, `max_rating`) and `tmax_normal`. `min` uses
+    `min(static, rating)`. When unset, the mode is `replace` with a
+    conductor rating and `min` otherwise, so existing cases are
+    unchanged. Flow, outage, equipment and security limits always apply.
+  - The DLR rating follows `line_thermal_limit_mode` like `tmax`:
+    `|f| ≤ T` (`flow`), `|f| + a·ℓ ≤ T` (`sending`), `|f| + ℓ ≤ T`
+    (`full`), in both directions, both span modes and the emergency
+    tier. New tests pin this. When you audit a run, `Line/loss_sol`
+    already holds the total loss (`lossp + lossn`). Do not add
+    `Line/lossn_sol` to it.
   - `span_mode = "min"` (default) applies the minimum over the spans
     wherever `tmax` applies today. `"rows"` adds one limit row per span
     and block instead, and drops the rows of spans that cannot bind.
@@ -89,6 +127,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     equidistant benchmark.
   - Every choice is an option, and downloads are cached and polite. See
     `scripts/dlr2gtopt/README.md` for the data licences.
+- **`gtopt_check_cases` flags unserved energy.** After `--solve`, the
+  demand failure (`Demand/fail_sol`) is summed per case (MWh, blocks
+  with shedding, peak MW) and reported as a warning; `--fail-on-unserved`
+  or a catalog entry with `"serves_all_load": true` makes it an error.
+
 - **Line thermal limit with losses.** The new option
   `line_thermal_limit_mode` sets how a line's limit (`tmax_ab` /
   `tmax_ba`, and the installed capacity of expandable lines) treats its
@@ -121,6 +164,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `GTOPT_PLUGIN_CHECK`) decides what a failed check does: `warning`
   logs it and loads the plugin; `error` refuses it.  See
   `docs/solvers.md`, "Plugin integrity".
+- Commitment options `transition_integrality` (`auto` / `continuous` /
+  `binary`) and `transition_status_rows` (bool), in `model_options` and
+  per `Commitment` (the per-unit value wins): select the integrality of
+  startup / shutdown and whether the `startup ≤ status`,
+  `shutdown ≤ 1 − status` rows are emitted.  `auto` (default) keeps
+  startup / shutdown continuous while those rows are on (an integer
+  status then makes them 0/1) and binary when they are off.  See
+  `docs/unit-commitment.md` §4.1.
+- Commitment option `startup_tier_integrality` (`continuous` /
+  `integer`, `model_options` or per `Commitment`): integrality of the
+  hot / warm / cold start selectors.  Default `continuous` (the tier
+  rows are totally unimodular once startup is integral).
 - `gtopt --solvers` shows, for each plugin, its path, build-id and
   build tag, and for each solver the compiled and run time library
   versions and the path of the solver library actually loaded.
@@ -217,6 +272,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **`sddp_options.release_backends` now defaults to `true`.** Under
+  `low_memory_mode: off`, SDDP / cascade release each cell's solver
+  backend after its solve and rebuild it from the uncompressed snapshot
+  plus the saved basis (as `compress` with `memory_codec:
+  uncompressed`). On CEN 2y with CPLEX the peak drops from 22.3 to
+  3.7 GiB; wall time is unchanged within noise (dual simplex -3.6 %,
+  barrier +4 %). The bounds match `compress` exactly and move ~0.025 %
+  against live backends (degenerate ties). `--set
+  sddp_options.release_backends=false` restores the previous behaviour
+  (every LP live). Monolithic runs are unaffected.
 - `run_gtopt` no longer forces `snappy` output compression: the case's
   `output_compression` (or gtopt's default, `zstd`) is used unless `-C`
   is given.  `-l` for `--log-level` is deprecated (in gtopt `-l` means
@@ -224,6 +289,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `gtopt --help`: `--sddp-num-apertures` now describes the actual
   behaviour (unset = every aperture of the phase, `0` = none,
   `N` = the first `N`).
+- **One rule for the output directory.** A directory given on the
+  command line is relative to the current directory, whether it comes
+  from `-d` or `--set output_directory=` (before, `--set` was anchored at
+  the case JSON's directory, so `--set output_directory=.` wrote into the
+  case directory while `-d .` used the CWD).  `--set input_directory=`
+  follows the same rule.  A JSON `options.output_directory` stays
+  relative to the JSON file, and the case-directory form `gtopt case/` now
+  honours it instead of forcing `case/results` (`results` remains its
+  default when the JSON sets none).  `run_gtopt` and `gtopt_check_cases`
+  follow the same rule; `gtopt_check_cases` passes
+  `--set output_directory=` instead of the deprecated `-d`.
 
 - **New option `loss_flow_abs_cost` (default 0.001 $/MWh).** In
   `tangent_signed_flow` the abs-flow proxy columns (Σv ≥ |f|) carry a
@@ -270,7 +346,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `lp_matrix_options.drop_element_collections` (default `true`),
   `sddp_options.release_after_alpha` (default `true`) and
   `sddp_options.free_solver_scratch` (default `true`).
-- New option `sddp_options.release_backends` (default `false`): under
+- New option `sddp_options.release_backends` (default `false`, now
+  `true`, see above): under
   `low_memory_mode: off`, release each solver backend after its solve and
   rebuild it from an uncompressed snapshot, warm-starting from the saved
   basis, as `compress` does. `false` keeps every LP live.
@@ -339,6 +416,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `gtopt .` and `gtopt ..` now find the case JSON named after the
   directory (e.g. `gtopt .` inside `ieee_9b/` uses `ieee_9b.json`);
   they used to look for `..json` and fail.
+- **The LP fingerprint check is real.** `--set lp_fingerprint=true`
+  wrote `lp_fingerprint_*.json` files with an empty hash and template
+  (the option never reached the LP builder), and the C++ SHA-256 had a
+  wrong message-schedule shift, so its digests matched no standard
+  SHA-256.  Both are fixed.  `gtopt_check_fingerprint` now reads every
+  column of an LP file (not only the bounds section), compares on
+  class/variable/context arity, recomputes the stored hash and exits
+  with 2 on an empty, tampered or unlabelled input instead of passing.
+
+- **Async SDDP reported a lower bound of 0.** With `max_async_spread > 0`
+  the per-scene and aggregate LB were read after the backward pass, from
+  the phase-0 LP that had just received a cut and (on the aperture path)
+  was not re-solved, so they came out as 0.  The LB is now captured right
+  after the forward pass, as the synchronous path does.
+
+- **HiGHS kept its options across `load_problem`.** Loading a problem
+  calls `Highs::clear()`, which resets every option, so the algorithm,
+  crossover, thread count and log file set before the load were lost
+  (the solve ran with HiGHS defaults).  They are now re-applied after
+  every load.
+
 - Expandable lines using `piecewise` losses with the `tangent` layout
   now respect their installed capacity. Before, their flow was limited
   only by `tmax`.
@@ -371,6 +469,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   after an in-horizon shutdown was priced hot (warm), one tier cheaper
   than documented.  Results can change for units restarting exactly at
   a tier boundary.
+- A committed unit that starts the horizon online can now shut down in
+  the first block.  The first-block ramp-down row used the initial
+  status where it needed the block's own status and shutdown, so a unit
+  with `initial_power` above `ramp_down` was kept on for block 1.  On
+  the RTS-GMLC UC.jl benchmark this cost +3.5 % (five units forced on);
+  gtopt now matches UnitCommitment.jl's optimum.
+- Commitment startup and shutdown columns are now tied to the status
+  (`startup ≤ status`, `shutdown ≤ 1 − status`).  Without these rows a
+  unit that stayed on (or off) could take startup = shutdown = ½ and use
+  the startup / shutdown ramp terms for extra ramping at half the
+  start-stop cost.  The LP relaxation is also tighter.  Option
+  `transition_status_rows` (`model_options` or per `Commitment`,
+  default `true`); `false` drops the rows.
+- Commitment `initial_status` is rounded at 0.5 (as LineCommitment
+  already did), so the first-period startup / shutdown stay 0/1.
+- `pricing_mode = fast_start` now relaxes integer start-up tier
+  selectors with the status: pinned at the incumbent they kept the
+  fast-start unit on in every start period.
+- Commitment ramp rows with `commitment_period` apply the startup /
+  shutdown ramp only at the first block of the period where the unit
+  starts / stops; interior blocks ramp with `ramp_up` / `ramp_down`
+  only.  Before, every block of the start period could ramp by
+  `startup_ramp`.
+- The first-block ramp-up row uses the startup column
+  (`p − startup_ramp·startup ≤ initial_power + ramp_up·initial_status`)
+  instead of a constant: same integer solutions, tighter LP relaxation.
+- LineCommitment startup tiers now use the same thresholds as
+  Commitment (hot when open `< hot_start_time`, cold when open
+  `≥ cold_start_time`), and a line open since before the horizon
+  counts `initial_hours` at every block, not only the first: a later
+  first close was always priced cold.  Line startup / shutdown columns
+  get the same status rows as units.
 
 
 ## [1.2.0] - 2026-11-24

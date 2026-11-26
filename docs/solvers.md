@@ -243,6 +243,12 @@ Plugins are looked up in, in order: `$GTOPT_PLUGIN_DIR`,
 `<exe>/../lib/gtopt/plugins/`, `<exe>/plugins/`,
 `/usr/local/lib/gtopt/plugins/`.
 
+A plugin file that is world-writable, or that sits in a world-writable
+directory (such as `/tmp`), is never loaded; the refusal is listed by
+`gtopt --solvers`.  Each loaded plugin path is logged at info level, and
+every `GTOPT_*` environment variable in effect (including
+`GTOPT_PLUGIN_DIR`) is logged at start-up, with secret-like values masked.
+
 ## Plugin integrity
 
 Before and after loading a plugin, gtopt checks that it is the plugin it
@@ -445,9 +451,17 @@ Solver 'highs': loaded /opt/highs/lib/libhighs.so.1.15.0 but the plugin's RUNPAT
 Solver 'highs': plugin was compiled against highs 1.16.0 but the loaded library /opt/highs/lib/libhighs.so.1.15.0 is 1.15.0: ...
 ```
 
-In mode `error`, refused plugins are listed under
-`Refused plugins:` with the reason.  The
-run log shows the same identity lines when a plugin loads.
+In mode `error`, `gtopt --solvers` lists refused plugins under
+`Refused plugins:` with the reason, also when no plugin loaded at all
+(it then starts with `No LP solver available: every solver plugin found
+was refused.`).  A run that names the refused solver (`--solver highs`,
+`GTOPT_SOLVER=highs`) fails with `Solver 'highs' not available.` and the
+refusal; a run with no solver named, where every plugin found was
+refused, fails with `No solver available: solver plugins were found,
+but every one was refused or failed to load:` and the refusals.  Both
+exit with code 3.  `No solver plugins found.` and its install hints are
+kept for a run that finds no plugin at all.  The run log shows the same
+identity lines when a plugin loads.
 
 ## Adding support for another solver
 

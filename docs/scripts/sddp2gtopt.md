@@ -577,11 +577,11 @@ the water value prices *every* hydro release.
 # Guatemalan AMM daily NCP case (extracted .dat directory)
 sddp2gtopt --info  ./ncp_pdd
 sddp2gtopt -i ./ncp_pdd -o gtopt_ncp --import-limit 200   # multi-bus + water net
-gtopt -s gtopt_ncp/gtopt_ncp.json -d out                  # monolithic, optimal
+gtopt -s gtopt_ncp/gtopt_ncp.json --set output_directory=out   # monolithic, optimal
 
 # multi-week horizon: daily stages → SDDP (and cascade)
 sddp2gtopt -i ./ncp_month -o gtopt_ncp --import-limit 200 --blocks-per-stage 24
-gtopt -s gtopt_ncp/gtopt_ncp.json -d out --set options.method=cascade
+gtopt -s gtopt_ncp/gtopt_ncp.json --set output_directory=out --set options.method=cascade
 ```
 
 ---
