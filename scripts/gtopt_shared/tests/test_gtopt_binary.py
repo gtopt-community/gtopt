@@ -31,6 +31,15 @@ def test_standard_build_paths_shape() -> None:
     # Repo root is two levels above the gtopt_shared package.
     repo = Path(gtopt_binary.__file__).resolve().parent.parent.parent
     assert paths[0] == repo / "build" / "standalone" / "gtopt"
+    # The CI artifact lives in a per-user cache dir, never in /tmp.
+    assert paths[2] == gtopt_binary.ci_bin_dir() / "gtopt"
+    assert not str(paths[2]).startswith("/tmp/")
+
+
+def test_ci_bin_dir_honours_xdg_cache_home(tmp_path: Path) -> None:
+    env = {"XDG_CACHE_HOME": str(tmp_path)}
+    assert gtopt_binary.ci_bin_dir(env) == tmp_path / "gtopt" / "ci-bin"
+    assert gtopt_binary.ci_bin_dir({}) == Path.home() / ".cache" / "gtopt" / "ci-bin"
 
 
 def test_env_var_takes_precedence(

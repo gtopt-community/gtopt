@@ -81,3 +81,11 @@ def test_help_documents_passthrough_exit_codes_and_checks(capsys):
     assert "Exit status:" in out and "128+N" in out and "127" in out
     # check_json is opt-in, and the help must say so.
     assert "opt-in" in out and "--enable-check check_json" in out
+
+
+def test_help_points_at_run_watchers():
+    """--help names --list / --attach and gtopt_monitor for watching a run."""
+    text = make_parser().format_help()
+    assert "Watching a run:" in text
+    assert "run_gtopt --attach [PID]" in text
+    assert "gtopt_monitor --status-file <output>/solver_status.json" in text

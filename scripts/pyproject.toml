@@ -197,6 +197,8 @@ include = ["gtopt_compare*", "gtopt_check_cases*", "cvs2parquet*", "gtopt_diagra
 #   next to every converted case.
 # gtopt_operators/<op>/sources.toml: per-operator data-source registries
 #   (gtopt-fetch, cen2gtopt endpoint URLs).
+# gtopt_operators/cen/certs: public intermediate certificates some CEN
+#   servers omit from their TLS chain (gtopt_operators.tls).
 # gtopt_expand/templates: PAMPL/TSON templates + RoR / pmin-as-flowright
 #   whitelists (also the default for plp2gtopt --ror-as-reservoirs).
 "gtopt_shared" = ["data/*.json", "data/emissions/*.json", "data/cogen/*.csv", "data/countries/*.toml"]
@@ -205,7 +207,7 @@ include = ["gtopt_compare*", "gtopt_check_cases*", "cvs2parquet*", "gtopt_diagra
 "gasnet2gtopt" = ["cases/*.json", "cases/literature/*.json", "cases/literature/*.md"]
 "gtopt_operators.aemo" = ["sources.toml"]
 "gtopt_operators.amm" = ["sources.toml"]
-"gtopt_operators.cen" = ["sources.toml"]
+"gtopt_operators.cen" = ["sources.toml", "certs/*.pem"]
 "gtopt_operators.coes" = ["sources.toml"]
 "gtopt_operators.eor" = ["sources.toml"]
 "gtopt_operators.xm" = ["sources.toml"]
@@ -358,8 +360,33 @@ known_first_party = ["cucdata2gtopt", "cvs2parquet", "dlr2gtopt", "gtopt_check_c
 line-length = 88
 
 [tool.ruff.lint]
-select = ["E", "F", "W"]
-ignore = ["E501"]
+# S = flake8-bandit (security), B = flake8-bugbear.  Reviewed baseline:
+# the rules below are ignored repo-wide on purpose; everything else is
+# fixed or carries a line-level ``# noqa: <code>`` with its reason.
+select = ["E", "F", "W", "S", "B"]
+ignore = [
+    "E501",
+    # assert is used for invariants / type narrowing, not for security
+    # checks (which raise explicit exceptions).
+    "S101",
+    # subprocess with an argument list (no shell) is the safe form; every
+    # call site passes a list.
+    "S603",
+    # External tools (gtopt, mdb-export, dot, ...) are resolved on PATH by
+    # design; GTOPT_BIN and friends override.
+    "S607",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests use fixed fixture paths, dummy credentials, pickles of their own
+# data and asserts by design.
+"**/tests/**" = ["S", "B"]
+"**/test_*.py" = ["S", "B"]
+"**/conftest.py" = ["S", "B"]
+
+[tool.ruff.lint.flake8-bugbear]
+# Frozen (immutable) default factories are safe as argument defaults.
+extend-immutable-calls = ["gtopt_marginal_units.constants.Tolerances.default"]
 
 [tool.ruff.format]
 quote-style = "double"

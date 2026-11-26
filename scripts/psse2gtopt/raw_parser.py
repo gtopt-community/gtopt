@@ -144,7 +144,7 @@ def _is_terminator(line: str) -> bool:
         return False
     first = _split(line)[0].strip()
     token = first.split("/", 1)[0].strip()
-    return token == "0"
+    return token == "0"  # noqa: S105 - not a secret
 
 
 def _read_line_section(lines: list[str], pos: int) -> tuple[list[str], int]:

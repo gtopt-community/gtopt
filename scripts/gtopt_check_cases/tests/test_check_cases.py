@@ -7,6 +7,7 @@ import json
 import stat
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from gtopt_check_cases import checks
@@ -30,6 +31,10 @@ else:
     Path("solution.csv").write_text(
         "scene,phase,status,status_name,obj_value,kappa,scale_objective\\n"
         "0,0,0,optimal,105.0,12.5,1000\\n")
+    if "shed=1" in argv:
+        Path("Demand").mkdir(exist_ok=True)
+        Path("Demand/fail_sol_s0_p0.csv").write_text(
+            "scenario,stage,block,uid,value\\n1,1,1,7,2.5\\n1,1,2,7,0.5\\n")
 """
 
 
@@ -94,6 +99,8 @@ def test_gtopt_command_layout(tmp_path: Path) -> None:
     assert cmd[:4] == ["taskset", "-c", "0-3", "gtopt"]
     assert f"input_directory={case.resolve().parent}" in cmd
     assert "solver_options.threads=4" in cmd and "a=1" in cmd
+    # The deprecated -d flag is not used.
+    assert f"output_directory={tmp_path / 'o'}" in cmd and "-d" not in cmd
     assert "--lp-only" in cmd
 
 
@@ -190,3 +197,109 @@ def test_main_refuses_out_inside_repo(repo, fake_gtopt, tmp_path) -> None:
 
 def test_main_without_catalog(tmp_path: Path) -> None:
     assert main(["--repo", str(tmp_path), "--gtopt", "gtopt"]) == 2
+
+
+def _shed_run(repo: Path, fake_gtopt: str, tmp_path: Path, *extra: str) -> int:
+    return main(
+        [
+            "--repo",
+            str(repo),
+            "--gtopt",
+            fake_gtopt,
+            "--only",
+            "x/a",
+            "--solve",
+            "--out",
+            str(tmp_path / "results"),
+            "--workdir",
+            str(tmp_path / "work"),
+            "--set",
+            "shed=1",
+            *extra,
+        ]
+    )
+
+
+def test_main_solve_warns_on_unserved(repo, fake_gtopt, tmp_path, capsys) -> None:
+    """Unserved energy is reported as a WARNING without failing the run."""
+    rc = _shed_run(repo, fake_gtopt, tmp_path)
+    out = capsys.readouterr().out
+    assert rc == 0, out
+    assert "WARNING: unserved energy 3.000 MWh in 2 block(s)" in out
+    assert "1 case(s) with unserved energy: x/a" in out
+
+
+def test_main_solve_fail_on_unserved(repo, fake_gtopt, tmp_path, capsys) -> None:
+    """``--fail-on-unserved`` turns unserved energy into an error."""
+    rc = _shed_run(repo, fake_gtopt, tmp_path, "--fail-on-unserved")
+    out = capsys.readouterr().out
+    assert rc == 1, out
+    assert "ERROR: unserved energy" in out
+
+
+def test_main_solve_serves_all_load_catalog_flag(
+    repo, fake_gtopt, tmp_path, capsys
+) -> None:
+    """A catalog entry with ``serves_all_load`` fails without the flag."""
+    cat = json.loads((repo / "catalog.json").read_text())
+    cat["cases"][0]["serves_all_load"] = True
+    (repo / "catalog.json").write_text(json.dumps(cat))
+    rc = _shed_run(repo, fake_gtopt, tmp_path)
+    assert rc == 1
+    assert "ERROR: unserved energy" in capsys.readouterr().out
+
+
+def test_read_unserved_layouts_and_durations(tmp_path: Path) -> None:
+    """Long parquet (weighted by block duration) and wide CSV agree."""
+    long_dir = tmp_path / "long"
+    part = long_dir / "Demand" / "fail_sol.parquet" / "scene=0" / "phase=0"
+    part.mkdir(parents=True)
+    pd.DataFrame(
+        {
+            "scenario": [1, 1, 1],
+            "stage": [1, 1, 1],
+            "block": [1, 2, 2],
+            "uid": [7, 7, 8],
+            "value": [2.0, 1.0, 1e-9],
+        }
+    ).to_parquet(part / "part.parquet")
+    got = checks.read_unserved(long_dir, {1: 2.0, 2: 3.0})
+    assert got is not None
+    assert got["blocks"] == 2
+    assert got["peak_mw"] == pytest.approx(2.0)
+    assert got["energy_mwh"] == pytest.approx(7.0, abs=1e-6)
+
+    wide_dir = tmp_path / "wide"
+    (wide_dir / "Demand").mkdir(parents=True)
+    (wide_dir / "Demand" / "fail_sol_s0_p0.csv").write_text(
+        "scenario,stage,block,uid:7,uid:8\n1,1,1,0,0\n1,1,2,0,4\n"
+    )
+    got = checks.read_unserved(wide_dir, {})
+    assert got == {"energy_mwh": 4.0, "peak_mw": 4.0, "blocks": 1}
+
+    clean_dir = tmp_path / "clean"
+    (clean_dir / "Demand").mkdir(parents=True)
+    (clean_dir / "Demand" / "fail_sol_s0_p0.csv").write_text(
+        "scenario,stage,block,uid:7\n1,1,1,0\n"
+    )
+    assert checks.read_unserved(clean_dir, {}) == {
+        "energy_mwh": 0.0,
+        "peak_mw": 0.0,
+        "blocks": 0,
+    }
+    assert checks.read_unserved(tmp_path / "none", {}) is None
+
+
+def test_block_durations_from_case_json(tmp_path: Path) -> None:
+    case = tmp_path / "c.json"
+    case.write_text(
+        json.dumps(
+            {
+                "simulation": {
+                    "block_array": [{"uid": 1, "duration": 2.5}, {"uid": 2}, "x"]
+                }
+            }
+        )
+    )
+    assert checks.block_durations(case) == {1: 2.5, 2: 1.0}
+    assert not checks.block_durations(tmp_path / "missing.json")

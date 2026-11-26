@@ -8,7 +8,8 @@ file containing the absolute path of the solver's output directory.
 
 This module provides:
 
-* :func:`registry_dir` — resolve the registry path.
+* :func:`registry_dir` — resolve the registry path (from
+                         :mod:`gtopt_shared.status`, with :class:`RunInfo`).
 * :func:`list_runs`    — enumerate live runs (PID + output_dir + status
                          summary), skipping stale entries via
                          ``os.kill(pid, 0)``.
@@ -20,50 +21,34 @@ This module provides:
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from gtopt_shared.status import (
+    STATUS_FILE,
+    RunInfo,
+    enrich_run_info,
+    load_status,
+    registry_dir,
+)
 
 if TYPE_CHECKING:
     from ._process import RunResult
 
+__all__ = [
+    "RunInfo",
+    "find_run_by_pid",
+    "list_runs",
+    "print_run_list",
+    "registry_dir",
+    "resolve_target",
+    "run_attach_loop",
+]
+
 log = logging.getLogger(__name__)
-
-
-@dataclass(slots=True)
-class RunInfo:
-    """Snapshot of one live (or recently-live) gtopt run."""
-
-    pid: int
-    output_dir: Path
-    status: str | None = None  # "running" / "converged" / ...
-    iteration: int | None = None
-    max_iterations: int | None = None
-    lower_bound: float | None = None
-    upper_bound: float | None = None
-    gap: float | None = None
-    elapsed_s: float | None = None
-    method: str | None = None
-    case_name: str | None = None
-    alive: bool = True
-
-
-def registry_dir() -> Path:
-    """Return ``$XDG_CACHE_HOME/gtopt/runs`` (or the HOME-derived path).
-
-    Mirrors the C++ side in ``solver_status.cpp::runs_registry_dir``.
-    """
-    xdg = os.environ.get("XDG_CACHE_HOME") or ""
-    if xdg:
-        base = Path(xdg)
-    else:
-        home = os.environ.get("HOME") or ""
-        base = Path(home) / ".cache" if home else Path(".")
-    return base / "gtopt" / "runs"
 
 
 def _pid_alive(pid: int) -> bool:
@@ -84,35 +69,7 @@ def _pid_alive(pid: int) -> bool:
 
 
 def _status_file_for(output_dir: Path) -> Path:
-    return output_dir / "solver_status.json"
-
-
-def _load_status(path: Path) -> dict:
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return {}
-
-
-def _enrich(info: RunInfo) -> RunInfo:
-    status_file = _status_file_for(info.output_dir)
-    data = _load_status(status_file)
-    if not data:
-        return info
-    info.status = data.get("status")
-    info.iteration = data.get("iteration")
-    info.max_iterations = data.get("max_iterations")
-    info.lower_bound = data.get("lower_bound")
-    info.upper_bound = data.get("upper_bound")
-    info.gap = data.get("gap")
-    info.elapsed_s = data.get("elapsed_s")
-    info.method = data.get("method")
-    # Best-effort case name = parent directory of output_dir.  Most
-    # gtopt cases place their output under ``<case>/output/`` or
-    # ``<case>/results/``, so the parent is the canonical case name.
-    info.case_name = info.output_dir.parent.name or info.output_dir.name
-    return info
+    return output_dir / STATUS_FILE
 
 
 def list_runs(prune_stale: bool = True) -> list[RunInfo]:
@@ -148,7 +105,7 @@ def list_runs(prune_stale: bool = True) -> list[RunInfo]:
             except OSError:
                 pass
             continue
-        runs.append(_enrich(RunInfo(pid=pid, output_dir=out_dir, alive=alive)))
+        runs.append(enrich_run_info(RunInfo(pid=pid, output_dir=out_dir, alive=alive)))
     return runs
 
 
@@ -160,7 +117,7 @@ def find_run_by_pid(pid: int) -> RunInfo | None:
         out_dir = Path(entry.read_text(encoding="utf-8").strip())
     except OSError:
         return None
-    return _enrich(RunInfo(pid=pid, output_dir=out_dir, alive=_pid_alive(pid)))
+    return enrich_run_info(RunInfo(pid=pid, output_dir=out_dir, alive=_pid_alive(pid)))
 
 
 def resolve_target(target: str) -> RunInfo | None:
@@ -179,23 +136,23 @@ def resolve_target(target: str) -> RunInfo | None:
     p = Path(target).expanduser().resolve()
     if not p.exists():
         return None
-    if p.is_file() and p.name == "solver_status.json":
+    if p.is_file() and p.name == STATUS_FILE:
         out_dir = p.parent
     elif p.is_dir():
         # Try ``solver_status.json`` directly; if absent, look in
         # conventional sub-dirs that gtopt may use.
         candidates = [p, p / "results", p / "output"]
         out_dir = next(
-            (c for c in candidates if (c / "solver_status.json").is_file()),
+            (c for c in candidates if _status_file_for(c).is_file()),
             p,
         )
     else:
         return None
 
     # Try to read the PID from the status file (newer builds embed it).
-    data = _load_status(_status_file_for(out_dir))
+    data = load_status(_status_file_for(out_dir))
     pid = int(data.get("pid", -1) or -1)
-    return _enrich(RunInfo(pid=pid, output_dir=out_dir, alive=_pid_alive(pid)))
+    return enrich_run_info(RunInfo(pid=pid, output_dir=out_dir, alive=_pid_alive(pid)))
 
 
 # ---------------------------------------------------------------------------
@@ -261,7 +218,7 @@ def _attach_result(info: RunInfo, finished: bool) -> RunResult:
     from ._process import RunResult  # noqa: PLC0415
     from ._runner import check_solution  # noqa: PLC0415
 
-    status = _load_status(_status_file_for(info.output_dir))
+    status = load_status(_status_file_for(info.output_dir))
     alive = info.pid > 0 and _pid_alive(info.pid)
     return RunResult(
         returncode=None,

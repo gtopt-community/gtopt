@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from gtopt_check_json._checks_common import Finding, Severity
+from gtopt_shared.gtopt_binary import ci_bin_dir
 
 
 # ── Binary discovery (mirrors gtopt_check_solvers/_binary.py) ─────────────
@@ -33,7 +34,7 @@ def _standard_build_paths() -> list[Path]:
     return [
         repo / "build" / "standalone" / "gtopt",
         repo / "build" / "test" / "_deps" / "gtopt-build" / "standalone" / "gtopt",
-        Path("/tmp/gtopt-ci-bin/gtopt"),
+        ci_bin_dir() / "gtopt",
     ]
 
 

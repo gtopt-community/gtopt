@@ -164,6 +164,7 @@ SOLVER_OPTION_KEYS: frozenset[str] = frozenset(
         "mip_heuristic_effort",
         "kappa_mode",
         "cold_solve_without_basis",
+        "deterministic_parallel",
     }
 )
 
@@ -188,6 +189,9 @@ MODEL_OPTION_KEYS: frozenset[str] = frozenset(
         "continuous_phases",
         "pricing_mode",
         "fast_start_max_hours",
+        "transition_integrality",
+        "transition_status_rows",
+        "startup_tier_integrality",
         "naming_dialect",
         "kirchhoff_mode",
         "line_losses_mode",
@@ -204,6 +208,7 @@ MODEL_OPTION_KEYS: frozenset[str] = frozenset(
         "line_thermal_limit_mode",
         "prev_stage_link",
         "use_line_dlr",
+        "dlr_limit_mode",
         "overload_slack_bound",
         "max_overload_ratio",
         "theta_max",
@@ -358,6 +363,27 @@ OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         "fast_start is fast-start when min_up_time and min_down_time are "
         "both <= this many hours (default: 1)",
         1.0,
+    ),
+    (
+        "transition_integrality",
+        "[model] Commitment startup/shutdown integrality: 'auto' (default, "
+        "continuous with transition_status_rows, binary without), "
+        "'continuous' or 'binary'.  Commitment.transition_integrality "
+        "overrides it per unit.",
+        "auto",
+    ),
+    (
+        "transition_status_rows",
+        "[model] Emit the commitment rows v <= u and w <= 1 - u (default: "
+        "true).  Commitment.transition_status_rows overrides it per unit.",
+        True,
+    ),
+    (
+        "startup_tier_integrality",
+        "[model] Commitment hot/warm/cold start selector integrality: "
+        "'continuous' (default; totally unimodular tier rows) or 'integer'.  "
+        "Commitment.startup_tier_integrality overrides it per unit.",
+        "continuous",
     ),
     (
         "naming_dialect",

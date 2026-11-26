@@ -33,6 +33,7 @@ import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
+from gtopt_shared import safe_archive
 
 try:
     import zstandard
@@ -243,7 +244,8 @@ def _decompress_zst(src: Path, dst: Path) -> None:
     _require_zstandard()
     dctx = zstandard.ZstdDecompressor()
     with src.open("rb") as fh_in, dst.open("wb") as fh_out:
-        dctx.copy_stream(fh_in, fh_out)
+        with dctx.stream_reader(fh_in) as reader:
+            safe_archive.copy_limited(reader, fh_out, what=str(src))
 
 
 @functools.lru_cache(maxsize=None)
@@ -271,12 +273,8 @@ def extract_bundle(name: str = "5bus") -> Path:
     _decompress_zst(src, tar_path)
 
     with tarfile.open(tar_path, mode="r") as tar:
-        # Python 3.12 deprecated the implicit `filter` arg; pin "data" so
-        # we get the strict-but-not-pedantic policy (no abs paths, no
-        # symlinks outside the dest dir).
-        try:
-            tar.extractall(path=tempdir, filter="data")
-        except TypeError:
-            tar.extractall(path=tempdir)
+        # Regular files and directories only, inside tempdir, bounded size
+        # ("data" filter where available, an equivalent check otherwise).
+        safe_archive.extractall_tar(tar, tempdir)
     tar_path.unlink()
     return tempdir / f"sienna_{name}"

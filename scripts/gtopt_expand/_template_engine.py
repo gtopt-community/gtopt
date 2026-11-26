@@ -54,7 +54,8 @@ def create_template_env(
     Returns:
         Configured Jinja2 Environment.
     """
-    return jinja2.Environment(
+    # AMPL / JSON templates, not HTML: no autoescape.
+    return jinja2.Environment(  # noqa: S701
         loader=jinja2.FileSystemLoader(template_dir),
         trim_blocks=True,
         lstrip_blocks=True,

@@ -13,6 +13,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
+from gtopt_shared.net import require_http_url
 from gtopt_shared.source_versions import (
     add_source_version_argument,
     apply_source_version,
@@ -53,7 +54,8 @@ def _bases(version: str | None) -> tuple[str, str]:
 def _download(url: str, local: Path) -> None:
     if local.exists() and local.stat().st_size > 0:
         return
-    with urllib.request.urlopen(url) as resp, local.open("wb") as out:
+    checked = require_http_url(url)
+    with urllib.request.urlopen(checked) as resp, local.open("wb") as out:  # noqa: S310
         out.write(resp.read())
 
 

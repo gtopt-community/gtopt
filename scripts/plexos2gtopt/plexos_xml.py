@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
+from gtopt_shared import safe_xml
 
 
 logger = logging.getLogger(__name__)
@@ -786,7 +787,7 @@ def _parse_data(root: ET.Element) -> list[PlexosDataRow]:
 def _load_root_cached(xml_path: str) -> ET.Element:
     """Memoised XML parse, keyed by absolute path string."""
     logger.info("parsing PLEXOS XML %s", xml_path)
-    return ET.parse(xml_path).getroot()
+    return safe_xml.parse(xml_path).getroot()
 
 
 def load_xml(path: Path | str) -> PlexosDb:

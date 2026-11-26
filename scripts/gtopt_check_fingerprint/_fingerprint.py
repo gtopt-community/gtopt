@@ -23,6 +23,25 @@ _CONTEXT_TYPE_MAP = {
     4: "BlockExContext",
 }
 
+#: Number of uid fields after the element uid in an LP label, per C++
+#: ``LpContext`` alternative (``include/gtopt/lp_context.hpp``).  An LP
+#: label only carries this arity, so a gtopt JSON fingerprint is compared
+#: with an LP-file one on ``(lowercase class, variable, arity)``.
+_CONTEXT_ARITY = {
+    "monostate": 0,
+    "StageContext": 2,
+    "ScenePhaseContext": 2,
+    "BlockContext": 3,
+    "PhaseContext": 3,
+    "BlockExContext": 4,
+    "IterationContext": 4,
+    "ApertureContext": 4,
+}
+
+
+class FingerprintError(ValueError):
+    """A fingerprint file that cannot be trusted (empty or inconsistent)."""
+
 
 @dataclass(frozen=True, order=True)
 class FingerprintEntry:
@@ -63,6 +82,52 @@ def _hash_template(entries: list[FingerprintEntry]) -> str:
     for e in entries:
         data += e.class_name + "\0" + e.variable_name + "\0" + e.context_type + "\n"
     return hashlib.sha256(data.encode()).hexdigest()
+
+
+def _rehash(fp: LpFingerprint) -> LpFingerprint:
+    """Set ``fp``'s column / row / structural hashes from its templates."""
+    fp.col_hash = _hash_template(fp.col_template)
+    fp.row_hash = _hash_template(fp.row_template)
+    fp.structural_hash = hashlib.sha256(
+        (fp.col_hash + fp.row_hash).encode()
+    ).hexdigest()
+    return fp
+
+
+def lp_comparable(fp: LpFingerprint) -> LpFingerprint:
+    """Project ``fp`` onto what an LP file can show.
+
+    An LP label is ``lowercase(class)_variable_uid_<context uids>``: the
+    class loses its case and the context type collapses to its arity
+    (``StageContext`` and ``ScenePhaseContext`` both have 2 fields).
+    Entries become ``(lowercase class, variable, "arity:N")``; context-less
+    (arity 0) entries are dropped, as gtopt does not fingerprint them.
+    The hashes are recomputed for the projected templates.
+    """
+
+    def project(entries: list[FingerprintEntry]) -> list[FingerprintEntry]:
+        out: set[FingerprintEntry] = set()
+        for e in entries:
+            arity = _CONTEXT_ARITY.get(e.context_type)
+            if arity is None and e.context_type.startswith("Context"):
+                arity = int(e.context_type.removeprefix("Context"))
+            if not arity:
+                continue
+            out.add(
+                FingerprintEntry(
+                    e.class_name.lower(), e.variable_name, f"arity:{arity}"
+                )
+            )
+        return sorted(out)
+
+    proj = LpFingerprint(
+        col_template=project(fp.col_template),
+        row_template=project(fp.row_template),
+        untracked_cols=fp.untracked_cols,
+        untracked_rows=fp.untracked_rows,
+        stats=fp.stats,
+    )
+    return _rehash(proj)
 
 
 def _parse_lp_name(name: str) -> tuple[str, str, str] | None:
@@ -130,13 +195,7 @@ def compute_from_names(col_names: list[str], row_names: list[str]) -> LpFingerpr
 
     fp.col_template = sorted(col_set)
     fp.row_template = sorted(row_set)
-    fp.col_hash = _hash_template(fp.col_template)
-    fp.row_hash = _hash_template(fp.row_template)
-    fp.structural_hash = hashlib.sha256(
-        (fp.col_hash + fp.row_hash).encode()
-    ).hexdigest()
-
-    return fp
+    return _rehash(fp)
 
 
 def _read_lp_file(path: Path) -> tuple[list[str], list[str]]:
@@ -168,63 +227,79 @@ def _read_lp_file(path: Path) -> tuple[list[str], list[str]]:
         with open(p, encoding="utf-8") as f:
             text = f.read()
 
-    col_names: list[str] = []
-    row_names: list[str] = []
+    return _parse_lp_text(text)
 
-    # LP file sections
-    section = None
-    var_re = re.compile(r"[A-Za-z_][A-Za-z0-9_:.]*")
 
+#: Section keywords of the CPLEX LP format (lower case).
+_SECTION_KEYWORDS = {
+    "minimize": "objective",
+    "minimum": "objective",
+    "min": "objective",
+    "maximize": "objective",
+    "maximum": "objective",
+    "max": "objective",
+    "subject to": "constraints",
+    "such that": "constraints",
+    "s.t.": "constraints",
+    "st": "constraints",
+    "st.": "constraints",
+    "bounds": "bounds",
+    "bound": "bounds",
+    "generals": "integers",
+    "general": "integers",
+    "gen": "integers",
+    "integers": "integers",
+    "integer": "integers",
+    "binary": "integers",
+    "binaries": "integers",
+    "bin": "integers",
+    "semi-continuous": "integers",
+    "semis": "integers",
+    "semi": "integers",
+}
+
+#: An LP identifier not glued to a preceding number (``1e+05`` is a number,
+#: not the variable ``e``).
+_IDENT_RE = re.compile(r"(?<![A-Za-z0-9_.])[A-Za-z_][A-Za-z0-9_.\[\]]*")
+_LABEL_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_.\[\]]*)\s*:")
+_NOT_VARIABLES = {"inf", "infinity", "free"}
+
+
+def _parse_lp_text(text: str) -> tuple[list[str], list[str]]:
+    """Column and row names of a CPLEX-format LP text.
+
+    Columns are collected from every section that names them (objective,
+    constraints, bounds, integer sections), not only from ``Bounds``:
+    writers omit default ``[0, +inf)`` bounds, so a bounds-only scan
+    misses most columns.  Row names are the ``name:`` labels of the
+    constraints section.  Both lists keep first-seen order, deduplicated.
+    """
+    cols: dict[str, None] = {}
+    rows: list[str] = []
+    section: str | None = None
     for line in text.splitlines():
-        stripped = line.strip().lower()
-
-        if stripped.startswith("\\"):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("\\"):
             continue
-
-        if stripped in ("minimize", "minimize", "min"):
-            section = "objective"
-            continue
-        if stripped.startswith("subject to") or stripped == "s.t." or stripped == "st":
-            section = "constraints"
-            continue
-        if stripped == "bounds":
-            section = "bounds"
-            continue
-        if stripped in (
-            "generals",
-            "general",
-            "integers",
-            "integer",
-            "binary",
-            "binaries",
-        ):
-            section = "integers"
-            continue
-        if stripped == "end":
+        key = " ".join(stripped.lower().split())
+        if key == "end":
             break
-
-        if section == "constraints":
-            # Row names appear as "name:" at the start of constraint lines
-            match = re.match(r"^\s*([A-Za-z_][A-Za-z0-9_:.]*)\s*:", line)
-            if match:
-                row_names.append(match.group(1))
-
-        if section == "bounds":
-            # Variable names appear in bounds lines
-            for match in var_re.finditer(line):
-                name = match.group()
-                if name.lower() not in ("inf", "infinity", "free"):
-                    col_names.append(name)
-
-    # Deduplicate col_names (same var may appear in bounds multiple times)
-    seen: set[str] = set()
-    unique_cols: list[str] = []
-    for c in col_names:
-        if c not in seen:
-            seen.add(c)
-            unique_cols.append(c)
-
-    return unique_cols, row_names
+        if key in _SECTION_KEYWORDS:
+            section = _SECTION_KEYWORDS[key]
+            continue
+        if section is None:
+            continue
+        body = line
+        label = _LABEL_RE.match(line)
+        if label and section in ("objective", "constraints"):
+            if section == "constraints":
+                rows.append(label.group(1))
+            body = line[label.end() :]
+        for match in _IDENT_RE.finditer(body):
+            name = match.group()
+            if name.lower() not in _NOT_VARIABLES:
+                cols.setdefault(name, None)
+    return list(cols), rows
 
 
 def compute_from_lp_file(path: Path) -> LpFingerprint:
@@ -234,7 +309,14 @@ def compute_from_lp_file(path: Path) -> LpFingerprint:
 
 
 def load_fingerprint_json(path: Path) -> LpFingerprint:
-    """Load an LP fingerprint from a JSON file (as produced by gtopt)."""
+    """Load an LP fingerprint from a JSON file (as produced by gtopt).
+
+    The hashes are RECOMPUTED from the templates, never taken on trust.
+    Raises :class:`FingerprintError` when the file carries an empty hash
+    (gtopt did not compute the fingerprint), an empty template, or stored
+    hashes that do not match the templates (the file was edited or is
+    corrupt).
+    """
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
 
@@ -252,9 +334,24 @@ def load_fingerprint_json(path: Path) -> LpFingerprint:
     )
     fp.untracked_cols = structural["columns"].get("untracked_count", 0)
     fp.untracked_rows = structural["rows"].get("untracked_count", 0)
-    fp.col_hash = structural["columns"]["hash"]
-    fp.row_hash = structural["rows"]["hash"]
-    fp.structural_hash = structural["hash"]
+    stored = (
+        structural["columns"].get("hash", ""),
+        structural["rows"].get("hash", ""),
+        structural.get("hash", ""),
+    )
+    if not all(stored):
+        raise FingerprintError(
+            f"{path}: empty fingerprint hash (the run did not compute the "
+            "LP fingerprint)"
+        )
+    if not fp.col_template and not fp.row_template:
+        raise FingerprintError(f"{path}: empty fingerprint template")
+    _rehash(fp)
+    if stored != (fp.col_hash, fp.row_hash, fp.structural_hash):
+        raise FingerprintError(
+            f"{path}: stored hashes do not match the templates "
+            "(edited or corrupt fingerprint file)"
+        )
 
     fp.stats.total_cols = stats_data.get("total_cols", 0)
     fp.stats.total_rows = stats_data.get("total_rows", 0)

@@ -52,6 +52,7 @@ from gtopt_expand.pmin_flowright_expand import (
 )
 from gtopt_expand.pumped_storage_expand import expand_pumped_storage_from_file
 from gtopt_expand.ror_expand import DEFAULT_ROR_CSV, expand_ror_from_file
+from gtopt_shared import safe_archive
 
 
 class _StageList:
@@ -682,7 +683,8 @@ def _run_pumped_storage(args: argparse.Namespace) -> Path:
             uid_start=args.uid_start + idx * 16,
         )
         unit_name = fragment["generator_array"][0]["name"].removeprefix("hydro_")
-        output_path = out_dir / f"{unit_name}.json"
+        # The unit name comes from the input file: keep it one component.
+        output_path = safe_archive.safe_child(out_dir, f"{unit_name}.json")
         with open(output_path, "w", encoding="utf-8") as fh:
             json.dump({"system": fragment}, fh, indent=2, sort_keys=False)
             fh.write("\n")

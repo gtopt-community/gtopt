@@ -32,9 +32,9 @@ from collections.abc import Iterable, Mapping, MutableMapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from xml.etree import ElementTree as ET
 
 from gtopt_shared.source_versions import SourceFormat, apply_source_version
+from gtopt_shared import safe_xml
 
 logger = logging.getLogger(__name__)
 
@@ -236,7 +236,7 @@ def read_xml_config(xml_path: Path | str) -> dict[str, str]:
     """``{element: value}`` of the XML ``t_config`` table."""
     out: dict[str, str] = {}
     seen = False
-    for _ev, elem in ET.iterparse(str(xml_path), events=("end",)):
+    for _ev, elem in safe_xml.iterparse(xml_path, events=("end",)):
         tag = elem.tag.rsplit("}", 1)[-1]
         if tag == "t_config":
             seen = True

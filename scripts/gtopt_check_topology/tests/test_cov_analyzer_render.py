@@ -689,7 +689,10 @@ def test_cli_quiet_outputs_and_fatal_exit(tmp_path: Path, capsys):
     assert "Wrote" not in capsys.readouterr().out
 
 
-def test_cli_both_strict_flags_verbose(tmp_path: Path, capsys):
+def test_cli_both_strict_flags_verbose(tmp_path: Path, capsys, monkeypatch):
+    # Rich wraps at the terminal width; a long tmp_path (e.g. the per-test
+    # TMPDIR under a build tree) would split the message across lines.
+    monkeypatch.setenv("COLUMNS", "1000")
     plan = _write_plan(tmp_path / "p.json", _fatal_plan())
     with pytest.warns(DeprecationWarning):
         main(

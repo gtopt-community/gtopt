@@ -967,7 +967,7 @@ def check_renewable_curtailment(
         # whether the spillover dataset had any rows.  Mirrors the
         # wide-form all-zero path below where each profile is added to
         # ``curtailment_data`` with its computed (zero) energy.
-        for profile_uid, pname in profile_uid_name.items():
+        for pname in profile_uid_name.values():
             curtailment_data[pname] = 0.0
         return findings, curtailment_data
 

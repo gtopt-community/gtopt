@@ -742,8 +742,10 @@ def test_fail_on_not_converged(
     monkeypatch.setattr(
         main_mod, "sanitize_json", rec.fake("sanitize", case / "case.json")
     )
+    # gtopt gets the case directory (no sanitized copy): with no
+    # options.output_directory it writes to <case>/results.
     monkeypatch.setattr(
-        main_mod, "run_gtopt", _status_writer(case / "output", status, rec)
+        main_mod, "run_gtopt", _status_writer(case / "results", status, rec)
     )
     argv = [str(case), "--no-check"] + (["--fail-on-not-converged"] if flag else [])
     assert _exit_code(argv) == code

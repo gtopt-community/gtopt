@@ -34,7 +34,7 @@ from .stage_parser import StageParser
 from .base_parser import BaseParser
 
 
-class BaseWriter(ABC):
+class BaseWriter(ABC):  # noqa: B024 - shared base, no abstract API
     """Base class for all GTOPT JSON writers."""
 
     def get_items(self) -> Optional[List[Dict[str, Any]]]:

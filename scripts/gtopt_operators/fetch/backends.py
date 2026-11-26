@@ -36,6 +36,8 @@ from gtopt_operators.fetch.cache import (
     write_manifest,
 )
 from gtopt_operators.registry import DatasetSpec, SourceRegistry, compile_pattern
+from gtopt_operators.tls import tls_verify
+from gtopt_shared import safe_archive
 
 if TYPE_CHECKING:  # pragma: no cover
     from cen2gtopt.pcp_archive import PcpFile
@@ -107,7 +109,7 @@ def http_download(url: str, dest: Path, *, timeout: int = 600) -> Path:
     tmp = dest.with_name(dest.name + ".part")
     _LOG.info("download %s", strip_query(url))
     try:
-        with requests.get(url, stream=True, timeout=timeout, verify=True) as r:
+        with requests.get(url, stream=True, timeout=timeout, verify=tls_verify()) as r:
             r.raise_for_status()
             with tmp.open("wb") as fh:
                 for chunk in r.iter_content(chunk_size=1 << 20):
@@ -223,7 +225,7 @@ def _unwrap(
                 continue
             out = req.cache_dir / base
             with zf.open(member) as fi, out.open("wb") as fo:
-                shutil.copyfileobj(fi, fo, 1 << 20)
+                safe_archive.copy_limited(fi, fo)
             files.append(out)
             entries.append(
                 ManifestEntry.for_file(

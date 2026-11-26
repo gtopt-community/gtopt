@@ -47,8 +47,10 @@ def test_find_planning_json_variants(tmp_path: Path) -> None:
 
 
 def test_default_is_output_next_to_json(tmp_path: Path) -> None:
+    """Without a JSON value: ``results`` for a case directory (gtopt's
+    directory-argument default), ``output`` next to a planning JSON."""
     case = _case(tmp_path)
-    assert resolve_output_dir(case) == case / "output"
+    assert resolve_output_dir(case) == case / "results"
     assert resolve_output_dir(case / "c.json") == case / "output"
 
 
@@ -85,8 +87,11 @@ def test_cli_override_is_cwd_relative(tmp_path: Path, extra: list[str]) -> None:
     ],
 )
 def test_set_override_beats_json(tmp_path: Path, extra: list[str]) -> None:
+    """``--set output_directory`` is relative to the CWD, like ``-d``."""
     case = _case(tmp_path, {"output_directory": "results"})
-    assert resolve_output_dir(case, extra) == case / "set_out"
+    cwd = tmp_path / "cwd"
+    assert resolve_output_dir(case, extra, cwd=cwd) == cwd / "set_out"
+    assert resolve_output_dir(case, ["-d", "cli", *extra], cwd=cwd) == cwd / "cli"
 
 
 def test_dangling_flags_and_missing_json(tmp_path: Path) -> None:
@@ -102,11 +107,11 @@ def test_bad_json_falls_back_to_default(tmp_path: Path) -> None:
     case = tmp_path / "bad"
     case.mkdir()
     (case / "bad.json").write_text("{not json", encoding="utf-8")
-    assert resolve_output_dir(case) == case / "output"
+    assert resolve_output_dir(case) == case / "results"
     (case / "bad.json").write_text("[1, 2]", encoding="utf-8")
-    assert resolve_output_dir(case) == case / "output"
+    assert resolve_output_dir(case / "bad.json") == case / "output"
     (case / "bad.json").write_text('{"options": {"output_directory": 3}}', "utf-8")
-    assert resolve_output_dir(case) == case / "output"
+    assert resolve_output_dir(case) == case / "results"
 
 
 def test_remove_stale_run_files_keeps_results_and_cuts(
@@ -231,7 +236,7 @@ def test_relative_case_gives_absolute_output_dir(
     monkeypatch.chdir(tmp_path)
     out = resolve_output_dir(Path("c"))
     assert out.is_absolute()
-    assert out == tmp_path / "c" / "output"
+    assert out == tmp_path / "c" / "results"
 
 
 def test_latest_gtopt_log(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

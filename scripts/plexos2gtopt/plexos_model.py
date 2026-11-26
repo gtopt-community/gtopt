@@ -50,6 +50,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from gtopt_shared import safe_xml
+
 from ._numfmt import fmt_exact
 from .entities import PUMPED_STORAGE_BATTERY_SUFFIX
 from .plexos_xml import NS
@@ -925,7 +927,7 @@ def materialise_model(
         n_days=opts.n_days,
         sample=opts.sample,
     )
-    tree = ET.parse(xml_path)
+    tree = safe_xml.parse(xml_path)
     root = tree.getroot()
     db = _Db(root)
     _moid, scen = _model_scenarios(db, opts.model)

@@ -53,6 +53,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from gtopt_config import get_version
+from gtopt_shared import safe_archive
 
 from ._config import default_config_path, load_config
 
@@ -282,7 +283,7 @@ def _unwrap_outer(zip_path: Path, dest_dir: Path) -> list[Path]:
     extracted: list[Path] = []
     with zipfile.ZipFile(zip_path) as zf:
         for member in zf.namelist():
-            zf.extract(member, dest_dir)
+            safe_archive.extract_zip_member(zf, member, dest_dir)
             extracted.append(dest_dir / member)
     return extracted
 

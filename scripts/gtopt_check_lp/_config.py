@@ -196,7 +196,7 @@ def print_solver_status(use_color: bool = True) -> None:
 
     print(_c(col._BOLD, "\nSolver availability:"))  # noqa: SLF001
     any_missing = False
-    for _binary, label, installed, hint in get_solver_status():
+    for _binary, label, installed, _hint in get_solver_status():
         if installed:
             mark = _c(col._GREEN, "✓")  # noqa: SLF001
             print(f"  {mark} {label}")

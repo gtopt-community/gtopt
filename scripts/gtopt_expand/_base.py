@@ -334,7 +334,8 @@ class _RightsAgreementBase:
         # applies `finalize=_json_finalize`, which is correct for `.tson`
         # templates (rendered as JSON) but wrong for `.tampl` templates,
         # which expect bare AMPL identifiers.  Keep a separate env.
-        env = jinja2.Environment(
+        # AMPL / JSON templates, not HTML: no autoescape.
+        env = jinja2.Environment(  # noqa: S701
             loader=jinja2.FileSystemLoader(str(_TEMPLATE_DIR)),
             keep_trailing_newline=True,
             undefined=jinja2.StrictUndefined,

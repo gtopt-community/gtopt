@@ -31,6 +31,7 @@ import zipfile
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
+from gtopt_shared import safe_archive
 
 from .plexos_csv import densify_dated_csv
 
@@ -179,7 +180,7 @@ class PlexosBundle:
 def _unwrap_outer(zip_path: Path, dest: Path) -> Path:
     """Extract a ``PLEXOS*.zip`` outer wrapper; return the DATOS zip path."""
     with zipfile.ZipFile(zip_path) as zf:
-        zf.extractall(dest)
+        safe_archive.extractall_zip(zf, dest)
     inner_datos = sorted(dest.glob("DATOS*.zip"))
     if not inner_datos:
         raise ValueError(
@@ -192,12 +193,8 @@ def _extract_xz_zip(xz_path: Path, dest_dir: Path) -> Path:
     """Decompress ``*.zip.xz`` to ``dest_dir`` and return the resulting zip path."""
     out_zip = dest_dir / xz_path.name.removesuffix(".xz")
     with lzma.open(xz_path, "rb") as src, out_zip.open("wb") as dst:
-        # 1 MiB chunks keep peak memory bounded for the 18 MB PCP files.
-        while True:
-            chunk = src.read(1 << 20)
-            if not chunk:
-                break
-            dst.write(chunk)
+        # 1 MiB chunks keep peak memory bounded; the total is capped.
+        safe_archive.copy_limited(src, dst, what=str(xz_path))
     return out_zip
 
 
@@ -226,9 +223,8 @@ def _locate_xml_file(xml_input: Path) -> PlexosBundle:
     try:
         out_xml = Path(tmp.name) / xml_name
         with lzma.open(xml_input, "rb") as src, out_xml.open("wb") as dst:
-            while chunk := src.read(1 << 20):
-                dst.write(chunk)
-    except (OSError, lzma.LZMAError):
+            safe_archive.copy_limited(src, dst, what=str(xml_input))
+    except (OSError, lzma.LZMAError, safe_archive.ArchiveLimitError):
         tmp.cleanup()
         raise
     logger.info("decompressed PLEXOS XML %s -> %s", xml_input, tmp.name)
@@ -240,7 +236,7 @@ def _locate_xml_file(xml_input: Path) -> PlexosBundle:
 def _extract_zip(zip_path: Path, dest_dir: Path) -> Path:
     """Extract a ``DATOS*.zip`` into ``dest_dir`` and return its path."""
     with zipfile.ZipFile(zip_path) as zf:
-        zf.extractall(dest_dir)
+        safe_archive.extractall_zip(zf, dest_dir)
     return dest_dir
 
 

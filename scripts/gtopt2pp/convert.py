@@ -332,7 +332,7 @@ def _read_file_sched_value(
             else:
                 df = pd.read_csv(fpath)
             break
-        except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        except Exception:  # noqa: BLE001, S112  # pylint: disable=broad-exception-caught
             continue
 
     if df is None:

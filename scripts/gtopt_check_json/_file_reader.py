@@ -60,7 +60,7 @@ def try_read_table(
             else:
                 df = pd.read_csv(fpath)
             return _pivot_long_to_wide(df)
-        except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        except Exception:  # noqa: BLE001, S112  # pylint: disable=broad-exception-caught
             continue
     return None
 

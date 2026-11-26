@@ -4,13 +4,14 @@
 gtopt picks the output directory with this precedence (see
 ``resolve_log_directory`` / ``gtopt_main`` in ``source/gtopt_main.cpp``):
 
-1. CLI ``-d/--output-directory DIR`` — taken relative to the CWD;
+1. CLI ``-d/--output-directory DIR``;
 2. ``--set output_directory=DIR``;
 3. ``options.output_directory`` in the planning JSON;
-4. the compiled-in default ``output``.
+4. the default: ``results`` inside the case directory when gtopt is given
+   a directory (``gtopt case/``), else the compiled-in ``output``.
 
-A relative value from 2-4 is anchored at the planning JSON's parent
-directory.  run_gtopt uses this single resolver for the stale-file
+A relative value from 1-2 (the command line) is taken relative to the
+CWD; one from 3-4 is anchored at the planning JSON's parent directory.  run_gtopt uses this single resolver for the stale-file
 cleanup, the TUI status / stop file, the post-run report and the
 post-flight checks so all of them look where gtopt actually wrote.
 """
@@ -22,17 +23,22 @@ import logging
 import time
 from pathlib import Path
 
+from gtopt_shared.status import STATUS_FILE, STOP_REQUEST_FILE
+
 log = logging.getLogger(__name__)
 
 #: gtopt's compiled-in ``PlanningOptionsLP::default_output_directory``.
 DEFAULT_OUTPUT_DIRECTORY = "output"
+
+#: Default when gtopt gets a case *directory* (``resolve_planning_args``).
+DIRECTORY_ARG_OUTPUT_DIRECTORY = "results"
 
 #: Files a previous run leaves in the output directory that would mislead
 #: the next one: a stale status file makes the dashboard / report show the
 #: old run, and a stale stop request makes a new SDDP run stop right after
 #: its first iteration (gtopt never deletes it).  Nothing else — results,
 #: cuts, logs — is ever removed by run_gtopt.
-STALE_RUN_FILES = ("solver_status.json", "sddp_stop_request.json")
+STALE_RUN_FILES = (STATUS_FILE, STOP_REQUEST_FILE)
 
 
 def find_planning_json(case: Path) -> Path | None:
@@ -108,16 +114,18 @@ def _resolve_output_dir(
 ) -> Path:
     args = extra_args or []
     base_cwd = cwd or Path.cwd()
-    cli = _option_value(args, ("-d", "--output-directory"))
+    cli = _option_value(args, ("-d", "--output-directory")) or _set_value(
+        args, "output_directory"
+    )
     if cli:
         path = Path(cli)
         return path if path.is_absolute() else base_cwd / path
 
     json_path = find_planning_json(case)
-    value = (
-        _set_value(args, "output_directory")
-        or _json_output_directory(json_path)
-        or DEFAULT_OUTPUT_DIRECTORY
+    # gtopt expands a directory argument only to ``dir/<dir name>.json``.
+    dir_arg = case.is_dir() and json_path == case / f"{case.name}.json"
+    value = _json_output_directory(json_path) or (
+        DIRECTORY_ARG_OUTPUT_DIRECTORY if dir_arg else DEFAULT_OUTPUT_DIRECTORY
     )
     path = Path(value)
     if path.is_absolute():
@@ -146,7 +154,7 @@ def remove_stale_run_files(output_dir: Path) -> list[Path]:
             log.warning("could not remove stale %s: %s", path, exc)
             continue
         removed.append(path)
-        if name == "sddp_stop_request.json":
+        if name == STOP_REQUEST_FILE:
             log.warning(
                 "removed a stop request left by a previous run: %s "
                 "(it would have stopped this run after one iteration)",
@@ -155,10 +163,6 @@ def remove_stale_run_files(output_dir: Path) -> list[Path]:
         else:
             log.info("removed stale %s from a previous run", path)
     return removed
-
-
-#: The stop-request file gtopt's SDDP loop polls (``sddp_file::stop_request``).
-STOP_REQUEST_FILE = "sddp_stop_request.json"
 
 
 def write_stop_request(output_dir: Path, source: str = "run_gtopt") -> Path | None:

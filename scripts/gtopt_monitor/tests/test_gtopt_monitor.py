@@ -93,12 +93,10 @@ class TestLoadStatus:
         assert result is None
 
     def test_load_json_array(self, tmp_path: Path) -> None:
-        """Loading a valid JSON array (not a dict) returns the parsed value."""
+        """A JSON array is not a status object: None (shared reader)."""
         arr_file = tmp_path / "array.json"
         arr_file.write_text("[1, 2, 3]", encoding="utf-8")
-        result = load_status(arr_file)
-        # The function does not enforce dict type; it returns whatever json.loads yields.
-        assert result == [1, 2, 3]
+        assert load_status(arr_file) is None
 
     def test_load_directory_path(self, tmp_path: Path) -> None:
         """Passing a directory path returns None (OSError)."""

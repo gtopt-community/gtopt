@@ -1,9 +1,11 @@
 # HiGHS warm-start options — loaded by the gtopt HiGHS backend (via
 # Highs::readOptions) as a sibling of the case's main highs options file
 # when SolverOptions::advanced_basis is active.  Mirrors cplex_warmstart.prm.
-# Warm primal simplex off the resident basis; presolve/crossover off so the
-# basis is reused.  simplex_strategy 4 = primal (1 = dual).
+# Warm simplex off the resident basis; presolve/crossover off so the
+# basis is reused.  No `simplex_strategy` on purpose: the warm simplex
+# method comes from the typed `algorithm` (dual -> 1, otherwise 4 primal,
+# set in code).  This file is applied last, so pinning it here would
+# override the `algorithm = dual` plp2gtopt writes for SDDP / cascade.
 solver = simplex
 presolve = off
 run_crossover = off
-simplex_strategy = 4

@@ -15,6 +15,7 @@ from gtopt_check_output._reader import (
     read_table,
     streaming_uid_stats,
     streaming_uid_sum,
+    streaming_sol_weighted_sum_per_uid,
     streaming_uid_sum_per_col,
 )
 
@@ -267,6 +268,29 @@ def test_streaming_uid_sum_per_col_layouts_agree(tmp_path: Path):
     ds_long = open_dataset(long_dir, "Generator/generation_sol")
     assert ds_long is not None
     assert streaming_uid_sum_per_col(ds_long) == expected
+
+
+def test_long_dataset_int32_keys_above_uint16(tmp_path: Path):
+    """gtopt writes the long-form key columns as int32 (they were uint16
+    and wrapped uids >= 65536).  The streaming readers must keep uids
+    and block uids beyond 16 bits intact."""
+    df = pd.DataFrame(
+        {
+            "scenario": pd.array([65537, 65537], dtype="int32"),
+            "stage": pd.array([66000, 66000], dtype="int32"),
+            "block": pd.array([70000, 70001], dtype="int32"),
+            "uid": pd.array([70000, 100001], dtype="int32"),
+            "value": [10.0, 5.0],
+        }
+    )
+    stem_dir = tmp_path / "Generator" / "generation_sol.parquet"
+    _write_hive_partition(stem_dir, 0, 0, df)
+    ds = open_dataset(tmp_path, "Generator/generation_sol")
+    assert ds is not None
+    assert dataset_layout(ds) == "long"
+    assert streaming_uid_sum_per_col(ds) == {70000: 10.0, 100001: 5.0}
+    weighted = streaming_sol_weighted_sum_per_uid(ds, {70000: 2.0, 70001: 3.0})
+    assert weighted == {70000: 20.0, 100001: 15.0}
 
 
 def test_streaming_uid_stats_long_count_excludes_zeros(tmp_path: Path):

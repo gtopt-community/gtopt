@@ -1,0 +1,136 @@
+[2026-11-25 17:23:21.918] [info] starting gtopt 1.1.0 (0794d659fc37)
+[2026-11-25 17:23:21.919] [info] jemalloc: background_thread purge enabled
+[2026-11-25 17:23:21.919] [info]   Parsing input file sddp_hydro_3phase.json
+[2026-11-25 17:23:21.919] [info]   Parse all input files time 0.000s
+[2026-11-25 17:23:21.919] [info] Planning validation passed
+[2026-11-25 17:23:21.920] [info]   Write system json file time 0.000s
+[2026-11-25 17:23:21.920] [info]   pre-solve state snapshot: output/gtopt_state.json
+[2026-11-25 17:23:21.920] [info]   output README: output/README.md
+[2026-11-25 17:23:21.920] [info] === System statistics ===
+[2026-11-25 17:23:21.920] [info]   system             : sddp_hydro_3phase
+[2026-11-25 17:23:21.920] [info] === System elements ===
+[2026-11-25 17:23:21.920] [info]   version            :
+[2026-11-25 17:23:21.920] [info]   buses              : 1
+[2026-11-25 17:23:21.920] [info]   generators         : 2
+[2026-11-25 17:23:21.920] [info]   demands            : 1
+[2026-11-25 17:23:21.920] [info]   lines              : 0
+[2026-11-25 17:23:21.920] [info]   junctions          : 2
+[2026-11-25 17:23:21.920] [info]   flows              : 1
+[2026-11-25 17:23:21.920] [info]   waterways          : 1
+[2026-11-25 17:23:21.920] [info]   reservoirs         : 1
+[2026-11-25 17:23:21.920] [info]   turbines           : 1
+[2026-11-25 17:23:21.920] [info] === Simulation ===
+[2026-11-25 17:23:21.920] [info]   blocks             : 72
+[2026-11-25 17:23:21.920] [info]   stages             : 3
+[2026-11-25 17:23:21.920] [info]   scenarios          : 1
+[2026-11-25 17:23:21.920] [info] === Key options ===
+[2026-11-25 17:23:21.920] [info]   use_kirchhoff      : false
+[2026-11-25 17:23:21.920] [info]   kirchhoff_mode     : cycle_basis (default)
+[2026-11-25 17:23:21.920] [info]   tiny_reactance_mode : tie (default)
+[2026-11-25 17:23:21.920] [info]   use_single_bus     : true
+[2026-11-25 17:23:21.920] [info]   scale_objective    : 1
+[2026-11-25 17:23:21.920] [info]   scale_theta        : auto (1/(3·median X/V²))
+[2026-11-25 17:23:21.920] [info]   scale_loss_link    : auto (median R/V²)
+[2026-11-25 17:23:21.920] [info]   loss_cost_eps      : 0 (default; no per-MWh loss cost)
+[2026-11-25 17:23:21.920] [info]   equilibration      : row_max (default)
+[2026-11-25 17:23:21.920] [info]   demand_fail_cost   : 1000
+[2026-11-25 17:23:21.920] [info]   input_directory    : (default)
+[2026-11-25 17:23:21.920] [info]   output_directory   : (default)
+[2026-11-25 17:23:21.920] [info]   output_format      : csv
+[2026-11-25 17:23:21.920] [info]   Memory before LP build: rss=28 MiB, available=220.1 GiB, input schedules ≈ 0.0 MiB (2 generators / 1 demands / 0 lines / 1 reservoirs / 1 waterways / 0 batteries)
+[2026-11-25 17:23:21.920] [info] === Building LP model ===
+[2026-11-25 17:23:21.925] [info]   Building LP: 1 scene(s) × 3 phase(s) [mode=scene-parallel]
+[2026-11-25 17:23:21.925] [info]   low_memory=compress (memory codec: zstd)
+[2026-11-25 17:23:21.926] [info]   PlanningLP initial build pool initialized: 80 max threads, 99% CPU threshold, 4096 MB min free mem, 90% max mem, 2048 MB max VmSwap (while growing > 64 MB/5.0s)
+[2026-11-25 17:23:21.927] [info]   Submitted 1 scene tasks to work pool, waiting for workers...
+[2026-11-25 17:23:21.930] [info]   Loaded solver plugin 'highs' from <plugin_dir>/libgtopt_solver_highs.so (solvers: highs)
+[2026-11-25 17:23:21.935] [info]   first snapshot compressed: 13576 -> 0 bytes (+908 shared base, codec zstd)
+[2026-11-25 17:23:21.936] [info]     First LP cell built on worker tid=1 (0.009s)
+[2026-11-25 17:23:21.937] [info] [PlanningLP initial build pool] Final: 1 tasks dispatched, 1 completed, avg CPU 50.0%, avg mem delta 0.4 MB, wall 0.0s
+[2026-11-25 17:23:21.937] [info]   Build lp time 0.017s — solver=highs/1.15.0
+[2026-11-25 17:23:21.937] [info]   Building LP done in 0.012s (mode=scene-parallel, cells=3, peak_parallel=1, worker_threads=1, total_cell_cpu=0.010s, parallelism=0.82x)
+[2026-11-25 17:23:21.937] [info]   Memory after LP build:  rss=0.04 GiB (+12 MiB build delta — flat-LP arrays + lz4-compressed snapshots; original parquet input is dropped after each cell's flatten so System retains only scalars + file references)
+[2026-11-25 17:23:21.937] [info] === System optimization ===
+[2026-11-25 17:23:21.937] [info]   LP coefficient analysis: 3 LP(s), stats unavailable (compute_stats disabled or low-memory path)
+[2026-11-25 17:23:21.937] [info] SDDPMethod: starting 1 scene(s) × 3 phase(s)
+[2026-11-25 17:23:21.937] [info] SDDP: initializing solver (no initial solve pass)
+[2026-11-25 17:23:21.937] [info] SDDP: 1 scene(s), 3 phase(s)
+[2026-11-25 17:23:21.937] [info] SDDP Aperture: chunk_mode=per_scene chunk_size=1 (A_max=0 S=1 cores=40)
+[2026-11-25 17:23:21.937] [info] SDDP: low_memory mode compress (codec: zstd)
+[2026-11-25 17:23:21.938] [info] SDDP: auto scale_alpha = 1.00e+01 (raw_estimate=3.000e+00 = max_lp_coef=1.000e+00 × scale_obj=1 × num_phases=3)
+[2026-11-25 17:23:21.938] [info] SDDP: adding alpha variables and collecting state links
+[2026-11-25 17:23:21.938] [info]   SDDP alpha-setup pool initialized: 160 max threads, 99% CPU threshold, 4096 MB min free mem, 90% max mem, 2048 MB max VmSwap (while growing > 64 MB/5.0s)
+[2026-11-25 17:23:21.938] [info] [SDDP alpha-setup pool] Final: 1 tasks dispatched, 1 completed, avg CPU 0.0%, avg mem delta 0.2 MB, wall 0.0s
+[2026-11-25 17:23:21.938] [info] SDDP HotStart: cuts=cold boundary=none iter_offset=0
+[2026-11-25 17:23:21.938] [info]   SDDP backend-release pool initialized: 160 max threads, 99% CPU threshold, 4096 MB min free mem, 90% max mem, 2048 MB max VmSwap (while growing > 64 MB/5.0s)
+[2026-11-25 17:23:21.939] [info] [SDDP backend-release pool] Final: 3 tasks dispatched, 3 completed, avg CPU 50.0%, avg mem delta 0.0 MB, wall 0.0s
+[2026-11-25 17:23:21.939] [info] SDDP: initialization complete (0.00s)
+[2026-11-25 17:23:21.939] [info] SDDP work pool cpu_factor=4 (auto: scenes=1 cores=40)
+[2026-11-25 17:23:21.939] [info]   SDDPWorkPool initialized: 161 max threads, 99% CPU threshold, 1024 MB min free mem, 97% max mem, 227901 MB max RSS, 2048 MB max VmSwap (while growing > 64 MB/5.0s)
+[2026-11-25 17:23:21.940] [info] SDDP work pool started: max_threads=161 (ceiling=161 = base 160 + cell_headroom 1) cpu_threshold=99% rss_budget=227901MB (auto 0.90xRAM) (physical_cores=40 logical_cores=40)
+[2026-11-25 17:23:21.940] [info]   SDDP aux pool initialized: 80 max threads, 99% CPU threshold, 4096 MB min free mem, 90% max mem, 2048 MB max VmSwap (while growing > 64 MB/5.0s)
+[2026-11-25 17:23:21.940] [info] SDDP: work pools created (0.00s)
+[2026-11-25 17:23:21.940] [info] SDDP Iter [i1]: === starting (1 of 100) ===
+[2026-11-25 17:23:21.940] [info] SDDP Forward [i1]: dispatching 1/1 active scene(s) × 3 phase(s) (cut_sharing=none, apertures=enabled)
+[2026-11-25 17:23:21.964] [info] SDDP Forward [i1 s0 p1]: opex=104.700000K (obj=104.700000K, α=0.000000)
+[2026-11-25 17:23:21.966] [info] SDDP Forward [i1 s0 p2]: opex=109.200000K (obj=109.200000K, α=0.000000)
+[2026-11-25 17:23:21.968] [info] SDDP Forward [i1 s0 p3]: opex=109.200000K (obj=109.200000K, α=0.000000)
+[2026-11-25 17:23:21.968] [info] SDDP Forward [i1 s0]: done, opex=323.100000K (0.0s) [thread 214]
+[2026-11-25 17:23:21.968] [info] SDDP Backward [i1]: dispatching 1 scene(s) to work pool (cut_sharing=none, apertures=enabled)
+[2026-11-25 17:23:21.969] [info] SDDP Backward [i1 s0 p3/2]: cut z=109.200000K (α≥109.200000K, links=1/1)
+[2026-11-25 17:23:21.971] [info] SDDP Backward [i1 s0 p2/2]: cut z=218.400000K (α≥218.400000K, links=1/1)
+[2026-11-25 17:23:21.973] [info] SDDP Backward [i1]: step-avg(ms) rebuild=0.16 build=0.00 add_row=0.02 store=0.00 resolve=1.91 kappa=0.00 — 2 step(s), total(s) rebuild=0.00 build=0.00 add_row=0.00 store=0.00 resolve=0.00 kappa=0.00
+[2026-11-25 17:23:21.973] [info] ─── iter 1 ───  elapsed=  33ms  ETA=  1.6s
+[2026-11-25 17:23:21.973] [info]     iter 1  obj   ub=323.100000K  lb=104.700000K  gap=+67.5952%  Δgap=+100.0000% kappa=1.07e+02
+[2026-11-25 17:23:21.973] [info]     iter 1  time  total=  33ms  (fwd=  28ms + bwd=   5ms)  cuts=2
+[2026-11-25 17:23:21.976] [info] SDDP Iter [i1]: save_cuts_for_iteration 0.00s — combined=0.00s per_scene=0.00s rename=0.000s (parallel=yes)
+[2026-11-25 17:23:21.976] [info] SDDP Iter [i1]: post-iter 0.00s — api=0.000s save=0.00s release=0.000s callback=0.000s
+[2026-11-25 17:23:21.976] [info] SDDP Iter [i2]: === starting (2 of 100) ===
+[2026-11-25 17:23:21.976] [info] SDDP Forward [i2]: dispatching 1/1 active scene(s) × 3 phase(s) (cut_sharing=none, apertures=enabled)
+[2026-11-25 17:23:21.977] [info] SDDP Forward [i2 s0 p1]: opex=104.700000K (obj=323.100000K, α=218.400000K)
+[2026-11-25 17:23:21.978] [info] SDDP Forward [i2 s0 p2]: opex=109.200000K (obj=218.400000K, α=109.200000K)
+[2026-11-25 17:23:21.978] [info] SDDP Forward [i2 s0 p3]: opex=109.200000K (obj=109.200000K, α=0.000000)
+[2026-11-25 17:23:21.978] [info] SDDP Forward [i2 s0]: done, opex=323.100000K (0.0s) [thread 214]
+[2026-11-25 17:23:21.978] [info] SDDP Backward [i2]: dispatching 1 scene(s) to work pool (cut_sharing=none, apertures=enabled)
+[2026-11-25 17:23:21.979] [info] SDDP Backward [i2 s0 p3/2]: cut z=109.200000K (α≥109.200000K, links=1/1)
+[2026-11-25 17:23:21.981] [info] SDDP Backward [i2 s0 p2/2]: cut z=218.400000K (α≥218.400000K, links=1/1)
+[2026-11-25 17:23:21.983] [info] SDDP Backward [i2]: step-avg(ms) rebuild=0.16 build=0.00 add_row=0.01 store=0.00 resolve=1.83 kappa=0.00 — 2 step(s), total(s) rebuild=0.00 build=0.00 add_row=0.00 store=0.00 resolve=0.00 kappa=0.00
+[2026-11-25 17:23:21.983] [info] SDDP Iter [i2]: ΔUB stationary convergence (ΔUB=0.000000 < tol=0.005000; signed gap=0.0000) [CONVERGED]
+[2026-11-25 17:23:21.983] [info] ─── iter 2 ───  elapsed=  43ms  [CONVERGED]
+[2026-11-25 17:23:21.983] [info]     iter 2  obj   ub=323.100000K  lb=323.100000K  gap= +0.0000%  Δgap= +0.0000% kappa=1.95e+02
+[2026-11-25 17:23:21.983] [info]     iter 2  time  total=   7ms  (fwd=   2ms + bwd=   5ms)  cuts=2
+[2026-11-25 17:23:21.984] [info] SDDP Iter [i2]: save_cuts_for_iteration 0.00s — combined=0.00s per_scene=0.00s rename=0.000s (parallel=yes)
+[2026-11-25 17:23:21.984] [info] SDDP Iter [i2]: post-iter 0.00s — api=0.000s save=0.00s release=0.000s callback=0.000s
+[2026-11-25 17:23:21.984] [info] SDDP Sim [i3]: === simulation pass ===
+[2026-11-25 17:23:21.984] [info] SDDP Sim [i3]: Pass 1 attempt 1/4 — solve + populate cache
+[2026-11-25 17:23:21.984] [info] SDDP Forward [i3]: dispatching 1/1 active scene(s) × 3 phase(s) (cut_sharing=none, apertures=enabled)
+[2026-11-25 17:23:21.985] [info] SDDP Forward [i3 s0 p1]: opex=104.700000K (obj=323.100000K, α=218.400000K)
+[2026-11-25 17:23:21.985] [info] SDDP Forward [i3 s0 p2]: opex=109.200000K (obj=218.400000K, α=109.200000K)
+[2026-11-25 17:23:21.986] [info] SDDP Forward [i3 s0 p3]: opex=109.200000K (obj=109.200000K, α=0.000000)
+[2026-11-25 17:23:21.986] [info] SDDP Forward [i3 s0]: done, opex=323.100000K (0.0s) [thread 214]
+[2026-11-25 17:23:21.986] [info] SDDP Sim [i3]: Pass 1 done after 1 attempt(s)
+[2026-11-25 17:23:21.986] [info] SDDP Sim [i3]: done in 0.002s — ub=323.100000K lb=323.100000K gap=0.00% Δgap=0.00% [CONVERGED]
+[2026-11-25 17:23:21.987] [info] SDDP Iter [i3]: save_cuts_for_iteration 0.00s — combined=0.00s per_scene=0.00s rename=0.000s (parallel=yes)
+[2026-11-25 17:23:22.441] [info] SDDP: converged (gap=0.00%)
+[2026-11-25 17:23:22.441] [info]   Optimization time 0.503s
+[2026-11-25 17:23:22.441] [info] === Solution statistics ===
+[2026-11-25 17:23:22.441] [info]   Status          : optimal
+[2026-11-25 17:23:22.441] [info]   LP variables    : 194
+[2026-11-25 17:23:22.441] [info]   LP constraints  : 122
+[2026-11-25 17:23:22.441] [info]   Obj (unscaled)  : 323.100000K
+[2026-11-25 17:23:22.441] [info]   load_problem    : 20
+[2026-11-25 17:23:22.441] [info]   Obj (scaled)    : 323.100000K
+[2026-11-25 17:23:22.441] [info]   avg LP size     : 194 vars, 121 rows
+[2026-11-25 17:23:22.441] [info]   solves          : 17
+[2026-11-25 17:23:22.441] [info]   solve wall time : 0.034s (avg 0.002s / 17 solves)
+[2026-11-25 17:23:22.441] [info]   low_memory      : compress (20 load_problem for 3 cells, 17 solves)
+[2026-11-25 17:23:22.441] [info] compression[zstd]: 3 ops compressed 39.8 KB -> 2.7 KB (ratio 14.97x) in 0.00s (77 MB/s); 23 ops decompressed 20.4 KB -> 304.9 KB in 0.00s (379 MB/s)
+[2026-11-25 17:23:22.441] [info] === Output writing ===
+[2026-11-25 17:23:22.441] [info]   Writing output: 1 scene(s) × 3 phase(s)
+[2026-11-25 17:23:22.441] [info]   write_out: 3 cells in chunks of 1 (3 task(s)), 40 cores
+[2026-11-25 17:23:22.441] [info]   Solver kappa    : 195 (max across grid)
+[2026-11-25 17:23:22.441] [info]   PlanningLP write_out pool initialized: 40 max threads, 98% CPU threshold, 4096 MB min free mem, 90% max mem, 2048 MB max VmSwap (while growing > 64 MB/5.0s)
+[2026-11-25 17:23:22.460] [info] [PlanningLP write_out pool] Final: 3 tasks dispatched, 3 completed, avg CPU 33.3%, avg mem delta 0.0 MB, wall 0.0s
+[2026-11-25 17:23:22.461] [info]   Write system json file time 0.000s
+[2026-11-25 17:23:22.461] [info]   planning JSON saved to output/planning.json
+[2026-11-25 17:23:22.461] [info]   Write output time 0.020s (final flush; cumulative per-cell write_out wall 0.055s across 3 cells, avg 18.2 ms/cell)

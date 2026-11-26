@@ -2,10 +2,10 @@
 """Tests for the Rich terminal UI module."""
 
 import json
+import sys
 import threading
 import time
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -361,17 +361,16 @@ def test_is_interactive_in_tests():
     assert isinstance(result, bool)
 
 
-def test_is_interactive_true():
-    with patch("run_gtopt._tui.sys") as mock_sys:
-        mock_sys.stdout.isatty.return_value = True
-        import run_gtopt._tui as tui_mod
+def test_is_interactive_true(monkeypatch):
+    class _Tty:
+        def isatty(self):
+            return True
 
-        original = tui_mod.sys
-        tui_mod.sys = mock_sys
-        try:
-            assert tui_mod.is_interactive() is True
-        finally:
-            tui_mod.sys = original
+    monkeypatch.setattr(sys, "stdout", _Tty())
+    monkeypatch.delenv("TERM", raising=False)
+    import run_gtopt._tui as tui_mod
+
+    assert tui_mod.is_interactive() is True
 
 
 # ---------------------------------------------------------------------------
@@ -1383,9 +1382,13 @@ def test_grid_load_from_status_legacy_string():
     assert tracker.get_cell(0, 0, 5) == _GRID_BACKWARD
 
 
-def test_print_final_failure_shows_solver_errors(tmp_path: Path, capsys):
+def test_print_final_failure_shows_solver_errors(tmp_path: Path, capsys, monkeypatch):
     """The TUI failure banner carries gtopt's error, output tail and paths."""
     from run_gtopt._process import RunResult  # noqa: PLC0415
+
+    # The banner folds paths at the console width; a long tmp_path (e.g.
+    # the per-test TMPDIR under a build tree) would split the file name.
+    monkeypatch.setenv("GTOPT_TUI_WIDTH", "1000")
 
     display = SolverDisplay(case_name="ieee9", case_dir=tmp_path)
     display.print_final(

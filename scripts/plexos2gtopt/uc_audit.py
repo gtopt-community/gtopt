@@ -248,7 +248,7 @@ def _parse_lhs_terms(lhs_str: str) -> list[dict[str, Any]]:
             if ch == "-":
                 extra_sign *= -1
         coeff = float(tm.group("coeff"))
-        sign = 1 if sign_token != "-" else -1
+        sign = 1 if sign_token != "-" else -1  # noqa: S105 - not a secret
         terms.append(
             {
                 "coeff": sign * extra_sign * coeff,

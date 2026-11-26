@@ -12,6 +12,7 @@ from gtopt_shared.testing.snapshot import (
     _REFRESH_ENV_VAR,
     assert_golden_file,
     assert_snapshot,
+    assert_text_snapshot,
     canonicalise_json,
 )
 
@@ -121,3 +122,19 @@ def test_refresh_target_threads_into_messages(tmp_path: Path) -> None:
             tmp_path / "fixtures",
             refresh_target="my/test/path.py",
         )
+
+
+def test_assert_text_snapshot_round_trip(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Text goldens: refresh writes ``<name>.txt`` verbatim, then match;
+    a changed text fails."""
+    fixtures = tmp_path / "frames"
+    monkeypatch.setenv(_REFRESH_ENV_VAR, "1")
+    with pytest.raises(pytest.skip.Exception, match="golden fixture written"):
+        assert_text_snapshot("frame", "a\n  b\n", fixtures)
+    assert (fixtures / "frame.txt").read_text() == "a\n  b\n"
+    monkeypatch.delenv(_REFRESH_ENV_VAR)
+    assert_text_snapshot("frame", "a\n  b\n", fixtures)
+    with pytest.raises(AssertionError, match="frame output changed"):
+        assert_text_snapshot("frame", "a\n", fixtures)

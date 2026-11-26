@@ -44,6 +44,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from gtopt_operators.registry import endpoint_url
+from gtopt_shared.net import require_http_url
 
 SIPUB_BASE_URL = endpoint_url("cen", "sipub_v2")
 DEFAULT_ENDPOINT = "demanda_sistema_real"
@@ -60,8 +61,10 @@ def _default_fetcher(url: str, timeout: float = DEFAULT_TIMEOUT_S) -> Any:
 
     Uses :mod:`urllib` so the package has no third-party runtime deps.
     """
-    req = Request(url, headers={"Accept": "application/json"})
-    with urlopen(req, timeout=timeout) as resp:  # noqa: S310  # trusted HTTPS endpoint
+    req = Request(  # noqa: S310 - scheme checked
+        require_http_url(url), headers={"Accept": "application/json"}
+    )
+    with urlopen(req, timeout=timeout) as resp:  # noqa: S310
         return json.loads(resp.read().decode("utf-8"))
 
 

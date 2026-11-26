@@ -277,28 +277,31 @@ def test_tempdir_base_falls_back_to_home_tmp(
     assert (tmp_path / "tmp").is_dir()
 
 
-def test_extract_bundle_without_filter_support(
+def test_extract_bundle_refuses_unsafe_members(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Pythons without ``extractall(filter=...)`` use the plain call."""
+    """A cached archive with a link member is refused, nothing escapes."""
+    import zstandard  # pylint: disable=import-outside-toplevel
+
+    from gtopt_shared.safe_archive import (  # pylint: disable=import-outside-toplevel
+        ArchiveLimitError,
+    )
+
     monkeypatch.setenv("GTOPT_SIENNA_DATA_DIR", str(tmp_path / "cache"))
     monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp"))
     archive = _bundle.bundle_path("14bus")
     archive.parent.mkdir(parents=True)
-    archive.write_bytes(_bundle._pack("14bus", [("a.txt", b"hello")]))
-
-    orig = tarfile.TarFile.extractall
-
-    def no_filter(self: tarfile.TarFile, *args: object, **kwargs: object) -> None:
-        if "filter" in kwargs:
-            raise TypeError("unexpected keyword argument 'filter'")
-        orig(self, *args, filter="data", **kwargs)  # type: ignore[arg-type]
-
-    monkeypatch.setattr(tarfile.TarFile, "extractall", no_filter)
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tar:
+        link = tarfile.TarInfo("sienna_14bus/evil")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "/etc/passwd"
+        tar.addfile(link)
+    archive.write_bytes(zstandard.ZstdCompressor().compress(buf.getvalue()))
     _bundle.extract_bundle.cache_clear()
     try:
-        out = _bundle.extract_bundle("14bus")
-        assert (out / "a.txt").read_bytes() == b"hello"
+        with pytest.raises(ArchiveLimitError, match="unsafe"):
+            _bundle.extract_bundle("14bus")
     finally:
         _bundle.extract_bundle.cache_clear()
 

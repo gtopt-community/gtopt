@@ -28,6 +28,40 @@ _MAX_SHEET_NAME = 31
 _INVALID_CHARS = set(r":\/?*[]")
 
 
+#: Leading characters a spreadsheet may interpret as a formula
+#: (OWASP "CSV / formula injection").
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _is_number(text: str) -> bool:
+    try:
+        float(text)
+    except ValueError:
+        return False
+    return True
+
+
+def neutralise_cell(value: Any) -> Any:
+    """Return *value* safe to write to a spreadsheet cell.
+
+    Text that starts with ``=``, ``+``, ``-``, ``@``, a tab or a carriage
+    return (and is not a plain number such as ``-1.5``) gets a leading
+    apostrophe, so neither Excel nor a CSV re-export evaluates it as a
+    formula.  Non-text values pass through unchanged.
+    """
+    if (
+        isinstance(value, str)
+        and value.startswith(_FORMULA_PREFIXES)
+        and not _is_number(value)
+    ):
+        return "'" + value
+    return value
+
+
+def _safe_row(row: Any) -> list[Any]:
+    return [neutralise_cell(v) for v in row]
+
+
 def _safe_sheet_name(name: str, seen: set[str]) -> str:
     """Normalize a sheet name to Excel constraints and avoid collisions."""
     cleaned = "".join("_" if c in _INVALID_CHARS else c for c in name)
@@ -110,7 +144,7 @@ def export_from_dict(
         c.font = header_font
         c.fill = header_fill
         c.alignment = Alignment(horizontal="left")
-    ws.append(["Status", summary.get("status")])
+    ws.append(_safe_row(["Status", summary.get("status")]))
     ws.append(["Objective (physical units)", summary.get("obj_value")])
     ws.append(["Objective (LP raw)", summary.get("obj_value_raw")])
     ws.append(["Objective scale factor", summary.get("scale_objective")])
@@ -133,7 +167,7 @@ def export_from_dict(
             bold=True
         )
         for tech, val in tech_breakdown.items():
-            ws.append([tech, val])
+            ws.append(_safe_row([tech, val]))
     _autofit(ws)
 
     # One sheet per output table
@@ -147,12 +181,12 @@ def export_from_dict(
             continue
         sheet_name = _safe_sheet_name(key.replace("/", "_"), seen_names)
         new_ws = wb.create_sheet(title=sheet_name)
-        new_ws.append(list(cols))
+        new_ws.append(_safe_row(cols))
         for c in new_ws[1]:
             c.font = header_font
             c.fill = header_fill
         for row in data:
-            new_ws.append(list(row))
+            new_ws.append(_safe_row(row))
         _autofit(new_ws)
 
     wb.save(dest)

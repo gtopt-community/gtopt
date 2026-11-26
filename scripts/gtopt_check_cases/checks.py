@@ -28,9 +28,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from gtopt_check_output._reader import (
+    dataset_layout,
+    dataset_uid_cols,
+    open_dataset,
+    streaming_sol_weighted_sum_per_uid,
+)
 from gtopt_shared.solution_csv import parse_solution_csv, resolve_objective
 
 LP_KEYS = ("rows", "cols", "nnz")
+
+#: Demand failure (MW) below this is solver noise, not unserved load.
+UNSERVED_TOL_MW = 1e-6
 
 
 @dataclass
@@ -97,8 +106,8 @@ def gtopt_command(
     cmd += [
         "--set",
         f"input_directory={case_json.resolve().parent}",
-        "-d",
-        str(out_dir),
+        "--set",
+        f"output_directory={out_dir}",
     ]
     if spec.threads:
         cmd += ["--set", f"solver_options.threads={spec.threads}"]
@@ -193,6 +202,53 @@ def read_solution(out_dir: Path) -> dict[str, Any] | None:
     }
 
 
+def block_durations(case_json: Path) -> dict[int, float]:
+    """``{block uid: duration h}`` from the case JSON's inline
+    ``simulation.block_array`` (empty when absent or unreadable: the
+    unserved energy is then summed with a 1 h weight per block)."""
+    try:
+        doc = json.loads(case_json.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    blocks = (doc.get("simulation") or {}).get("block_array") or []
+    out: dict[int, float] = {}
+    for blk in blocks:
+        if isinstance(blk, dict) and "uid" in blk:
+            out[int(blk["uid"])] = float(blk.get("duration", 1.0))
+    return out
+
+
+def read_unserved(out_dir: Path, durations: dict[int, float]) -> dict[str, Any] | None:
+    """Unserved energy of a solved case from ``Demand/fail_sol``.
+
+    Returns ``None`` when the run wrote no demand-failure output, else
+    ``{"energy_mwh", "peak_mw", "blocks"}``: the duration-weighted sum of
+    the failure (MWh), the largest single cell (MW) and the number of
+    (scenario, stage, block) cells with any demand failure above
+    :data:`UNSERVED_TOL_MW`.  Streams the dataset batch by batch (wide or
+    long layout, parquet or CSV).
+    """
+    ds = open_dataset(out_dir, "Demand/fail_sol")
+    if ds is None:
+        return None
+    energy = sum(streaming_sol_weighted_sum_per_uid(ds, durations).values())
+    long_form = dataset_layout(ds) == "long"
+    val_cols = ["value"] if long_form else dataset_uid_cols(ds)
+    names = set(ds.schema.names)
+    key_cols = [c for c in ("scenario", "stage", "block") if c in names]
+    cells: set[tuple[Any, ...]] = set()
+    peak = 0.0
+    for batch in ds.scanner(columns=key_cols + val_cols).to_batches():
+        df = batch.to_pandas()
+        vals = df[val_cols].max(axis=1).fillna(0.0)
+        peak = max(peak, float(vals.max()))
+        hit = df.loc[vals > UNSERVED_TOL_MW, key_cols]
+        cells.update(hit.itertuples(index=False, name=None))
+    if not cells:
+        energy = 0.0
+    return {"energy_mwh": float(energy), "peak_mw": peak, "blocks": len(cells)}
+
+
 def update_lp_sizes(cat: dict[str, Any], results: list[dict[str, Any]]) -> int:
     """Store measured LP sizes as ``size.lp``; returns the count updated."""
     by_id = {r["id"]: r for r in results if r.get("lp")}
@@ -218,8 +274,15 @@ def check_case(  # pylint: disable=too-many-arguments
     reference: dict[str, Any] | None = None,
     rtol: float = 0.005,
     keep: bool = False,
+    fail_on_unserved: bool = False,
 ) -> dict[str, Any]:
-    """LP-only build of one case (+ optional solve into ``solve_dir``)."""
+    """LP-only build of one case (+ optional solve into ``solve_dir``).
+
+    A solved case with unserved energy (demand failure > 0) is always
+    reported; it counts as a problem (``unserved_error``) when
+    ``fail_on_unserved`` is set or the catalog entry declares
+    ``"serves_all_load": true``.
+    """
     case_json = repo / case["path"] / case["case_json"]
     profile = repo / case["profile"] if case.get("profile") else None
     work = outside(repo, workdir / case["id"].replace("/", "__"))
@@ -241,6 +304,11 @@ def check_case(  # pylint: disable=too-many-arguments
             rel = abs(sol["objective"] - ref_obj) / abs(ref_obj)
             res["obj_rel_diff"] = rel
             res["obj_match"] = rel <= rtol
+        unserved = read_unserved(out, block_durations(case_json))
+        res["unserved"] = unserved
+        if unserved and unserved["blocks"] > 0:
+            strict = fail_on_unserved or bool(case.get("serves_all_load"))
+            res["unserved_error"] = strict
     if not keep:
         shutil.rmtree(work, ignore_errors=True)
     return res
@@ -264,14 +332,29 @@ def format_result(r: dict[str, Any]) -> str:
             f"obj={sol.get('objective')} {kappa_txt}"
             f"obj_match={r.get('obj_match', 'n/a')}"
         )
+        uns = r.get("unserved")
+        if uns and uns["blocks"] > 0:
+            level = "ERROR" if r.get("unserved_error") else "WARNING"
+            s += (
+                f" | {level}: unserved energy {uns['energy_mwh']:.3f} MWh "
+                f"in {uns['blocks']} block(s), peak {uns['peak_mw']:.3f} MW"
+            )
     return s
 
 
+def has_unserved(r: dict[str, Any]) -> bool:
+    """A solved case that shed load (demand failure > 0)."""
+    uns = r.get("unserved")
+    return bool(uns and uns["blocks"] > 0)
+
+
 def has_problem(r: dict[str, Any]) -> bool:
-    """Non-zero return code or a size / objective mismatch."""
+    """Non-zero return code, a size / objective mismatch, or unserved
+    energy in a case that must serve all load (``unserved_error``)."""
     return bool(
         r["lp_rc"]
         or r.get("solve_rc")
         or r.get("lp_match") is False
         or r.get("obj_match") is False
+        or r.get("unserved_error")
     )

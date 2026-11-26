@@ -120,7 +120,8 @@ class TestReadLpFile:
     def test_alternate_section_keywords(self, tmp_path: Path) -> None:
         text = "min\n obj: x\nst\n a_b_1: x >= 1\nbinary\n x\n"
         cols, rows = _read_lp_file(_write(tmp_path / "a.lp", text))
-        assert not cols
+        # Columns come from every section, not only Bounds.
+        assert cols == ["x"]
         assert rows == ["a_b_1"]
         text2 = "min\ns.t.\n c_d_1: x >= 1\n"
         _, rows2 = _read_lp_file(_write(tmp_path / "b.lp", text2))
@@ -147,7 +148,7 @@ class TestCli:
     def test_compute_stdout_no_untracked(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        text = "Subject To\n bus_b_1_0_0: x >= 0\nBounds\n gen_p_1_0_0 <= 1\nEnd\n"
+        text = "Subject To\n bus_b_1_0_0: gen_p_1_0_0 >= 0\nBounds\n gen_p_1_0_0 <= 1\nEnd\n"
         assert main(["compute", str(_write(tmp_path / "m.lp", text))]) == 0
         assert "Untracked" not in capsys.readouterr().out
 
@@ -192,7 +193,7 @@ class TestCli:
     def test_verify_pass_without_untracked(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        text = "Subject To\n bus_b_1_0_0: x >= 0\nBounds\n gen_p_1_0_0 <= 1\nEnd\n"
+        text = "Subject To\n bus_b_1_0_0: gen_p_1_0_0 >= 0\nBounds\n gen_p_1_0_0 <= 1\nEnd\n"
         lp = _write(tmp_path / "m.lp", text)
         golden = tmp_path / "g.json"
         write_fingerprint_json(compute_from_lp_file(lp), golden)

@@ -151,7 +151,8 @@ def test_load_status_non_dict_and_stat_error(
 ) -> None:
     lst = tmp_path / "list.json"
     lst.write_text("[1, 2]", encoding="utf-8")
-    assert _load_status(lst) == [1, 2]
+    # A non-object payload is "no status" (the panels need a mapping).
+    assert not _load_status(lst)
 
     good = tmp_path / "s.json"
     good.write_text('{"a": 1}', encoding="utf-8")
@@ -1091,6 +1092,8 @@ def test_paths_overlay_toggle_and_entries(
     entries = dict(disp.path_entries())
     assert entries["Error LPs (1)"] == str(out / "logs")
     assert entries["gtopt log"].endswith("gtopt_1.log")
+    status = out / "solver_status.json"
+    assert entries["Charts"] == f"gtopt_monitor --status-file {status}"
     disp._handle_key("o")  # pylint: disable=protected-access
     assert "Paths" in _render(disp._build_display())  # pylint: disable=protected-access
     disp._handle_key("h")  # pylint: disable=protected-access

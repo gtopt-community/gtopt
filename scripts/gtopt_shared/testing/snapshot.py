@@ -6,13 +6,15 @@ Centralises the ``_canonicalise`` / ``_assert_snapshot`` /
 the 8+ converter test files landed in S0.  One implementation, one
 refresh procedure, one ``PYTEST_UPDATE_GOLDEN`` env var.
 
-Two assertion helpers:
+Assertion helpers:
 
 * :func:`assert_snapshot` — pass a Python ``object`` (dict / list /
   any json-serialisable payload); it gets canonicalised and compared
   against ``<golden_dir>/<name>.json``.
 * :func:`assert_golden_file` — pass a file path the converter just
   wrote; the file's JSON content is canonicalised and compared.
+* :func:`assert_text_snapshot` — pass plain text (a rendered frame);
+  compared verbatim against ``<golden_dir>/<name>.txt``.
 
 Both support refresh via ``PYTEST_UPDATE_GOLDEN=1`` and skip with a
 helpful message when the golden file is absent.
@@ -64,9 +66,10 @@ def _do_compare(
     canonical: str,
     golden_dir: Path,
     refresh_target: str | None,
+    suffix: str = ".json",
 ) -> None:
-    """Shared compare-or-refresh path used by both helpers."""
-    golden_path = golden_dir / f"{name}.json"
+    """Shared compare-or-refresh path used by every helper."""
+    golden_path = golden_dir / f"{name}{suffix}"
     target = refresh_target or "<test_module>"
 
     if os.environ.get(_REFRESH_ENV_VAR):
@@ -85,7 +88,7 @@ def _do_compare(
 
     expected = golden_path.read_text(encoding="utf-8")
     assert canonical == expected, (
-        f"{name} entity output changed; if intentional, refresh with "
+        f"{name} output changed; if intentional, refresh with "
         f"{_REFRESH_ENV_VAR}=1 python -m pytest {target} -q"
     )
 
@@ -153,4 +156,26 @@ def assert_golden_file(
         canonical=canonical,
         golden_dir=golden_dir,
         refresh_target=refresh_target,
+    )
+
+
+def assert_text_snapshot(
+    name: str,
+    text: str,
+    golden_dir: Path,
+    *,
+    suffix: str = ".txt",
+    refresh_target: str | None = None,
+) -> None:
+    """Assert ``text`` equals the golden ``<golden_dir>/<name><suffix>``.
+
+    For rendered output (e.g. dashboard frames); same refresh / skip
+    rules as :func:`assert_snapshot`.
+    """
+    _do_compare(
+        name=name,
+        canonical=text,
+        golden_dir=golden_dir,
+        refresh_target=refresh_target,
+        suffix=suffix,
     )

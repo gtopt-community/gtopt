@@ -13,6 +13,8 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from gtopt_shared.net import require_http_url
+
 from ._neos import _check_internet
 
 _AI_PROVIDERS = ("claude", "openai", "deepseek", "github", "local")
@@ -363,9 +365,11 @@ def _http_post_json(
     last_error: Optional[str] = None
 
     for attempt in range(_max_retries):
-        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+        req = urllib.request.Request(  # noqa: S310 - scheme checked below
+            require_http_url(url), data=data, headers=headers, method="POST"
+        )
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
                 body = json.loads(resp.read().decode("utf-8"))
             # Anthropic Claude response shape
             if "content" in body and isinstance(body["content"], list):

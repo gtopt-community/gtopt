@@ -311,6 +311,7 @@ add_custom_target(scripts-coverage
 
 enable_testing()
 include(TestParallelism)
+include(TestPrivateTmpdir)
 
 # Python pytest tests are registered as CTest entries only when this option is
 # ON.  Default OFF: a plain ``ctest -j20`` in the all/ super-project build runs

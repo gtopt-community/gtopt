@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 
-class BaseTextParser(ABC):
+class BaseTextParser(ABC):  # noqa: B024 - shared base, no abstract API
     """Abstract base for fixed-format text-file parsers.
 
     Provides:

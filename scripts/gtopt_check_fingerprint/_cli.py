@@ -9,10 +9,12 @@ from pathlib import Path
 
 from ._fingerprint import (
     ComparisonResult,
+    FingerprintError,
     LpFingerprint,
     compare_fingerprints,
     compute_from_lp_file,
     load_fingerprint_json,
+    lp_comparable,
     write_fingerprint_json,
 )
 
@@ -35,9 +37,21 @@ def _cmd_compute(args: argparse.Namespace) -> int:
 
 
 def _cmd_verify(args: argparse.Namespace) -> int:
-    """Verify LP file against a golden fingerprint JSON."""
-    actual = compute_from_lp_file(Path(args.lp_file))
-    expected = load_fingerprint_json(Path(args.golden))
+    """Verify LP file against a golden fingerprint JSON.
+
+    Both sides are projected onto what an LP label carries (lowercase
+    class, variable, context arity), so a gtopt-written golden
+    (``lp_fingerprint_*.json``) and one computed from an LP file compare
+    on equal terms.
+    """
+    lp_fp = compute_from_lp_file(Path(args.lp_file))
+    if not lp_fp.col_template and not lp_fp.row_template:
+        raise FingerprintError(
+            f"{args.lp_file}: no gtopt-labelled columns or rows "
+            "(was the LP written without names?)"
+        )
+    actual = lp_comparable(lp_fp)
+    expected = lp_comparable(load_fingerprint_json(Path(args.golden)))
     result = compare_fingerprints(actual, expected)
 
     if result.match:
@@ -150,7 +164,7 @@ def main(argv: list[str] | None = None) -> int:
     }
     try:
         return commands[args.command](args)
-    except OSError as exc:
+    except (OSError, FingerprintError) as exc:
         print(f"gtopt_check_fingerprint: error: {exc}", file=sys.stderr)
         return 2
 

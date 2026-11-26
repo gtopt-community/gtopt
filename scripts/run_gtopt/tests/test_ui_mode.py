@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import io
 import os
+import sys
 
 import pytest
 
 from run_gtopt import _tui
 from run_gtopt import main as main_mod
+from run_gtopt.tui import term
 
 
 class _Tty(io.StringIO):
@@ -19,13 +21,13 @@ class _Tty(io.StringIO):
 
 @pytest.fixture(autouse=True)
 def _reset_mode(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_tui, "_ui_mode", "auto")
+    monkeypatch.setattr(term, "_ui_mode", "auto")
     monkeypatch.setenv("NO_COLOR", "")
     monkeypatch.delenv("NO_COLOR")
 
 
 def test_is_interactive_modes(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_tui.sys, "stdout", _Tty())
+    monkeypatch.setattr(sys, "stdout", _Tty())
     monkeypatch.setenv("TERM", "xterm-256color")
     assert _tui.is_interactive()
     monkeypatch.setenv("TERM", "dumb")
@@ -40,7 +42,7 @@ def test_is_interactive_modes(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_is_interactive_auto_non_tty(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_tui.sys, "stdout", io.StringIO())
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
     monkeypatch.setenv("TERM", "xterm")
     assert not _tui.is_interactive()
 
@@ -65,7 +67,7 @@ def test_main_applies_no_color_and_ui(
     monkeypatch.setattr(main_mod.signal, "signal", lambda *_a: None)
     main_mod.main(["--no-color", "--no-tui", "--list-checks"])
     assert os.environ["NO_COLOR"] == "1"
-    assert _tui._ui_mode == "plain"  # pylint: disable=protected-access
+    assert term.ui_mode() == "plain"
     assert "STAGE  DEFAULT" in capsys.readouterr().out
 
 

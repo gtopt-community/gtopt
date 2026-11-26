@@ -32,6 +32,7 @@ import subprocess
 import tempfile
 import zipfile
 from pathlib import Path
+from gtopt_shared import safe_archive
 
 from ._plexos_versions import (
     canonical_property_map,
@@ -351,7 +352,7 @@ def extract_accdb_from_res_zip(res_zip_path: Path) -> Path | None:
             if accdb_name is None:
                 logger.warning("no .accdb / .mdb found in %s", res_zip_path)
                 return None
-            zf.extract(accdb_name, scratch)
+            safe_archive.extract_zip_member(zf, accdb_name, scratch)
     except (zipfile.BadZipFile, OSError) as exc:
         logger.warning("could not open %s: %s", plain_zip, exc)
         return None

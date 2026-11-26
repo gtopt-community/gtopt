@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 from gtopt_config import get_version
+from gtopt_shared.status import STATUS_FILE, read_status
 from gtopt_shared.gtopt_binary import (
     find_gtopt_binary,
     find_plexos2gtopt,
@@ -84,6 +85,13 @@ Passing options to gtopt:
     run_gtopt case -- --set sddp_options.max_iterations=20
     run_gtopt case -- --set use_single_bus=true --stats
   See "gtopt --help" for the solver's own options.
+
+Watching a run:
+  run_gtopt --list           live gtopt runs (from the run registry)
+  run_gtopt --attach [PID]   this dashboard on an already-running gtopt
+  gtopt_monitor --status-file <output>/solver_status.json
+                             charts of the same status file (matplotlib;
+                             --no-gui prints one line per poll)
 
 Interrupting a run:
   1st Ctrl-C   graceful stop: SDDP/cascade finish the current iteration
@@ -433,14 +441,12 @@ def convergence_exit_code(rc: int, output_dir: Path | None, since: float) -> int
     run's ``solver_status.json`` says SDDP stopped without converging."""
     if rc != 0 or output_dir is None:
         return rc
-    status_path = output_dir / "solver_status.json"
-    try:
-        if status_path.stat().st_mtime < since - _STALE_MTIME_SLACK_S:
-            return rc  # stale file from an earlier run
-        status = json.loads(status_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return rc
-    if not isinstance(status, dict):
+    # None: no status, unreadable, or a stale file from an earlier run
+    # (older than the start minus the coarse-mtime slack).
+    status = read_status(
+        output_dir / STATUS_FILE, since=since - _STALE_MTIME_SLACK_S
+    )
+    if status is None:
         return rc
     kind = classify(0, status).kind
     if kind in (NOT_CONVERGED, STOPPED):
@@ -813,8 +819,11 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     # ── Where gtopt will write (same precedence as gtopt itself) ──
+    # gtopt receives the case directory unless a sanitized JSON copy (a
+    # sibling of ``json_file``) is passed; a directory gets the
+    # ``results`` default, a planning JSON the ``output`` one.
     output_dir = resolve_output_dir(
-        json_file if json_file.is_file() else gtopt_dir, gtopt_extra
+        json_file if is_sanitized else gtopt_dir, gtopt_extra
     )
     log.debug("output directory: %s", output_dir)
 

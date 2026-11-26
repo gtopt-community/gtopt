@@ -98,6 +98,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from gtopt_shared import safe_xml
+
 from . import aemo_isp_constraints as isp_c
 from .aemo_isp import (
     IspCase,
@@ -249,9 +251,7 @@ def split_expression(expr: str) -> tuple[str, str, float]:
 
 def lt_plan_discount_rate(xml: Path) -> float | None:
     """``LT Plan`` ``Discount Rate`` attribute [p.u.] (None if absent)."""
-    import xml.etree.ElementTree as ET  # pylint: disable=import-outside-toplevel
-
-    root = ET.parse(xml).getroot()  # noqa: S314 - local trusted model file
+    root = safe_xml.parse(xml).getroot()
     ns = root.tag.split("}")[0] + "}" if root.tag.startswith("{") else ""
     cls = {
         c.findtext(ns + "class_id"): c.findtext(ns + "name")

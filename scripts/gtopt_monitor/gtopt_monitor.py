@@ -40,6 +40,8 @@ from pathlib import Path
 from typing import Any
 
 from gtopt_config import add_common_arguments, configure_logging, get_version
+from gtopt_shared.status import find_planning_json as shared_find_planning_json
+from gtopt_shared.status import read_status
 
 __version__ = get_version()
 
@@ -50,12 +52,12 @@ __version__ = get_version()
 
 
 def load_status(path: Path) -> dict[str, Any] | None:
-    """Load and parse the SDDP status JSON file.  Returns None on any error."""
-    try:
-        text = path.read_text(encoding="utf-8")
-        return json.loads(text)
-    except (OSError, json.JSONDecodeError):
-        return None
+    """Load the status JSON (:func:`gtopt_shared.status.read_status`).
+
+    Returns None when the file is missing, unreadable, mid-rewrite or not
+    a JSON object.
+    """
+    return read_status(path)
 
 
 def get_option(planning_json: Path, dotted_key: str) -> Any:
@@ -87,17 +89,9 @@ def find_planning_json(case_dir: Path) -> Path | None:
     """Locate the planning JSON file for a case directory.
 
     Looks for ``<dir>/<dir_name>.json`` first, then any ``*.json`` file
-    in the directory.  Returns None if nothing is found.
+    in the directory (sorted).  Returns None if nothing is found.
     """
-    if case_dir.is_file() and case_dir.suffix == ".json":
-        return case_dir
-    candidate = case_dir / f"{case_dir.name}.json"
-    if candidate.is_file():
-        return candidate
-    for p in sorted(case_dir.glob("*.json")):
-        if p.is_file():
-            return p
-    return None
+    return shared_find_planning_json(case_dir, prefer_sanitized=False)
 
 
 def print_status(data: dict[str, Any]) -> None:

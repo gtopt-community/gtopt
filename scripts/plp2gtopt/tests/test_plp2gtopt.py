@@ -1364,3 +1364,28 @@ def test_install_solver_param_files_non_iterative_keeps_barrier(tmp_path):
     cplex_txt = (target / "solvers" / "cplex.prm").read_text()
     assert "CPXPARAM_LPMethod          4" in cplex_txt
     assert "CPXPARAM_Preprocessing_Presolve" not in cplex_txt
+
+
+@pytest.mark.parametrize("iterative", [False, True])
+def test_install_solver_param_files_warmstart_pins_no_algorithm(tmp_path, iterative):
+    """The bundled ``<solver>_warmstart`` files must not pin the simplex
+    method.  They are applied LAST on every warm (advanced-basis) solve, so a
+    pinned ``CPXPARAM_LPMethod 1`` / ``Method 0`` / ``simplex_strategy 4``
+    would silently turn the ``algorithm = dual`` that plp2gtopt writes for
+    SDDP / cascade passes into primal simplex.  The backends already pick the
+    warm method from the typed ``algorithm`` (dual -> dual, else primal)."""
+    install_solver_param_files(tmp_path, iterative=iterative)
+    solvers = tmp_path / "solvers"
+
+    def directives(name: str) -> list[str]:
+        lines = (solvers / name).read_text(encoding="utf-8").splitlines()
+        return [ln.split()[0] for ln in lines if ln.strip() and ln[0] != "#"]
+
+    cplex = directives("cplex_warmstart.prm")
+    assert "CPXPARAM_LPMethod" not in cplex
+    assert "CPXPARAM_Advance" in cplex  # the basis is still reused
+    assert "Method" not in directives("gurobi_warmstart.prm")
+    assert "Method" not in directives("mindopt_warmstart.prm")
+    highs = directives("highs_warmstart.opts")
+    assert "simplex_strategy" not in highs
+    assert {"solver", "presolve", "run_crossover"} <= set(highs)

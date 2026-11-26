@@ -310,3 +310,39 @@ def test_hive_parquet_and_csv_shards_one_sheet_per_table(tmp_path):
     assert not any(name.startswith("phase=") for name in wb.sheetnames)
     overview = _overview(dest)
     assert overview["Total generation (MWh)"] == pytest.approx(50.0)
+
+
+# ---------------------------------------------------------------------------
+# Formula-injection neutralisation
+# ---------------------------------------------------------------------------
+
+
+def test_neutralise_cell_prefixes_formula_text():
+    from gtopt_timeseries_export.exporter import neutralise_cell
+
+    for text in ("=1+1", "+cmd", "-x", "@SUM(A1)", "\tz", "\rz"):
+        assert neutralise_cell(text) == "'" + text
+    assert neutralise_cell("-1.5") == "-1.5"
+    assert neutralise_cell("+3") == "+3"
+    assert neutralise_cell("plain") == "plain"
+    assert neutralise_cell(-2.0) == -2.0
+    assert neutralise_cell(None) is None
+
+
+def test_export_writes_formula_like_text_as_text(tmp_path):
+    openpyxl = pytest.importorskip("openpyxl")
+
+    dest = tmp_path / "out.xlsx"
+    export_from_dict(
+        {
+            "solution": {"status": "=HYPERLINK(1)"},
+            "outputs": {
+                "Gen/x": {"columns": ["=a", "b"], "data": [["@b", 1.0], ["-1", 2.0]]}
+            },
+        },
+        str(dest),
+    )
+    wb = openpyxl.load_workbook(dest)
+    cells = [c.value for ws in wb.worksheets for row in ws.iter_rows() for c in row]
+    assert not any(isinstance(v, str) and v.startswith("=") for v in cells)
+    assert "'=a" in cells and "'@b" in cells and "-1" in cells

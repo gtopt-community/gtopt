@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from gtopt_shared.status import STATUS_FILE, load_status
 from gtopt_shared.solution_csv import (
     GTOPT_REVISION,
     GTOPT_VERSION,
@@ -478,14 +479,7 @@ def _final_state(
     """Read the run's final ``solver_status.json`` and ``solution.csv``."""
     if output_dir is None:
         return {}, {}
-    from ._tui import _load_status  # noqa: PLC0415
-
-    status_path = output_dir / "solver_status.json"
-    try:
-        fresh = status_path.stat().st_mtime >= since
-    except OSError:
-        fresh = False
-    status = _load_status(status_path) if fresh else {}
+    status = load_status(output_dir / STATUS_FILE, since=since)
     return status, check_solution(output_dir, since=since)
 
 
@@ -952,13 +946,8 @@ def _resource_summary_rows(results_dir: Path) -> list[tuple[str, str]]:
       * **CPU**                — last load + average over the run
       * **LP pool**            — task count, avg per-task CPU and ΔRSS
     """
-    status_path = results_dir / "solver_status.json"
-    if not status_path.is_file():
-        return []
-    try:
-        with open(status_path, encoding="utf-8") as f:
-            status = json.load(f)
-    except (OSError, json.JSONDecodeError):
+    status = load_status(results_dir / STATUS_FILE)
+    if not status:
         return []
 
     rows: list[tuple[str, str]] = []
@@ -1063,7 +1052,7 @@ def _read_result_table(results_dir: Path, stem: str):
             fpath = results_dir / (stem + ext)
             if fpath.is_file():
                 return pd.read_csv(fpath)
-    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+    except Exception:  # noqa: BLE001, S110  # pylint: disable=broad-exception-caught
         pass
     return None
 

@@ -459,7 +459,7 @@ def _icon_png_path(kind: str) -> Optional[str]:
     except ImportError:
         return None
     cache_dir = _icon_cache_dir()
-    sig = hashlib.md5(svg_src.encode()).hexdigest()[:8]
+    sig = hashlib.md5(svg_src.encode(), usedforsecurity=False).hexdigest()[:8]
     png_path = os.path.join(cache_dir, f"icon_{kind}_{sig}.png")
     if not os.path.exists(png_path):
         png_data = cairosvg.svg2png(

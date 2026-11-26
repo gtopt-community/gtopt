@@ -746,7 +746,10 @@ def test_cache_path_and_loader(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert path.parent == tmp_path / "xdg" / "gtopt" / "plexos_compare"
     assert cwp._load_plexos_cache(path) is None
     path.parent.mkdir(parents=True)
-    path.write_bytes(b"not a pickle")
+    assert path.suffix == ".json"
+    path.write_bytes(b"not json")
+    assert cwp._load_plexos_cache(path) is None
+    path.write_text("[1, 2]", encoding="utf-8")
     assert cwp._load_plexos_cache(path) is None
     cwp._save_plexos_cache(path, {"_version": -1})
     assert cwp._load_plexos_cache(path) is None
@@ -755,6 +758,19 @@ def test_cache_path_and_loader(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         "_version": cwp._PLEXOS_CACHE_VERSION,
         "x": 1,
     }
+    # Per-unit (MWh, SRMC) tuples survive the JSON round trip; NaN too.
+    data = {
+        "_version": cwp._PLEXOS_CACHE_VERSION,
+        "unit": {"G1": (10.0, 2.5), "G2": (0.0, float("nan"))},
+        "bus": {"B1": 3.0},
+    }
+    cwp._save_plexos_cache(path, data)
+    got = cwp._load_plexos_cache(path)
+    assert got is not None
+    assert got["unit"]["G1"] == (10.0, 2.5)
+    assert isinstance(got["unit"]["G2"], tuple)
+    assert got["bus"] == {"B1": 3.0}
+    assert not path.with_suffix(".json.tmp").exists()
 
 
 def test_log_parsing_edges(tmp_path: Path) -> None:

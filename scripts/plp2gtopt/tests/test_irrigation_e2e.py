@@ -529,13 +529,10 @@ class TestMauleE2E:
 @pytest.fixture(scope="module", name="sddp")
 def _sddp_fixture(gtopt, tmp_path_factory) -> _Results:
     case = _convert(tmp_path_factory.mktemp("irr_sddp"), "both", method="sddp")
-    # Two training iterations: the state this check was written against.
-    # Before the stationary-stop fix the run stopped "stationary" at
-    # iteration 2 whatever max_iterations said; with 4 real iterations
-    # the fallback below (efin + used, eini not written) no longer adds
-    # up to the provision on master and on this branch alike (same
-    # numbers with both binaries) -- tracked separately.
-    return _solve(gtopt, case, "--set", "sddp_options.max_iterations=2")
+    # Several real training iterations: the provision is rebuilt from the
+    # forward trial state every iteration, so the invariant below must hold
+    # for any policy, not only for an early one (issue #573).
+    return _solve(gtopt, case, "--set", "sddp_options.max_iterations=4")
 
 
 class TestSddpPerPhaseProvision:
@@ -546,19 +543,33 @@ class TestSddpPerPhaseProvision:
 
         The provision is rebuilt from the stage-start ELTORO volume of the
         SAME scenario (end of November), not the case Vini and not the
-        stage's own end volume.
+        stage's own end volume.  December opens a phase, so the provision
+        is the phase-start state ``sini`` of the riego ledger.
         """
         v_nov = sddp.reservoir_efin("ELTORO")
-        eini = sddp.volume_right("eini_sol", "laja_vol_der_riego")
-        efin = sddp.volume_right("efin_sol", "laja_vol_der_riego")
-        used = sddp.flow_right("laja_der_riego")
-        hours_dec = 744.0
+        sini = sddp.volume_right("sini_sol", "laja_vol_der_riego")
         for sc in sddp.scenarios:
             expected = min(_LAJA_RIEGO_CAP, _laja_riego_rule(v_nov[(sc, _NOV)]))
-            provision = eini[(sc, _DEC)]
-            if provision == 0.0:  # eini not written for this phase
-                provision = efin[(sc, _DEC)] + used[(sc, _DEC)] * hours_dec * 0.0036
-            assert provision == pytest.approx(expected, rel=1e-4)
+            assert sini[(sc, _DEC)] == pytest.approx(expected, rel=1e-4)
+
+    def test_december_ledger_closes(self, sddp):
+        """provision = efin + (extraction + forfeit) * hours * 0.0036.
+
+        The riego ledger has free disposal (``forfeit``): an unused right
+        can be dropped at zero cost, so ``efin + used`` alone does not add
+        up to the provision once the policy stops needing the water (the
+        apparent drift of issue #573 was this forfeit, not the provision).
+        """
+        sini = sddp.volume_right("sini_sol", "laja_vol_der_riego")
+        efin = sddp.volume_right("efin_sol", "laja_vol_der_riego")
+        used = sddp.flow_right("laja_der_riego")
+        forfeit = sddp.volume_right("forfeit_sol", "laja_vol_der_riego")
+        hours_dec = 744.0
+        for sc in sddp.scenarios:
+            outflow = (used[(sc, _DEC)] + forfeit[(sc, _DEC)]) * hours_dec * 0.0036
+            assert efin[(sc, _DEC)] + outflow == pytest.approx(
+                sini[(sc, _DEC)], rel=1e-4
+            )
 
 
 # ---------------------------------------------------------------------------

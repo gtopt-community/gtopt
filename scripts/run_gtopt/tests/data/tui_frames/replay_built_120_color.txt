@@ -1,0 +1,31 @@
+[36m╭─[0m[36m─────────────────────────────[0m[36m [0m[1;36m⚡ gtopt[0m[36m [0m[2;36m— Generation & Transmission Expansion Planning[0m[36m [0m[36m──────────────────────────────[0m[36m─╮[0m
+[36m│[0m [1mCase: sddp_hydro_3phase[0m  [2mMethod: sddp[0m  [1;36m00:12[0m                                                                         [36m│[0m
+[36m│[0m [1;36mstarting               [0m                                                                                              [36m│[0m
+[36m╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[0m
+[2;36m╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮[0m
+[2;36m│[0m  [1;32m✓[0m Parsing input files[2m  (0.2s)[0m                                                                                       [2;36m│[0m
+[2;36m│[0m  [1;32m✓[0m Validating planning[2m  (0.0s)[0m                                                                                       [2;36m│[0m
+[2;36m│[0m  [1;32m✓[0m Building LP model[2m  (2.2s)[0m                                                                                         [2;36m│[0m
+[2;36m│[0m  [2m○[0m[2m Solving[0m                                                                                                           [2;36m│[0m
+[2;36m│[0m  [2m○[0m[2m Simulation pass[0m                                                                                                   [2;36m│[0m
+[2;36m│[0m  [2m○[0m[2m Solution statistics[0m                                                                                               [2;36m│[0m
+[2;36m│[0m  [2m○[0m[2m Writing output files[0m                                                                                              [2;36m│[0m
+[2;36m│[0m                                                                                                                      [2;36m│[0m
+[2;36m╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[0m
+[2;36m╭─[0m[2;36m──────────────────────────────────────────────────────[0m[2;36m [0m[1;2;36mOutput[0m[2;36m [0m[2;36m──────────────────────────────────────────────────────[0m[2;36m─╮[0m
+[2;36m│[0m  [2026-11-25 17:23:21.920] [info] === Building LP model ===                                                          [2;36m│[0m
+[2;36m│[0m  [2026-11-25 17:23:21.925] [info]   Building LP: 1 scene(s) × 3 phase(s) [mode=scene-parallel]                       [2;36m│[0m
+[2;36m│[0m  [2026-11-25 17:23:21.925] [info]   low_memory=compress (memory codec: zstd)                                         [2;36m│[0m
+[2;36m│[0m  [2026-11-25 17:23:21.926] [info]   PlanningLP initial build pool initialized: 80 max threads, 99% CPU threshold,    [2;36m│[0m
+[2;36m│[0m4096 MB min free mem, 90% max mem, 2048 MB max VmSwap (while growing > 64 MB/5.0s)                                    [2;36m│[0m
+[2;36m│[0m  [2026-11-25 17:23:21.927] [info]   Submitted 1 scene tasks to work pool, waiting for workers...                     [2;36m│[0m
+[2;36m│[0m  [2026-11-25 17:23:21.930] [info]   Loaded solver plugin 'highs' from <plugin_dir>/libgtopt_solver_highs.so (solvers:[2;36m│[0m
+[2;36m│[0mhighs)                                                                                                                [2;36m│[0m
+[2;36m│[0m  [2026-11-25 17:23:21.935] [info]   first snapshot compressed: 13576 -> 0 bytes (+908 shared base, codec zstd)       [2;36m│[0m
+[2;36m│[0m  [2026-11-25 17:23:21.936] [info]     First LP cell built on worker tid=1 (0.009s)                                   [2;36m│[0m
+[2;36m│[0m  [2026-11-25 17:23:21.937] [info] [PlanningLP initial build pool] Final: 1 tasks dispatched, 1 completed, avg CPU    [2;36m│[0m
+[2;36m│[0m50.0%, avg mem delta 0.4 MB, wall 0.0s                                                                                [2;36m│[0m
+[2;36m│[0m  [2026-11-25 17:23:21.937] [info]   Build lp time 0.017s — solver=highs/1.15.0                                       [2;36m│[0m
+[2;36m│[0m                                                                                                                      [2;36m│[0m
+[2;36m╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[0m
+ [1;32m1[0m[1;32m dash  [0m[1;36m2[0m[2m grid  [0m[1;36m3[0m[2m conv  [0m[1;36mTab[0m[2m cycle  ·  [0m[1;36ms[0m stop  [1;36mi[0m stats  [1;36mh[0m help  [1;36mq[0m quit

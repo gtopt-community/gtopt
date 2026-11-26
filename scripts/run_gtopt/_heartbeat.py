@@ -17,12 +17,13 @@ Lines are cut to ``$COLUMNS`` when it is set.
 
 from __future__ import annotations
 
-import json
 import os
 import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, TextIO
+
+from gtopt_shared.status import read_status
 
 #: Seconds between heartbeat lines.
 HEARTBEAT_S = 30.0
@@ -97,13 +98,10 @@ class BatchProgress:
         path = self._status_path
         if path is None:
             return
-        try:
-            if path.stat().st_mtime < self._since:
-                return  # left over from a previous run
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return
-        if isinstance(data, dict):
+        # None: missing, unreadable, mid-rewrite or left over from a
+        # previous run (older than ``since``).
+        data = read_status(path, since=self._since)
+        if data is not None:
             self.status = data
 
     def _print(self, text: str) -> None:

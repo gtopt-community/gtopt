@@ -10,14 +10,15 @@ CPLEX Parameter File Version 22.1.1.0
 # cold barrier re-solve (which would re-presolve with the binaries and cost
 # as much as the MIP itself).
 #
-# This file is loaded INSTEAD OF the barrier cplex.prm for that pass:
-#
-#   CPXPARAM_LPMethod = 1   primal simplex (warm off the incumbent basis),
-#                           NOT 4 (barrier) as cplex.prm forces for the
-#                           cold MIP-root relaxation.
 #   CPXPARAM_Advance  = 1   USE the advanced/incumbent basis installed by
 #                           CPXPROB_FIXEDMILP (without this CPLEX discards
 #                           the basis and re-presolves cold).
+#
+# No CPXPARAM_LPMethod on purpose: the warm simplex method comes from the
+# typed `algorithm` of the pass (dual -> dual simplex, anything else ->
+# primal simplex, set in code by the CPLEX backend).  This file is applied
+# LAST, so pinning LPMethod here would silently override e.g. the
+# `forward_solver_options.algorithm = dual` that plp2gtopt writes for
+# SDDP / cascade cases.
 # ---------------------------------------------------------------------
-CPXPARAM_LPMethod                               1
 CPXPARAM_Advance                                1

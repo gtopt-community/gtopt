@@ -14,7 +14,11 @@ Default (LP only)
     (default ``$GTOPT_CASES_OUT`` or ``~/gtopt-cases-out``), never into
     the collection.  With ``--results FILE`` (a JSON
     ``{"cases": [{"id": ..., "reference": {"objective": ...}}]}``) the
-    objective is compared with relative tolerance ``--rtol``.
+    objective is compared with relative tolerance ``--rtol``.  A solved
+    case with unserved energy (``Demand/fail_sol`` > 0) is flagged with a
+    WARNING (MWh, blocks, peak MW); with ``--fail-on-unserved``, or for a
+    catalog entry with ``"serves_all_load": true``, it is an ERROR and the
+    exit code is 1.
 
 ``--update``
     Write the measured LP sizes back into ``catalog.json`` (``size.lp``).
@@ -42,6 +46,7 @@ from .checks import (
     check_case,
     format_result,
     has_problem,
+    has_unserved,
     load_catalog,
     save_catalog,
     select_cases,
@@ -95,6 +100,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ap.add_argument("--set", action="append", default=[], help="extra gtopt --set")
     ap.add_argument("--rtol", type=float, default=0.005)
+    ap.add_argument(
+        "--fail-on-unserved",
+        action="store_true",
+        help="with --solve: unserved energy > 0 is an error (default: warning)",
+    )
     ap.add_argument("--workdir", type=Path, help="scratch dir (default under TMPDIR)")
     ap.add_argument("--keep", action="store_true", help="keep the LP work dirs")
     return ap
@@ -129,6 +139,7 @@ def main(argv: list[str] | None = None) -> int:
             reference=refs.get(case["id"]),
             rtol=args.rtol,
             keep=args.keep,
+            fail_on_unserved=args.fail_on_unserved,
         )
 
     results: list[dict[str, Any]] = []
@@ -144,7 +155,13 @@ def main(argv: list[str] | None = None) -> int:
         save_catalog(repo, cat)
         print(f"catalog.json: size.lp updated for {n} case(s)")
     bad = [r for r in results if has_problem(r)]
+    shed = [r for r in results if has_unserved(r)]
     print(f"\n{len(results)} cases, {len(bad)} with problems")
+    if shed:
+        print(
+            f"{len(shed)} case(s) with unserved energy: "
+            + ", ".join(sorted(r["id"] for r in shed))
+        )
     return 1 if bad else 0
 
 

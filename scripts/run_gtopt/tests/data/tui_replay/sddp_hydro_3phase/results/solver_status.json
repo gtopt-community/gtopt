@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "gtopt_version": "1.1.0",
+  "gtopt_revision": "0794d659fc37",
+  "timestamp": 1795627401.0,
+  "elapsed_s": 0.043,
+  "pid": 4242,
+  "status": "converged",
+  "iteration": 1,
+  "lower_bound": 323100.0,
+  "upper_bound": 323100.0,
+  "gap": 0.0,
+  "converged": true,
+  "max_iterations": 100,
+  "min_iterations": 1,
+  "current_pass": 0,
+  "scenes_done": 1,
+  "solver": "highs/1.15.0",
+  "method": "sddp",
+  "history": [
+    {
+      "iteration": 0,
+      "lower_bound": 104700.0,
+      "upper_bound": 323100.0,
+      "gap": 0.675952,
+      "converged": false,
+      "cuts_added": 2,
+      "infeasible_cuts_added": 0,
+      "forward_pass_s": 0.0278,
+      "backward_pass_s": 0.0049,
+      "iteration_s": 0.0328,
+      "scene_upper_bounds": [
+        323100.0
+      ],
+      "scene_lower_bounds": [
+        104700.0
+      ]
+    },
+    {
+      "iteration": 1,
+      "lower_bound": 323100.0,
+      "upper_bound": 323100.0,
+      "gap": 0.0,
+      "converged": true,
+      "cuts_added": 2,
+      "infeasible_cuts_added": 0,
+      "forward_pass_s": 0.0019,
+      "backward_pass_s": 0.0047,
+      "iteration_s": 0.0066,
+      "scene_upper_bounds": [
+        323100.0
+      ],
+      "scene_lower_bounds": [
+        323100.0
+      ]
+    }
+  ],
+  "phase_grid": {
+    "rows": [
+      {
+        "i": 1,
+        "s": 0,
+        "cells": {
+          "1": "F",
+          "2": "F",
+          "3": "F"
+        }
+      },
+      {
+        "i": 2,
+        "s": 0,
+        "cells": {
+          "1": "F",
+          "2": "F",
+          "3": "F"
+        }
+      }
+    ]
+  },
+  "pool_memory_percent": 11.0,
+  "pool_process_rss_mb": 42,
+  "pool_available_memory_mb": 225418,
+  "realtime": {
+    "timestamps": [
+      0.0
+    ],
+    "cpu_loads": [
+      50.0
+    ],
+    "active_workers": [
+      0
+    ],
+    "memory_percent": [
+      11.0
+    ],
+    "process_rss_mb": [
+      42
+    ],
+    "available_memory_mb": [
+      225418
+    ]
+  }
+}

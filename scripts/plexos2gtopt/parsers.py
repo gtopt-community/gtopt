@@ -27,6 +27,8 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
+from gtopt_shared import safe_xml
+
 from .entities import (
     PUMPED_STORAGE_BATTERY_SUFFIX,
     BatterySpec,
@@ -805,7 +807,7 @@ def extract_bundle_spec(bundle: PlexosBundle) -> BundleSpec:
         try:
             import xml.etree.ElementTree as ET  # pylint: disable=import-outside-toplevel
 
-            tree = ET.parse(bundle.param_xml_path)
+            tree = safe_xml.parse(bundle.param_xml_path)
             root = tree.getroot()
             for elem in root.iter():
                 tag = elem.tag.rsplit("}", 1)[-1]
@@ -3453,7 +3455,7 @@ def _apply_dynamic_loss_layout(
     # budget — that left Phase 1.5 starved of headroom AND emitted a
     # configuration that fails the documented two-sided budget invariant.
     if running <= budget and all_uniform_worst <= budget:
-        for i, ln, _, _ in enriched:
+        for i, _ln, _, _ in enriched:
             new_lines[i] = dataclasses.replace(new_lines[i], loss_pwl_layout="uniform")
         return tuple(new_lines)
 

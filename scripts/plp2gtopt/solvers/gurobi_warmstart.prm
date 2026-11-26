@@ -2,8 +2,8 @@
 # GRBreadparams) as a sibling of the case's main gurobi.prm when
 # SolverOptions::advanced_basis is active (SDDP aperture warm-start /
 # fixed-MILP dual recovery).  Mirrors cplex_warmstart.prm.
-#   Method 0   primal simplex — warm-starts off the resident VBasis/CBasis
-#              (Method 1 = dual simplex; barrier=2 cannot warm-start).
 #   Presolve 0 keep presolve from disturbing the reused basis.
-Method 0
+# No `Method` on purpose: the warm simplex method comes from the typed
+# `algorithm` (dual -> 1 dual simplex, otherwise 0 primal simplex, set in
+# code).  This file is applied last, so a pinned Method would override it.
 Presolve 0

@@ -131,6 +131,7 @@ REQUIRED_DATA_FILES: tuple[tuple[str, str], ...] = (
         ("gtopt_operators", f"{op}/sources.toml")
         for op in ("cen", "amm", "eor", "coes", "xm", "aemo")
     ),
+    ("gtopt_operators", "cen/certs/rapidssl_tls_rsa_ca_g1.pem"),
     *(("plexos2gtopt", f"solvers/{n}") for n in _SOLVER_PARAM_FILES),
     *(("plp2gtopt", f"solvers/{n}") for n in _SOLVER_PARAM_FILES),
     ("gtopt_expand", "templates/laja.tampl"),

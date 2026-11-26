@@ -429,7 +429,7 @@ def run_local_highs_python(lp_path: Path, timeout: int = 30) -> tuple[bool, str]
             iis_path = plain_lp_path.with_suffix(".iis.lp")
             h.writeIisModel(str(iis_path))
             lines.append(f"\n  IIS sub-model written to: {iis_path}")
-        except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        except Exception:  # noqa: BLE001, S110  # pylint: disable=broad-exception-caught
             pass
 
         return True

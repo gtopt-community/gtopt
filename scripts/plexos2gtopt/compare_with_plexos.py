@@ -35,7 +35,6 @@ import hashlib
 import io
 import json
 import os
-import pickle
 import re
 import sys
 import tempfile
@@ -52,14 +51,16 @@ from plexos2gtopt._plexos_versions import (
     canonicalize_keys,
     find_solution_db,
 )
+from gtopt_shared import safe_archive
 
 
 # Cache schema version — bump on ANY signature / field change to the
-# ``compute_plexos_*`` functions so stale pickles are invalidated.
-# A schema mismatch silently falls back to re-extraction; do not
-# guard with try/except in the call site, the unpickler will surface
-# AttributeError / KeyError naturally.
-_PLEXOS_CACHE_VERSION = 8  # +sum_f2_dur per line (analytic loss from PLEXOS flows)
+# ``compute_plexos_*`` functions so stale cache files are invalidated.
+# A schema mismatch silently falls back to re-extraction.
+# v9: JSON instead of pickle (a cache file is data, never code).
+_PLEXOS_CACHE_VERSION = 9
+#: Cache entries whose values are tuples (JSON turns them into lists).
+_PLEXOS_CACHE_TUPLE_MAPS = ("unit",)
 
 
 def _plexos_cache_path(res_zip: Path, cache_dir: Path | None = None) -> Path:
@@ -67,7 +68,7 @@ def _plexos_cache_path(res_zip: Path, cache_dir: Path | None = None) -> Path:
 
     The key blends the resolved zip path, its size, its mtime (ns),
     and the cache schema version so re-running against the same
-    bundle is O(unpickle) but a touched / re-downloaded zip
+    bundle is O(json load) but a touched / re-downloaded zip
     invalidates automatically.
 
     ``cache_dir`` defaults to ``$XDG_CACHE_HOME/gtopt/plexos_compare``
@@ -84,8 +85,8 @@ def _plexos_cache_path(res_zip: Path, cache_dir: Path | None = None) -> Path:
         f"{res_zip}|size={st.st_size}|mtime_ns={st.st_mtime_ns}"
         f"|v{_PLEXOS_CACHE_VERSION}"
     )
-    digest = hashlib.sha1(key.encode()).hexdigest()[:16]
-    return cache_dir / f"{res_zip.stem}-{digest}.pkl"
+    digest = hashlib.sha256(key.encode()).hexdigest()[:16]
+    return cache_dir / f"{res_zip.stem}-{digest}.json"
 
 
 def _load_plexos_cache(path: Path) -> dict[str, Any] | None:
@@ -93,32 +94,35 @@ def _load_plexos_cache(path: Path) -> dict[str, Any] | None:
     if not path.is_file():
         return None
     try:
-        with path.open("rb") as f:
-            data = pickle.load(f)
-    except (OSError, pickle.UnpicklingError, EOFError, ValueError):
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
         return None
     if not isinstance(data, dict) or data.get("_version") != _PLEXOS_CACHE_VERSION:
         return None
+    for key in _PLEXOS_CACHE_TUPLE_MAPS:
+        if isinstance(data.get(key), dict):
+            data[key] = {k: tuple(v) for k, v in data[key].items()}
     return data
 
 
 def _save_plexos_cache(path: Path, data: dict[str, Any]) -> None:
-    """Atomic pickle write: tmp + rename so a SIGINT mid-write does not
+    """Atomic JSON write: tmp + rename so a SIGINT mid-write does not
     leave a half-written cache file the next run would try to load."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".pkl.tmp")
-    with tmp.open("wb") as f:
-        pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+    tmp = path.with_suffix(".json.tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        json.dump(data, f)
     tmp.replace(path)
 
 
 def _compute_plexos_all(accdb_path: Path) -> dict[str, Any]:
     """Run every ``compute_plexos_*`` extractor once on the same accdb.
 
-    Returns a dict the cache layer can pickle.  The keys map 1-to-1
+    Returns a dict the cache layer can store as JSON.  The keys map 1-to-1
     to the variables the caller in ``main()`` consumes.
     ``_version`` is folded in so the cache loader can reject stale
-    schemas without unpickling first.
+    schemas.
     """
     totals = compute_plexos_energy_totals(accdb_path)
     unit = compute_plexos_per_unit_srmc(accdb_path)
@@ -265,12 +269,12 @@ def find_plexos_log_in_res_bundle(res_zip: Path) -> Path:
             )
             if log_name is None:
                 raise FileNotFoundError(f"no Log.txt found in {res_zip}")
-            outer.extract(log_name, scratch)
+            safe_archive.extract_zip_member(outer, log_name, scratch)
             return scratch / log_name
 
         # Two-zip case (the CEN PCP daily bundles): extract inner zip,
         # then pull the Log.txt out of it.
-        outer.extract(nested, scratch)
+        safe_archive.extract_zip_member(outer, nested, scratch)
         with zipfile.ZipFile(scratch / nested) as inner:
             log_name = next(
                 (n for n in inner.namelist() if n.endswith("Log.txt")),
@@ -278,7 +282,7 @@ def find_plexos_log_in_res_bundle(res_zip: Path) -> Path:
             )
             if log_name is None:
                 raise FileNotFoundError(f"no Log.txt found inside {nested}")
-            inner.extract(log_name, scratch)
+            safe_archive.extract_zip_member(inner, log_name, scratch)
             return scratch / log_name
 
 
@@ -548,7 +552,7 @@ def _extract_accdb_from_res_zip(res_zip: Path, scratch: Path) -> Path:
         nested = find_solution_db(outer.namelist())
         if nested is None:
             raise FileNotFoundError(f"no .accdb / .mdb inside {outer_zip}")
-        outer.extract(nested, scratch)
+        safe_archive.extract_zip_member(outer, nested, scratch)
         return scratch / nested
 
 
@@ -4244,7 +4248,7 @@ def _resolve_res_zip_for_date(date_str: str) -> Path:
                     f"{outer_zip} does not contain {inner_name} "
                     f"(found: {outer.namelist()})"
                 )
-            outer.extract(inner_name, unpacked_dir)
+            safe_archive.extract_zip_member(outer, inner_name, unpacked_dir)
         return cached_res
 
     raise FileNotFoundError(
@@ -4450,9 +4454,9 @@ def make_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help=(
-            "directory for the pickled PLEXOS-extract cache.  Default: "
+            "directory for the PLEXOS-extract cache (JSON).  Default: "
             "$XDG_CACHE_HOME/gtopt/plexos_compare (~/.cache/gtopt/"
-            "plexos_compare).  One pickle per (RES zip, size, mtime, "
+            "plexos_compare).  One JSON file per (RES zip, size, mtime, "
             "schema version); subsequent runs against the same bundle "
             "skip every mdb-export round-trip and the temporary accdb "
             "extraction."
@@ -4565,7 +4569,7 @@ def main(argv: list[str] | None = None) -> int:
         console.print()
         try:
             # ----- PLEXOS side: cache the parsed extracts -----
-            # The accdb is parsed once, then a pickle of every
+            # The accdb is parsed once, then a JSON file of every
             # ``compute_plexos_*`` output is dropped in
             # ``$XDG_CACHE_HOME/gtopt/plexos_compare`` (or
             # ``--cache-dir``).  Subsequent runs against the same

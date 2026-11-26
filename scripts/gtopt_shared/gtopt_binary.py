@@ -8,7 +8,19 @@ from __future__ import annotations
 
 import os
 import shutil
+from collections.abc import Mapping
 from pathlib import Path
+
+
+def ci_bin_dir(environ: Mapping[str, str] | None = None) -> Path:
+    """Per-user directory for the downloaded CI ``gtopt`` artifact.
+
+    ``$XDG_CACHE_HOME/gtopt/ci-bin`` (default ``~/.cache/gtopt/ci-bin``):
+    never a shared, world-writable location such as ``/tmp``.
+    """
+    env = os.environ if environ is None else environ
+    base = env.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
+    return Path(base) / "gtopt" / "ci-bin"
 
 
 def _standard_build_paths() -> list[Path]:
@@ -18,7 +30,7 @@ def _standard_build_paths() -> list[Path]:
     return [
         repo / "build" / "standalone" / "gtopt",
         repo / "build" / "test" / "_deps" / "gtopt-build" / "standalone" / "gtopt",
-        Path("/tmp/gtopt-ci-bin/gtopt"),
+        ci_bin_dir() / "gtopt",
     ]
 
 

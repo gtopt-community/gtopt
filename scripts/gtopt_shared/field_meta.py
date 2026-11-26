@@ -301,6 +301,118 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         (
+            "max_flow",
+            _J_SCHED,
+            False,
+            "PLEXOS Max Flow: alias of tmax_ab [MW].",
+            None,
+        ),
+        (
+            "min_flow",
+            _J_SCHED,
+            False,
+            "PLEXOS Min Flow: alias of -tmax_ba, signed (<= 0) [MW].",
+            None,
+        ),
+        (
+            "max_rating",
+            _J_SCHED,
+            False,
+            "PLEXOS Max Rating: normal rating A→B [MW].",
+            None,
+        ),
+        (
+            "min_rating",
+            _J_SCHED,
+            False,
+            "PLEXOS Min Rating: normal rating B→A, signed (<= 0) [MW].",
+            None,
+        ),
+        (
+            "overload_max_rating",
+            _J_SCHED,
+            False,
+            "PLEXOS Overload Max Rating: emergency rating A→B [MW]; hard cap when the overload band is priced.",
+            None,
+        ),
+        (
+            "overload_min_rating",
+            _J_SCHED,
+            False,
+            "PLEXOS Overload Min Rating: emergency rating B→A, signed (<= 0) [MW].",
+            None,
+        ),
+        (
+            "outage_max_rating",
+            _J_SCHED,
+            False,
+            "PLEXOS Outage Max Rating: A→B rating where units_out > 0 [MW].",
+            None,
+        ),
+        (
+            "outage_min_rating",
+            _J_SCHED,
+            False,
+            "PLEXOS Outage Min Rating: B→A rating where units_out > 0, signed (<= 0) [MW].",
+            None,
+        ),
+        (
+            "units_out",
+            _J_SCHED,
+            False,
+            "PLEXOS Units Out: > 0 applies the outage ratings in that block.",
+            None,
+        ),
+        (
+            "limit_penalty",
+            _J_SCHED,
+            False,
+            "PLEXOS Limit Penalty: alias of overload_penalty [$/MWh].",
+            None,
+        ),
+        (
+            "conductor_rating_ab",
+            _J_SCHED,
+            False,
+            "Conductor (thermal) rating A→B [MW]; replaced by a DLR rating by default.",
+            None,
+        ),
+        (
+            "conductor_rating_ba",
+            _J_SCHED,
+            False,
+            "Conductor (thermal) rating B→A [MW]; replaced by a DLR rating by default.",
+            None,
+        ),
+        (
+            "equipment_rating_ab",
+            _J_SCHED,
+            False,
+            "Series-equipment rating A→B (TTCC, CCSS, wave trap, breaker) [MW].",
+            None,
+        ),
+        (
+            "equipment_rating_ba",
+            _J_SCHED,
+            False,
+            "Series-equipment rating B→A (TTCC, CCSS, wave trap, breaker) [MW].",
+            None,
+        ),
+        (
+            "security_limit_ab",
+            _J_SCHED,
+            False,
+            "Security limit A→B (stability, N-1) [MW]; never weather-scaled.",
+            None,
+        ),
+        (
+            "security_limit_ba",
+            _J_SCHED,
+            False,
+            "Security limit B→A (stability, N-1) [MW]; never weather-scaled.",
+            None,
+        ),
+        (
             "overload_slack_bound",
             _J_STR,
             False,
@@ -892,6 +1004,32 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Fast-start unit for pricing_mode = fast_start (status relaxed in "
             "the pricing LP). Unset = auto rule: min_up_time and "
             "min_down_time <= model_options.fast_start_max_hours.",
+            None,
+        ),
+        (
+            "transition_integrality",
+            _J_STR,
+            False,
+            "Startup/shutdown integrality: auto (continuous with the "
+            "transition status rows, binary without), continuous or binary. "
+            "Unset = model_options.transition_integrality (default auto).",
+            None,
+        ),
+        (
+            "startup_tier_integrality",
+            _J_STR,
+            False,
+            "Hot/warm/cold start selector integrality: continuous or "
+            "integer. Unset = model_options.startup_tier_integrality "
+            "(default continuous).",
+            None,
+        ),
+        (
+            "transition_status_rows",
+            _J_BOOL,
+            False,
+            "Emit v <= u and w <= 1 - u. Unset = "
+            "model_options.transition_status_rows (default true).",
             None,
         ),
         (
