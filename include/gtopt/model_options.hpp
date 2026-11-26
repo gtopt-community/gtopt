@@ -425,6 +425,30 @@ struct ModelOptions
   /// uses min up/down only.  Default 1 h.
   OptReal fast_start_max_hours {};
 
+  /// Default integrality of the commitment startup / shutdown columns
+  /// (v / w); `Commitment.transition_integrality` overrides it per unit.
+  /// See `TransitionIntegrality` (transition_integrality.hpp):
+  ///   * `"auto"` (default) — continuous when `transition_status_rows`
+  ///     is on (an integral u then forces v / w to {0, 1}), binary when
+  ///     it is off;
+  ///   * `"continuous"` — always continuous in [0, 1];
+  ///   * `"binary"` — always binary.
+  /// The status u is always integer on a MIP build; `relax`,
+  /// `continuous_phases` and `--no-mip` relax u, v, w together.
+  OptName transition_integrality {};
+
+  /// Default for `Commitment.transition_status_rows`: emit the rows
+  /// `v <= u` (`startup_status`) and `w <= 1 - u` (`shutdown_status`).
+  /// Default `true`.  With them off and continuous v / w, a unit that
+  /// stays on (or off) can take v = w = 1/2 and buy start/stop ramp.
+  OptBool transition_status_rows {};
+
+  /// Default integrality of the hot / warm / cold startup-tier selectors;
+  /// `Commitment.startup_tier_integrality` overrides it per unit.
+  /// `"continuous"` (default: the tier rows are totally unimodular once
+  /// v / w are integral) or `"integer"`.  See `StartupTierIntegrality`.
+  OptName startup_tier_integrality {};
+
   /// How a line's thermal limit (`tmax_ab` / `tmax_ba`, and the
   /// installed capacity of expandable lines) interacts with its loss
   /// variable.  See `LineThermalLimitMode` (line_enums.hpp):
@@ -450,6 +474,12 @@ struct ModelOptions
   /// its critical-span ratings.  `false` ignores every `dlr` block (the
   /// lines keep their static `tmax`) — handy for static-vs-DLR runs.
   OptBool use_line_dlr {};
+
+  /// Default `Line.dlr.limit_mode`: `"replace"` (the DLR rating replaces
+  /// the conductor rating, or `max_rating` without one) or `"min"`
+  /// (`min(static, DLR)`).  Unset: `replace` on lines with a
+  /// `conductor_rating_*`, `min` otherwise.
+  OptName dlr_limit_mode {};
 
   /// Default `Line.overload_slack_bound`: `"thermal"` (default;
   /// `min(hard − normal, max_overload_ratio × normal)`), `"ratio"` or
@@ -501,9 +531,13 @@ struct ModelOptions
     merge_opt(reserve_coupling, opts.reserve_coupling);
     merge_opt(pricing_mode, opts.pricing_mode);
     merge_opt(fast_start_max_hours, opts.fast_start_max_hours);
+    merge_opt(transition_integrality, opts.transition_integrality);
+    merge_opt(transition_status_rows, opts.transition_status_rows);
+    merge_opt(startup_tier_integrality, opts.startup_tier_integrality);
     merge_opt(line_thermal_limit_mode, opts.line_thermal_limit_mode);
     merge_opt(prev_stage_link, opts.prev_stage_link);
     merge_opt(use_line_dlr, opts.use_line_dlr);
+    merge_opt(dlr_limit_mode, opts.dlr_limit_mode);
     merge_opt(overload_slack_bound, opts.overload_slack_bound);
     merge_opt(max_overload_ratio, opts.max_overload_ratio);
   }
@@ -531,9 +565,12 @@ struct ModelOptions
         || battery_annual_standing_loss.has_value()
         || battery_power_envelope.has_value() || reserve_coupling.has_value()
         || pricing_mode.has_value() || fast_start_max_hours.has_value()
+        || transition_integrality.has_value()
+        || transition_status_rows.has_value()
+        || startup_tier_integrality.has_value()
         || line_thermal_limit_mode.has_value() || prev_stage_link.has_value()
-        || use_line_dlr.has_value() || overload_slack_bound.has_value()
-        || max_overload_ratio.has_value();
+        || use_line_dlr.has_value() || dlr_limit_mode.has_value()
+        || overload_slack_bound.has_value() || max_overload_ratio.has_value();
   }
 
   /// True iff every field set in `other` has an equal value in `*this`.
@@ -583,9 +620,13 @@ struct ModelOptions
         && covers_opt(reserve_coupling, other.reserve_coupling)
         && covers_opt(pricing_mode, other.pricing_mode)
         && covers_opt(fast_start_max_hours, other.fast_start_max_hours)
+        && covers_opt(transition_integrality, other.transition_integrality)
+        && covers_opt(transition_status_rows, other.transition_status_rows)
+        && covers_opt(startup_tier_integrality, other.startup_tier_integrality)
         && covers_opt(line_thermal_limit_mode, other.line_thermal_limit_mode)
         && covers_opt(prev_stage_link, other.prev_stage_link)
         && covers_opt(use_line_dlr, other.use_line_dlr)
+        && covers_opt(dlr_limit_mode, other.dlr_limit_mode)
         && covers_opt(overload_slack_bound, other.overload_slack_bound)
         && covers_opt(max_overload_ratio, other.max_overload_ratio);
   }

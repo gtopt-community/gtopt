@@ -904,10 +904,10 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
     }
   }
 
-  // Re-solve src_li so downstream code (the async iteration's
-  // per-scene LB read at sddp_iteration.cpp:929 — `lower_bound =
-  // first_phase.linear_interface().get_obj_value()`) sees a fresh
-  // post-cut optimum, and kappa tracking can run.
+  // Re-solve src_li so downstream code sees a fresh post-cut optimum and
+  // kappa tracking can run.  (Both the sync and the async iteration read
+  // the per-scene LB from the phase-0 LP right after the FORWARD pass,
+  // not here.)
   //
   // NOTE: src_li was optimal when this backward step was entered, and
   // the cut is a valid Benders underestimator — adding it cannot make
@@ -917,7 +917,7 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
   // cut row is already installed and the next forward pass will re-
   // solve from a fresh basis.  Mirrors the bcut-path simplification in
   // sddp_aperture_pass.cpp where we removed the corresponding resolve
-  // entirely (the bcut path doesn't feed into async LB computation).
+  // entirely.
   double dt_resolve = 0.0;
   double dt_kappa = 0.0;
   if (phase_index) {

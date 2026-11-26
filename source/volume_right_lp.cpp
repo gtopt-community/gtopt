@@ -452,6 +452,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     }
     sc.add_ampl_variable(
         ampl_name, uid(), ForfeitName, scenario, stage, forfeit_cols);
+    forfeit_cols_[{scenario.uid(), stage.uid()}] = std::move(forfeit_cols);
   }
 
   // Store columns for external coupling access
@@ -624,6 +625,7 @@ bool VolumeRightLP::add_to_output(OutputContext& out) const
   out.add_col_sol(cname, ExtractionName, pid, extraction_cols_);
   out.add_col_cost(cname, ExtractionName, pid, extraction_cols_);
   out.add_col_sol(cname, SavingName, pid, saving_cols_);
+  out.add_col_sol(cname, ForfeitName, pid, forfeit_cols_);
   out.add_col_sol(cname, FailName, pid, fail_cols_);
   out.add_col_cost(cname, FailName, pid, fail_cols_);
   out.add_row_dual(cname, DemandName, pid, demand_rows_);

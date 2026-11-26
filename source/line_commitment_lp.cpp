@@ -15,6 +15,7 @@
 
 #include <cmath>
 #include <numbers>
+#include <tuple>
 
 #include <gtopt/cost_helper.hpp>
 #include <gtopt/line_commitment_lp.hpp>
@@ -161,11 +162,16 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
     // expansion variable) read the upper bound directly off the
     // flow column the LineLP stamped — that bound already
     // encodes whatever stage_capacity / expmod logic ran upstream.
+    // A DLR line reads the column bound too: the DLR rating may replace
+    // (exceed) the static schedule (``dlr.limit_mode = replace``).
     const auto sentinel = LinearProblem::DblMax;
-    auto block_tmax_ab =
-        line_lp.param_tmax_ab(stage.uid(), buid).value_or(sentinel);
-    auto block_tmax_ba =
-        line_lp.param_tmax_ba(stage.uid(), buid).value_or(sentinel);
+    const bool use_col_bound = line_lp.dlr() != nullptr;
+    auto block_tmax_ab = use_col_bound
+        ? sentinel
+        : line_lp.param_tmax_ab(stage.uid(), buid).value_or(sentinel);
+    auto block_tmax_ba = use_col_bound
+        ? sentinel
+        : line_lp.param_tmax_ba(stage.uid(), buid).value_or(sentinel);
     if (block_tmax_ab == sentinel) {
       if (flow.fp) {
         block_tmax_ab = lp.get_col_uppb(*flow.fp);
@@ -601,6 +607,35 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
         erows[buid] = lp.add_row(std::move(row));
       }
 
+      // C3a / C3b: v[t] ≤ u[t], w[t] ≤ 1 − u[t].  With an integer u
+      // they and C1 pin v / w to the exact switching event; C1 + C3
+      // alone admit v = w = ½ on a line that stays closed (or open),
+      // which the tier windows below would read as a real shutdown.
+      {
+        SparseRow row {
+            .class_name = cname,
+            .constraint_name = StartupStatusName,
+            .variable_uid = cuid,
+            .context = ctx,
+        };
+        row.less_equal(0.0);
+        row[vcol] = 1.0;
+        row[ucol] = -1.0;
+        std::ignore = lp.add_row(std::move(row));
+      }
+      {
+        SparseRow row {
+            .class_name = cname,
+            .constraint_name = ShutdownStatusName,
+            .variable_uid = cuid,
+            .context = ctx,
+        };
+        row.less_equal(1.0);
+        row[wcol] = 1.0;
+        row[ucol] = 1.0;
+        std::ignore = lp.add_row(std::move(row));
+      }
+
       prev_ucol = ucol;
       first_block = false;
     }
@@ -839,7 +874,10 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
         map_reserve(hr_rows, blocks.size());
         map_reserve(wr_rows, blocks.size());
 
+        double elapsed_total = 0.0;  // in-horizon hours so far
         for (size_t t = 0; t < blocks.size(); ++t) {
+          const double elapsed = elapsed_total;  // hours before block t
+          elapsed_total += blocks[t].duration();
           const auto buid_t = blocks[t].uid();
           const auto v_it = v_holder->second.find(buid_t);
           if (v_it == v_holder->second.end()) {
@@ -908,15 +946,17 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
           // BACKWARDS from t we accumulate block durations to identify
           // which past blocks' ``w[q]`` count as in-window.
           //
-          //   * hot window:  blocks whose duration sum (from q+1 to
-          //     t-1) is ≤ hot_time.
-          //   * warm window: blocks whose duration sum is in
-          //     (hot_time, cold_time].
+          //   * hot window:  shutdowns whose offline time before t
+          //     (Σ dur[q..t-1]) is < hot_time.
+          //   * warm window: offline time < cold_time (the warm row
+          //     also admits hot-window shutdowns; the LP prefers the
+          //     cheaper hot tier there).
           //
-          // For ``t = 0``, the past offline duration is the user-
-          // supplied ``initial_offline``; the LP constant ``1`` slack
-          // on the RHS lets the LP pick the appropriate tier for the
-          // first startup.
+          // Strict thresholds, as CommitmentLP: offline exactly
+          // hot_start_time is warm, exactly cold_start_time is cold.
+          // A line open since before the horizon has been offline
+          // initial_offline + Σ dur[0..t-1] at t; while that is below
+          // a threshold the window row gets a constant ``1`` of slack.
           SparseRow hot_row {
               .class_name = cname,
               .constraint_name = HotWindowName,
@@ -947,28 +987,27 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
             }
             const auto wcol_q = w_q_it->second;
             back += blocks[q - 1].duration();
-            if (back <= hot_time) {
+            if (back < hot_time) {
               hot_row[wcol_q] = -1.0;
             }
-            if (back <= cold_time) {
+            if (back < cold_time) {
               warm_row[wcol_q] = -1.0;
-            }
-            if (back > cold_time) {
+            } else {
               break;  // further-back blocks are in cold window only
             }
           }
-          // First-block constant offset via initial_offline:
-          //   initial_offline ≤ hot_time   ⇒ hot allowed at t (RHS ≥ 1
-          //                                   for y_hot[0]).
-          //   initial_offline ≤ cold_time  ⇒ warm allowed at t.
-          // We encode this as a relaxation of the RHS only at t = 0
-          // — the C8 row plus the LP's preference for the cheapest
-          // tier ensures cold is the residual fallback otherwise.
-          if (t == 0) {
-            if (initial_offline <= hot_time) {
+          // Initial outage: open since before the horizon, so at t
+          // the line has been offline initial_offline + elapsed.  A
+          // shutdown inside the horizon only shortens that, so the
+          // slack is never looser than the real offline time.  It used
+          // to apply at t = 0 only (later first starts were always
+          // cold) and with inclusive thresholds.
+          if (initial_u < 0.5) {
+            const auto offline_since_initial = initial_offline + elapsed;
+            if (offline_since_initial < hot_time) {
               hot_row.less_equal(1.0);
             }
-            if (initial_offline <= cold_time) {
+            if (offline_since_initial < cold_time) {
               warm_row.less_equal(1.0);
             }
           }

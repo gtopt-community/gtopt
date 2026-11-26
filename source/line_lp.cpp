@@ -22,15 +22,52 @@ namespace gtopt
 LineLP::LineLP(const Line& pline, const InputContext& ic)
     : CapacityBase(pline, ic, Element::class_name)
     , tmax_ba(ic, Element::class_name, id(), std::move(line().tmax_ba))
-    , tmax_ab(ic, Element::class_name, id(), std::move(line().tmax_ab))
+    // ``max_flow`` (PLEXOS) is an alias of ``tmax_ab`` (validation
+    // rejects both).
+    , tmax_ab(ic,
+              Element::class_name,
+              id(),
+              std::move(line().tmax_ab ? line().tmax_ab : line().max_flow))
+    , min_flow(ic, Element::class_name, id(), std::move(line().min_flow))
+    , max_rating(ic, Element::class_name, id(), std::move(line().max_rating))
+    , min_rating(ic, Element::class_name, id(), std::move(line().min_rating))
+    , overload_max_rating(
+          ic, Element::class_name, id(), std::move(line().overload_max_rating))
+    , overload_min_rating(
+          ic, Element::class_name, id(), std::move(line().overload_min_rating))
+    , outage_max_rating(
+          ic, Element::class_name, id(), std::move(line().outage_max_rating))
+    , outage_min_rating(
+          ic, Element::class_name, id(), std::move(line().outage_min_rating))
+    , units_out(ic, Element::class_name, id(), std::move(line().units_out))
+    , conductor_rating_ab(
+          ic, Element::class_name, id(), std::move(line().conductor_rating_ab))
+    , conductor_rating_ba(
+          ic, Element::class_name, id(), std::move(line().conductor_rating_ba))
+    , equipment_rating_ab(
+          ic, Element::class_name, id(), std::move(line().equipment_rating_ab))
+    , equipment_rating_ba(
+          ic, Element::class_name, id(), std::move(line().equipment_rating_ba))
+    , security_limit_ab(
+          ic, Element::class_name, id(), std::move(line().security_limit_ab))
+    , security_limit_ba(
+          ic, Element::class_name, id(), std::move(line().security_limit_ba))
+    , m_rating_limits_(pline.has_rating_limits())
+    , m_has_conductor_(pline.conductor_rating_ab.has_value()
+                       || pline.conductor_rating_ba.has_value())
     , in_service(ic, Element::class_name, id(), std::move(line().in_service))
     , tmax_normal_ba(
           ic, Element::class_name, id(), std::move(line().tmax_normal_ba))
     , tmax_normal_ab(
           ic, Element::class_name, id(), std::move(line().tmax_normal_ab))
     , tcost(ic, Element::class_name, id(), std::move(line().tcost))
+    // ``limit_penalty`` (PLEXOS) is an alias of ``overload_penalty``.
     , overload_penalty(
-          ic, Element::class_name, id(), std::move(line().overload_penalty))
+          ic,
+          Element::class_name,
+          id(),
+          std::move(line().overload_penalty ? line().overload_penalty
+                                            : line().limit_penalty))
     , lossfactor(ic, Element::class_name, id(), std::move(line().lossfactor))
     , reactance(ic, Element::class_name, id(), std::move(line().reactance))
     , voltage(ic, Element::class_name, id(), std::move(line().voltage))
@@ -55,6 +92,24 @@ LineLP::LineLP(const Line& pline, const InputContext& ic)
 namespace
 {
 
+/// Static limit parts of one direction in one block (``DblMax`` = the
+/// field is unset: no limit).
+struct LimitParts
+{
+  double flow {LinearProblem::DblMax};
+  double rating {LinearProblem::DblMax};
+  double rating_soft {LinearProblem::DblMax};
+  double outage {LinearProblem::DblMax};
+  double conductor {LinearProblem::DblMax};
+  double equipment {LinearProblem::DblMax};
+  double security {LinearProblem::DblMax};
+
+  [[nodiscard]] double hard() const noexcept
+  {
+    return std::min({flow, rating, outage, conductor, equipment, security});
+  }
+};
+
 // ── Helpers ─────────────────────────────────────────────────────────
 //
 // Pulled out of `LineLP::add_to_lp` to keep that function focused on
@@ -73,11 +128,10 @@ namespace
     const SystemContext& sc,
     const StageLP& stage,
     std::span<const BlockLP> blocks,
-    const OptTBRealSched& tmax_ab,
-    const OptTBRealSched& tmax_ba,
     const std::optional<double>& opt_capacity,
     bool has_expansion,
-    double dlr_fmax_fallback)
+    double dlr_fmax_fallback,
+    bool dlr_replace)
 {
   const auto loss_mode =
       line_losses::resolve_mode(raw_line, sc.options(), has_expansion);
@@ -116,16 +170,20 @@ namespace
   } else {
     for (const auto& block : blocks) {
       const auto buid = block.uid();
-      const double tab = tmax_ab.at(stage.uid(), buid).value_or(0.0);
-      const double tba = tmax_ba.at(stage.uid(), buid).value_or(0.0);
-      fmax = std::max({fmax, tab, tba});
+      fmax = std::max(fmax, self.limit_envelope(stage.uid(), buid));
     }
   }
   // Dynamic line rating without a static ``tmax`` / capacity: spread the
   // loss PWL over the STAGE envelope of the DLR rating (never a per-block
   // value, so the loss geometry stays block-independent).
-  if (!(fmax > 0.0) && dlr_fmax_fallback > 0.0) {
-    fmax = dlr_fmax_fallback;
+  // Under ``dlr limit_mode = replace`` the DLR rating may exceed the
+  // static ``tmax``: the PWL then spans the larger of the two so the
+  // flow above the static rating keeps its loss curve (expandable lines
+  // keep their installed-capacity envelope).
+  if (dlr_fmax_fallback > 0.0
+      && (!(fmax > 0.0) || (dlr_replace && !opt_capacity)))
+  {
+    fmax = std::max(fmax, dlr_fmax_fallback);
   }
 
   // Loss-PWL envelope (decoupled from the flow cap).  When the line
@@ -303,6 +361,20 @@ bool LineLP::add_to_lp(SystemContext& sc,
     }
     dlr_env *= 1.05;
   }
+  // DLR limit mode: ``dlr.limit_mode`` → ``model_options.dlr_limit_mode``
+  // → ``replace`` when the line has a conductor rating, else ``min``.
+  // ``replace`` drops the conductor rating (the DLR rating IS the
+  // conductor's thermal capacity); without a conductor rating an explicit
+  // ``replace`` drops ``max_rating`` / ``min_rating`` instead.  Flow,
+  // outage, equipment and security limits are never replaced.
+  const bool dlr_replace = dlr_on
+      && m_dlr_->limit_mode()
+              .or_else([&] { return sc.options().dlr_limit_mode(); })
+              .value_or(m_has_conductor_ ? LineDlrLimitMode::replace
+                                         : LineDlrLimitMode::min)
+          == LineDlrLimitMode::replace;
+  const bool replace_conductor = dlr_replace && m_has_conductor_;
+  const bool replace_rating = dlr_replace && !m_has_conductor_;
 
   const auto loss_config =
       resolve_loss_config(*this,
@@ -310,11 +382,10 @@ bool LineLP::add_to_lp(SystemContext& sc,
                           sc,
                           stage,
                           blocks,
-                          tmax_ab,
-                          tmax_ba,
                           opt_capacity,
                           /*has_expansion=*/capacity_col.has_value(),
-                          /*dlr_fmax_fallback=*/dlr_env);
+                          /*dlr_fmax_fallback=*/dlr_env,
+                          dlr_replace);
 
   // Per-block flow / capacity / loss / segment col maps assembled
   // here; moved into the persistent `STBIndexHolder` members at the
@@ -381,6 +452,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
   BIndexHolder<double> critical_span_b;
   BIndexHolder<std::vector<RowIndex>> span_rows_b;
   BIndexHolder<std::vector<DlrDualRef>> dlr_refs_b;
+  BIndexHolder<LimitRef> limp_b;
+  BIndexHolder<LimitRef> limn_b;
   std::vector<bool> span_critical(dlr_on ? m_dlr_->spans().size() : 0, false);
   if (soft_cap_enabled) {
     map_reserve(opcols, blocks.size());
@@ -389,6 +462,68 @@ bool LineLP::add_to_lp(SystemContext& sc,
     map_reserve(onrows, blocks.size());
   }
 
+  // Lines with rating limits: the loss geometry (segment widths, chord)
+  // is spread over the STAGE envelope of the static limits and the
+  // per-block cap is applied afterwards as a bound / row RHS, exactly
+  // like a DLR rating.  A per-block cap passed to ``add_block`` would
+  // also bind on the segment widths, a degenerate tie that splits the
+  // limit dual arbitrarily between the flow bound and the segments.
+  // Static limit parts of one direction in block ``buid``.
+  const auto parts_at = [&](BlockUid buid, bool fwd)
+  {
+    const double pen_block = soft_cap_enabled
+        ? overload_penalty.at(stage.uid(), buid).value_or(0.0)
+        : 0.0;
+    const bool out_block =
+        lim(units_out, stage.uid(), buid).value_or(0.0) > 0.0;
+    constexpr double inf = LinearProblem::DblMax;
+    const auto get = [&](const OptTBRealSched& ab, const OptTBRealSched& ba)
+    {
+      return (fwd ? lim(ab, stage.uid(), buid)
+                  : lim(ba, stage.uid(), buid, /*negate=*/true))
+          .value_or(inf);
+    };
+    const auto get2 = [&](const OptTBRealSched& ab, const OptTBRealSched& ba)
+    { return lim(fwd ? ab : ba, stage.uid(), buid).value_or(inf); };
+    LimitParts p;
+    p.flow = (fwd ? param_tmax_ab(stage.uid(), buid)
+                  : param_tmax_ba(stage.uid(), buid))
+                 .value_or(stage_capacity);
+    const double rating = get(max_rating, min_rating);
+    const double overload = get(overload_max_rating, overload_min_rating);
+    // Overload (emergency) rating: the hard cap when the overload band
+    // is priced in this block; the normal rating is then its soft
+    // threshold.  Otherwise the normal rating is the hard cap.
+    if (pen_block > 0.0 && overload < inf) {
+      p.rating = overload;
+      p.rating_soft = rating < overload ? rating : inf;
+    } else {
+      p.rating = rating;
+    }
+    p.outage = out_block ? get(outage_max_rating, outage_min_rating) : inf;
+    p.conductor = get2(conductor_rating_ab, conductor_rating_ba);
+    p.equipment = get2(equipment_rating_ab, equipment_rating_ba);
+    p.security = get2(security_limit_ab, security_limit_ba);
+    if (replace_conductor) {
+      p.conductor = inf;
+    }
+    if (replace_rating) {
+      p.rating = inf;
+      p.rating_soft = inf;
+    }
+    return p;
+  };
+  double rating_env = 0.0;
+  if (m_rating_limits_) {
+    for (const auto& block : blocks) {
+      for (const bool fwd : {true, false}) {
+        const double h = parts_at(block.uid(), fwd).hard();
+        if (h < LinearProblem::DblMax) {
+          rating_env = std::max(rating_env, h);
+        }
+      }
+    }
+  }
   for (const auto& [block_idx, block] : enumerate(blocks)) {
     const auto buid = block.uid();
     // Per-block in-service flag (PLEXOS ``Line.Units`` / ``Lin_Units.csv``).
@@ -420,13 +555,16 @@ bool LineLP::add_to_lp(SystemContext& sc,
     // (``enforce_limits=0`` in PLEXOS, ``tmax_ab/tmax_ba`` unset in
     // the JSON) trip CPLEX presolve infeasibility.  Discovered while
     // wiring the CEN PCP daily case (DATOS20260422) end-to-end.
-    auto block_tmax_ab =
-        tmax_ab.at(stage.uid(), block.uid()).value_or(stage_capacity);
-    auto block_tmax_ba =
-        tmax_ba.at(stage.uid(), block.uid()).value_or(stage_capacity);
-    // DLR without any static cap: the stage DLR envelope stands in as the
-    // static flow cap / loss-PWL range (the per-block rating is applied
-    // on top, after ``add_block``).
+    //
+    // Static limit parts per direction (``DblMax`` = unset: an unset
+    // field never limits and never becomes 0).  The static hard cap is
+    // the min over the set parts; the DLR rating is applied on top, after
+    // ``add_block``.  An unset flow limit keeps today's default (the
+    // line ``capacity``, unbounded without one).
+    const LimitParts parts_ab = parts_at(buid, /*fwd=*/true);
+    const LimitParts parts_ba = parts_at(buid, /*fwd=*/false);
+    auto block_tmax_ab = parts_ab.hard();
+    auto block_tmax_ba = parts_ba.hard();
     if (dlr_on) {
       if (block_tmax_ab >= LinearProblem::DblMax) {
         block_tmax_ab = dlr_env;
@@ -473,6 +611,14 @@ bool LineLP::add_to_lp(SystemContext& sc,
     // penalty, and capacity-*expansion* lines additionally carry the
     // installed-capacity row.  ``Line.enforce_level`` is retained in the
     // schema for backward compatibility but is now a no-op.
+    // Rating-limited lines: build at the stage envelope, cap below.
+    const auto build_cap = [&](double hard)
+    {
+      return (m_rating_limits_ && hard < LinearProblem::DblMax
+              && rating_env > hard)
+          ? rating_env
+          : hard;
+    };
     auto result = line_losses::add_block(loss_config,
                                          scenario,
                                          stage,
@@ -480,8 +626,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
                                          lp,
                                          brow_a,
                                          brow_b,
-                                         block_tmax_ab,
-                                         block_tmax_ba,
+                                         build_cap(block_tmax_ab),
+                                         build_cap(block_tmax_ba),
                                          block_tcost,
                                          capacity_col,
                                          uid(),
@@ -505,8 +651,65 @@ bool LineLP::add_to_lp(SystemContext& sc,
       }
       return terms;
     };
+    // Tighten a direction to ``cap`` where its limit lives: an existing
+    // thermal row (sending / full) gets the lower RHS; a single-term limit
+    // (flow column, or ``linear`` with coefficient 1 + a·λ) the column
+    // bound ``cap / coef``; a multi-term limit with no row
+    // (``piecewise_direct`` under ``flow``) a new thermal row.  Returns
+    // the reference of the bound / row now carrying the cap.
+    const auto tighten_cap = [&](bool forward,
+                                 double cap) -> std::optional<LimitRef>
+    {
+      auto& trow = forward ? result.thermalp_row : result.thermaln_row;
+      if (trow) {
+        auto& row = lp.row_at(*trow);
+        row.uppb = std::min(row.uppb, cap);
+        return LimitRef {.index = static_cast<Index>(*trow)};
+      }
+      const auto terms = dlr_terms(forward);
+      if (terms.empty()) {
+        return std::nullopt;
+      }
+      if (terms.size() == 1) {
+        const auto [col, coef] = terms.front();
+        const double bound = cap / coef;
+        if (coef > 0.0) {
+          lp.set_col_uppb(col, std::min(lp.get_col_uppb(col), bound));
+        } else {
+          lp.set_col_lowb(col, std::max(lp.get_col_lowb(col), bound));
+        }
+        return LimitRef {
+            .is_row = false,
+            .index = static_cast<Index>(col),
+            .coef = coef,
+            .bound = bound,
+        };
+      }
+      auto row =
+          SparseRow {
+              .class_name = Element::class_name.full_name(),
+              .constraint_name = forward ? ThermalpName : ThermalnName,
+              .variable_uid = uid(),
+              .context =
+                  make_block_context(scenario.uid(), stage.uid(), block.uid()),
+          }
+              .less_equal(cap);
+      for (const auto& [col, coef] : terms) {
+        row[col] = coef;
+      }
+      trow = lp.add_row(std::move(row));
+      return LimitRef {.index = static_cast<Index>(*trow)};
+    };
+    if (build_cap(block_tmax_ab) != block_tmax_ab) {
+      std::ignore = tighten_cap(/*forward=*/true, block_tmax_ab);
+    }
+    if (build_cap(block_tmax_ba) != block_tmax_ba) {
+      std::ignore = tighten_cap(/*forward=*/false, block_tmax_ba);
+    }
     double hard_ab = block_tmax_ab;
     double hard_ba = block_tmax_ba;
+    // Lowest DLR hard rating of the block (thermal; DblMax without DLR).
+    double dlr_min_hard = LinearProblem::DblMax;
     std::optional<double> dlr_soft;
     int dlr_k_norm = -1;
     // Span whose emergency rating is the hard cap of each direction
@@ -533,6 +736,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
       dlr_k_norm = argmin(br.normal);
       const double min_hard = hard_r[static_cast<std::size_t>(k_hard)];
       const double min_norm = br.normal[static_cast<std::size_t>(dlr_k_norm)];
+      dlr_min_hard = min_hard;
       hard_ab = std::min(block_tmax_ab, min_hard);
       hard_ba = std::min(block_tmax_ba, min_hard);
       if (emerg_tier) {
@@ -574,46 +778,17 @@ bool LineLP::add_to_lp(SystemContext& sc,
         const auto apply_cap =
             [&](bool forward, double cap, int k) -> std::optional<DlrDualRef>
         {
-          auto& trow = forward ? result.thermalp_row : result.thermaln_row;
-          if (trow) {
-            auto& row = lp.row_at(*trow);
-            row.uppb = std::min(row.uppb, cap);
-            return make_row_ref(k, *trow);
-          }
-          const auto terms = dlr_terms(forward);
-          if (terms.empty()) {
+          const auto r = tighten_cap(forward, cap);
+          if (!r) {
             return std::nullopt;
           }
-          if (terms.size() == 1) {
-            const auto [col, coef] = terms.front();
-            const double bound = cap / coef;
-            if (coef > 0.0) {
-              lp.set_col_uppb(col, std::min(lp.get_col_uppb(col), bound));
-            } else {
-              lp.set_col_lowb(col, std::max(lp.get_col_lowb(col), bound));
-            }
-            return DlrDualRef {
-                .span = k,
-                .is_row = false,
-                .index = static_cast<Index>(col),
-                .coef = coef,
-                .bound = bound,
-            };
-          }
-          auto row =
-              SparseRow {
-                  .class_name = Element::class_name.full_name(),
-                  .constraint_name = forward ? ThermalpName : ThermalnName,
-                  .variable_uid = uid(),
-                  .context = make_block_context(
-                      scenario.uid(), stage.uid(), block.uid()),
-              }
-                  .less_equal(cap);
-          for (const auto& [col, coef] : terms) {
-            row[col] = coef;
-          }
-          trow = lp.add_row(std::move(row));
-          return make_row_ref(k, *trow);
+          return DlrDualRef {
+              .span = k,
+              .is_row = r->is_row,
+              .index = r->index,
+              .coef = r->coef,
+              .bound = r->bound,
+          };
         };
         const double htol = 1e-9 * std::max(1.0, min_hard);
         const int k_ab = (block_tmax_ab < min_hard - htol) ? -1 : k_hard;
@@ -700,6 +875,89 @@ bool LineLP::add_to_lp(SystemContext& sc,
       }
     }
 
+    // ── Binding-limit attribution (lines with rating limits) ──────
+    // Every part bounds the same loaded quantity
+    // (``line_thermal_limit_mode``), so one bound / row per direction
+    // carries the min: the flow-column bound (``flow``), the
+    // ``thermal{p,n}`` row (``sending`` / ``full``) or the DLR span row /
+    // bound.  No extra row: the binding part is identified by value
+    // (ties: conductor, rating, outage, equipment, security, flow) and
+    // the dual of that one bound / row is reported as
+    // ``<part>{p,n}_dual``.  Only ``piecewise_direct`` under ``flow``
+    // (cap carried by the segment widths) gets an explicit row.
+    const auto attach_limit = [&](bool forward,
+                                  const LimitParts& lp_parts,
+                                  double hard,
+                                  BIndexHolder<LimitRef>& dst)
+    {
+      if (!m_rating_limits_ || !(hard < LinearProblem::DblMax)) {
+        return;
+      }
+      const double tol = 1e-9 * std::max(1.0, hard);
+      const double conductor = std::min(lp_parts.conductor, dlr_min_hard);
+      const std::array<std::pair<LimitPart, double>, 6> order {{
+          {LimitPart::conductor, conductor},
+          {LimitPart::rating, lp_parts.rating},
+          {LimitPart::outage, lp_parts.outage},
+          {LimitPart::equipment, lp_parts.equipment},
+          {LimitPart::security, lp_parts.security},
+          {LimitPart::flowlimit, lp_parts.flow},
+      }};
+      const auto* const it = std::ranges::find_if(
+          order, [&](const auto& pv) { return pv.second <= hard + tol; });
+      if (it == order.end()) {
+        return;  // the DLR envelope stand-in (no set part binds)
+      }
+      LimitRef ref {.part = it->first};
+      // DLR binds (rating at or below every static conductor value): the
+      // span duals carry it, in both span modes.
+      if (it->first == LimitPart::conductor
+          && dlr_min_hard <= lp_parts.conductor + tol)
+      {
+        ref.span_sum = true;
+        dst[buid] = ref;
+        return;
+      }
+      if (const auto& trow =
+              forward ? result.thermalp_row : result.thermaln_row)
+      {
+        ref.index = static_cast<Index>(*trow);
+        dst[buid] = ref;
+        return;
+      }
+      const auto terms = dlr_terms(forward);
+      if (terms.empty()) {
+        return;
+      }
+      if (terms.size() == 1) {
+        const auto [col, coef] = terms.front();
+        ref.is_row = false;
+        ref.index = static_cast<Index>(col);
+        ref.coef = coef;
+        ref.bound = hard / coef;
+        dst[buid] = ref;
+        return;
+      }
+      const auto pi = static_cast<std::size_t>(it->first);
+      auto row =
+          SparseRow {
+              .class_name = Element::class_name.full_name(),
+              .constraint_name =
+                  forward ? LimitPartpNames[pi] : LimitPartnNames[pi],
+              .variable_uid = uid(),
+              .context =
+                  make_block_context(scenario.uid(), stage.uid(), block.uid()),
+          }
+              .less_equal(hard);
+      for (const auto& [col, coef] : terms) {
+        row[col] = coef;
+      }
+      ref.index = static_cast<Index>(lp.add_row(std::move(row)));
+      dst[buid] = ref;
+    };
+    attach_limit(/*forward=*/true, parts_ab, hard_ab, limp_b);
+    attach_limit(/*forward=*/false, parts_ba, hard_ba, limn_b);
+
     // Compress the eight near-identical "if present, store" clauses.
     const auto store_opt = [&](auto& dst, const auto& src)
     {
@@ -767,6 +1025,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
           [&](const std::vector<std::pair<ColIndex, double>>& terms,
               const OptTBRealSched& tmax_normal_sched,
               double block_tmax_hard,
+              double rating_soft,
               int k_hard_span,
               std::string_view ov_name,
               auto& ov_cols_dst,
@@ -778,7 +1037,15 @@ bool LineLP::add_to_lp(SystemContext& sc,
         }
         // Soft threshold: the static ``tmax_normal_*``, tightened by the
         // DLR normal rating when the DLR emergency tier is active.
-        auto soft_at = tmax_normal_sched.at(stage.uid(), buid);
+        // ``replace``: the static normal rating is thermal too, so the
+        // DLR normal rating (emergency tier) replaces it.
+        auto soft_at = dlr_replace ? std::optional<double> {}
+                                   : tmax_normal_sched.at(stage.uid(), buid);
+        // Static normal rating under the overload band (PLEXOS ``Max
+        // Rating`` with an ``Overload Max Rating`` hard cap).
+        if (rating_soft < LinearProblem::DblMax) {
+          soft_at = soft_at ? std::min(*soft_at, rating_soft) : rating_soft;
+        }
         if (dlr_soft) {
           soft_at = soft_at ? std::min(*soft_at, *dlr_soft) : *dlr_soft;
         }
@@ -888,6 +1155,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
       add_soft_cap_direction(band_p,
                              tmax_normal_ab,
                              hard_ab,
+                             parts_ab.rating_soft,
                              dlr_k_hard_ab,
                              OverloadpName,
                              opcols,
@@ -896,6 +1164,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
       add_soft_cap_direction(band_n,
                              tmax_normal_ba,
                              hard_ba,
+                             parts_ba.rating_soft,
                              dlr_k_hard_ba,
                              OverloadnName,
                              oncols,
@@ -949,6 +1218,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
   cond_assign(critical_span_values, std::move(critical_span_b));
   cond_assign(span_rows, std::move(span_rows_b));
   cond_assign(dlr_dual_refs, std::move(dlr_refs_b));
+  cond_assign(limitp_refs, std::move(limp_b));
+  cond_assign(limitn_refs, std::move(limn_b));
 
   // ``rows`` mode: report spans that never bind in this (scenario,
   // stage) — candidates to drop from the critical-span list.
@@ -1454,6 +1725,47 @@ bool LineLP::add_to_output(OutputContext& out) const
   out.add_row_dual(cname, CapacitynName, pid, capacityn_rows);
   out.add_row_dual(cname, ThermalpName, pid, thermalp_rows);
   out.add_row_dual(cname, ThermalnName, pid, thermaln_rows);
+  // Per-part limit duals ``∂obj/∂L`` (lines with rating limits): the
+  // dual of the one bound / row carrying the effective limit, reported
+  // under the part that binds (``conductorp_dual``, ``ratingp_dual``,
+  // ``outagep_dual``, ``equipmentp_dual``, ``securityp_dual``,
+  // ``flowlimitp_dual`` and the ``n`` counterparts).
+  if (m_rating_limits_ && out.has_row_duals() && out.has_col_costs()) {
+    const auto emit_parts =
+        [&](const STBIndexHolder<LimitRef>& refs, const auto& names)
+    {
+      std::array<STBIndexHolder<double>, 6> vals;
+      for (const auto& [st, blocks] : refs) {
+        const auto sd = span_duals(
+            st,
+            [&](ColIndex c) { return out.primal(c); },
+            [&](ColIndex c) { return out.cost(c); },
+            [&](RowIndex r) { return out.dual(r); });
+        for (const auto& [buid, r] : blocks) {
+          double span = 0.0;
+          if (const auto it = sd.find(buid); it != sd.end()) {
+            for (const double x : it->second) {
+              span += x;
+            }
+          }
+          vals[static_cast<std::size_t>(r.part)][st][buid] = limit_dual(
+              r,
+              span,
+              [&](ColIndex c) { return out.primal(c); },
+              [&](ColIndex c) { return out.cost(c); },
+              [&](RowIndex rr) { return out.dual(rr); });
+        }
+      }
+      for (const auto& [k, v] : enumerate(vals)) {
+        if (!v.empty()) {
+          out.add_row_dual_values(
+              cname, names[static_cast<std::size_t>(k)], pid, v);
+        }
+      }
+    };
+    emit_parts(limitp_refs, LimitPartpNames);
+    emit_parts(limitn_refs, LimitPartnNames);
+  }
 
   // Dynamic line rating: effective rating, binding span and per-span
   // rating duals ``∂obj/∂T_k`` (keyed by SPAN uid).  In ``min`` mode the

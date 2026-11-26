@@ -63,9 +63,13 @@ struct json_data_contract<ModelOptions>
       json_string_null<"reserve_coupling", OptName>,
       json_string_null<"pricing_mode", OptName>,
       json_number_null<"fast_start_max_hours", OptReal>,
+      json_string_null<"transition_integrality", OptName>,
+      json_bool_null<"transition_status_rows", OptBool>,
+      json_string_null<"startup_tier_integrality", OptName>,
       json_string_null<"line_thermal_limit_mode", OptName>,
       json_string_null<"prev_stage_link", OptName>,
       json_bool_null<"use_line_dlr", OptBool>,
+      json_string_null<"dlr_limit_mode", OptName>,
       json_string_null<"overload_slack_bound", OptName>,
       json_number_null<"max_overload_ratio", OptReal>>;
 
@@ -109,9 +113,13 @@ struct json_data_contract<ModelOptions>
                                  opt.reserve_coupling,
                                  opt.pricing_mode,
                                  opt.fast_start_max_hours,
+                                 opt.transition_integrality,
+                                 opt.transition_status_rows,
+                                 opt.startup_tier_integrality,
                                  opt.line_thermal_limit_mode,
                                  opt.prev_stage_link,
                                  opt.use_line_dlr,
+                                 opt.dlr_limit_mode,
                                  opt.overload_slack_bound,
                                  opt.max_overload_ratio);
   }

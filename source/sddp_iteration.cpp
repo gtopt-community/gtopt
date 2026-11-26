@@ -2035,6 +2035,24 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
             // `scene_alpha_offset()` here would double-count.
             sp.upper_bound = *fwd;
             sp.feasible = true;
+            // Per-scene LB = the phase-0 (master) objective of THIS forward
+            // pass, read now — exactly where the sync path reads it
+            // (`compute_iteration_bounds` right after the forward pass).
+            // Reading it after the backward pass (as before) saw a phase-0
+            // LP that had just received a new cut row and, on the aperture
+            // path (no re-solve at phase 0), was no longer solved: HiGHS
+            // then reports 0 and every async LB came out as 0.
+            //
+            // Physical ($) units — must match the physical-space UB above.
+            // The α-rebase constant c̄ is folded into this first-phase
+            // master LP's native objective offset at boundary-cut load, so
+            // `get_obj_value()` already reflects the algebraically-original
+            // physical objective; adding `scene_alpha_offset()` would
+            // double-count.
+            sp.lower_bound = planning_lp()
+                                 .system(scene, first_phase_index())
+                                 .linear_interface()
+                                 .get_obj_value();
           }
 
           // Submit backward pass (only if feasible)
@@ -2098,23 +2116,9 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
             }
           }
 
-          // Get lower bound from phase-0 objective in PHYSICAL ($)
-          // units — must match the physical-space upper-bound
-          // aggregated in sddp_forward_pass (which uses
-          // ``get_obj_value()``).  Reading LP-raw here put
-          // UB and LB in different unit spaces, producing a
-          // permanent ``≈ scale_objective − 1`` / ``scale_objective``
-          // gap that never closed regardless of cut quality.
-          // Per-scene LB = master.get_obj_value().  The α-rebase constant c̄
-          // is folded into this first-phase master LP's native objective
-          // offset at boundary-cut load, so `get_obj_value()` already reflects
-          // the algebraically-original physical objective.  Adding
-          // `scene_alpha_offset()` here would double-count.
-          sp.lower_bound = planning_lp()
-                               .system(scene, first_phase_index())
-                               .linear_interface()
-                               .get_obj_value();
-
+          // `sp.lower_bound` was captured right after this iteration's
+          // forward pass (see the forward_running state): the phase-0 LP
+          // has since received a backward cut and is not re-solved here.
           tracker.report_complete(scene,
                                   sp.current_iteration_index,
                                   sp.upper_bound,

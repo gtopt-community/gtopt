@@ -17,6 +17,8 @@
 #include <exception>
 #include <format>
 #include <iterator>
+#include <memory>
+#include <optional>
 #include <ranges>
 #include <span>
 #include <stdexcept>
@@ -25,6 +27,7 @@
 
 #include <dlfcn.h>
 #include <gtopt/build_info.hpp>
+#include <gtopt/process_util.hpp>
 #include <gtopt/solver_registry.hpp>
 #include <spdlog/details/null_mutex.h>
 #include <spdlog/sinks/base_sink.h>
@@ -188,6 +191,24 @@ void SolverRegistry::discover_plugins(const std::filesystem::path& dir)
       }
     }
   }
+}
+
+std::string insecure_plugin_location(const std::filesystem::path& path)
+{
+  std::error_code ec;
+  const auto st = std::filesystem::status(path, ec);
+  if (ec) {
+    return {};  // dlopen reports the real error
+  }
+  if ((st.permissions() & std::filesystem::perms::others_write)
+      != std::filesystem::perms::none)
+  {
+    return "the file is world-writable";
+  }
+  if (is_world_writable_directory(path.parent_path())) {
+    return "its directory is world-writable";
+  }
+  return {};
 }
 
 namespace
@@ -476,6 +497,16 @@ void SolverRegistry::verify_loaded_plugin(void* handle,
 
 bool SolverRegistry::load_plugin(const std::filesystem::path& path)
 {
+  // A plugin anyone may replace is never loaded.
+  if (const auto why = insecure_plugin_location(path); !why.empty()) {
+    const auto msg =
+        std::format("Refusing to load plugin {}: {}", path.string(), why);
+    SPDLOG_WARN("{}", msg);
+    m_load_errors_.push_back(msg);
+    return false;
+  }
+  SPDLOG_INFO("loading solver plugin {}", path.string());
+
   // Identity check BEFORE dlopen: a .so that does not match its build-id
   // manifest never gets to run its static initialisers.
   const auto policy = plugin_check_policy();
@@ -717,6 +748,116 @@ protected:
   void flush_() override {}
 };
 
+/// Compile-time ThreadSanitizer detection (GCC defines
+/// `__SANITIZE_THREAD__`; Clang exposes `__has_feature(thread_sanitizer)`).
+#ifdef __SANITIZE_THREAD__
+constexpr bool k_tsan_build = true;
+#elifdef __has_feature
+#  if __has_feature(thread_sanitizer)
+constexpr bool k_tsan_build = true;
+#  else
+constexpr bool k_tsan_build = false;
+#  endif
+#else
+constexpr bool k_tsan_build = false;
+#endif
+
+/// Exit codes of the solver-validation probe (`run_solver_probe`).
+constexpr int probe_ok = 0;
+constexpr int probe_failed = 1;
+constexpr int probe_not_optimal = 2;
+constexpr int probe_license = 3;
+constexpr int probe_orphan = 4;
+
+/// Create a backend for @p solver_name and solve a 1x1 LP end-to-end
+/// (min x s.t. x >= 1, 0 <= x <= 10).  Catches both vtable ABI mismatches
+/// and solvers that can be created but crash while solving.  Runs in the
+/// fork child (default) or in-process (ThreadSanitizer builds).
+[[nodiscard]] int run_solver_probe(solver_backend_factory_fn create_fn,
+                                   const std::string& solver_name) noexcept
+{
+  try {
+    const std::unique_ptr<SolverBackend> backend {
+        create_fn(solver_name.c_str()),
+    };
+    if (!backend) {
+      return probe_failed;
+    }
+    // Step 1: exercise basic vtable accessors.
+    (void)backend->solver_name();
+    const auto inf = backend->infinity();
+
+    // Step 2: solve a minimal LP to confirm the solver works end-to-end.
+    const int nc = 1;
+    const int nr = 1;
+    const std::array<int, 2> matbeg {0, 1};
+    const std::array<int, 1> matind {0};
+    const std::array<double, 1> matval {1.0};
+    const std::array<double, 1> collb {0.0};
+    const std::array<double, 1> colub {10.0};
+    const std::array<double, 1> objv {1.0};
+    const std::array<double, 1> rowlb {1.0};
+    const std::array<double, 1> rowub {inf};
+    backend->load_problem(nc,
+                          nr,
+                          matbeg.data(),
+                          matind.data(),
+                          matval.data(),
+                          collb.data(),
+                          colub.data(),
+                          objv.data(),
+                          rowlb.data(),
+                          rowub.data());
+    backend->initial_solve();
+    return backend->is_proven_optimal() ? probe_ok : probe_not_optimal;
+  } catch (const std::exception& e) {
+    // Licensed backends (gurobi, mindopt) throw from their constructor
+    // when no license is reachable (message contains "license") — report
+    // that with a distinct code so the caller logs an honest
+    // "license unavailable" skip instead of the ABI-mismatch diagnostic.
+    const std::string_view what {e.what()};
+    return what.contains("icense") ? probe_license : probe_failed;
+  } catch (...) {
+    return probe_failed;
+  }
+}
+
+/// Turn a probe outcome into the validation verdict and log why a solver
+/// is dropped.  @p code is the probe exit code (`std::nullopt` when the
+/// child died by a signal); @p detail describes it for the log.
+[[nodiscard]] bool accept_probe_outcome(std::optional<int> code,
+                                        std::string_view detail,
+                                        const std::string& solver_name,
+                                        const std::string& plugin_name)
+{
+  if (code == probe_ok) {
+    return true;
+  }
+
+  // License-gated backend: the plugin is healthy but the solver cannot
+  // start without a license (e.g. gurobi with no gurobi.lic, mindopt
+  // MDOstartenv rc=-10).  Removing it from the registry is the clean
+  // gate — `available_solvers()` / `exact_mip_solvers()` never list it, so
+  // every per-solver test sweep skips it instead of failing.
+  if (code == probe_license) {
+    SPDLOG_WARN(
+        "Solver '{}' from plugin '{}' is unavailable: license not found or "
+        "invalid — skipping it (install a valid license to enable it).",
+        solver_name,
+        plugin_name);
+    return false;
+  }
+
+  SPDLOG_WARN(
+      "Solver '{}' from plugin '{}' failed validation ({}). "
+      "This usually indicates an ABI mismatch between the solver "
+      "library and the gtopt binary (e.g. mixed gcc/clang compilers).",
+      solver_name,
+      plugin_name,
+      detail);
+  return false;
+}
+
 }  // namespace
 
 bool SolverRegistry::arm_child_parent_death_signal(pid_t parent_pid) noexcept
@@ -798,6 +939,21 @@ bool SolverRegistry::validate_solver_subprocess(
     const std::string& solver_name,
     std::chrono::milliseconds timeout)
 {
+  // ThreadSanitizer cannot follow a multi-threaded fork(): the child dies
+  // ("starting new threads after multi-threaded fork is not supported",
+  // exit 66) as soon as the probe's solver spawns a thread (HiGHS and
+  // MindOpt always do), so every such solver would be dropped and
+  // GTOPT_SOLVER would fall back to another backend.  A TSan build is a
+  // development build against known-good solver libraries: run the same
+  // probe in-process instead.
+  if constexpr (k_tsan_build) {
+    const int code = run_solver_probe(plugin.create_fn, solver_name);
+    return accept_probe_outcome(code,
+                                std::format("in-process probe code {}", code),
+                                solver_name,
+                                plugin.plugin_name);
+  }
+
   const pid_t parent_pid = ::getpid();
   // Fork a child process to test the solver backend.
   // This isolates the parent from SEGFAULTs caused by ABI mismatches
@@ -815,13 +971,11 @@ bool SolverRegistry::validate_solver_subprocess(
   if (pid == 0) {
     // Die with the parent; bail out if it is already gone (orphan guard).
     if (!SolverRegistry::arm_child_parent_death_signal(parent_pid)) {
-      ::_exit(4);
+      ::_exit(probe_orphan);
     }
 
     // Child process: create a backend and exercise it end-to-end.
     // Any crash here (SIGSEGV, SIGABRT, etc.) terminates only the child.
-    // This catches both vtable ABI mismatches AND solvers that crash during
-    // actual LP solving (e.g. COIN-OR compiled with GCC in a Clang binary).
     //
     // ── async-logger fork race ─────────────────────────────────────────
     // The parent installs `gtopt_async` as the default logger at the top
@@ -853,55 +1007,7 @@ bool SolverRegistry::validate_solver_subprocess(
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast,cert-err33-c)
     ::signal(SIGFPE, SIG_DFL);
 
-    try {
-      auto* backend = plugin.create_fn(solver_name.c_str());
-      if (backend == nullptr) {
-        ::_exit(1);
-      }
-      // Step 1: exercise basic vtable accessors.
-      const auto bname = backend->solver_name();
-      const auto inf = backend->infinity();
-      (void)bname;
-
-      // Step 2: solve a minimal LP to confirm the solver works end-to-end.
-      // LP: min x  s.t.  x >= 1,  0 <= x <= 10
-      // This catches solvers that can be created but SEGFAULT during solving.
-      const int nc = 1;
-      const int nr = 1;
-      const std::array<int, 2> matbeg {0, 1};
-      const std::array<int, 1> matind {0};
-      const std::array<double, 1> matval {1.0};
-      const std::array<double, 1> collb {0.0};
-      const std::array<double, 1> colub {10.0};
-      const std::array<double, 1> objv {1.0};
-      const std::array<double, 1> rowlb {1.0};
-      const std::array<double, 1> rowub {inf};
-      backend->load_problem(nc,
-                            nr,
-                            matbeg.data(),
-                            matind.data(),
-                            matval.data(),
-                            collb.data(),
-                            colub.data(),
-                            objv.data(),
-                            rowlb.data(),
-                            rowub.data());
-      backend->initial_solve();
-      if (!backend->is_proven_optimal()) {
-        ::_exit(2);
-      }
-      delete backend;  // NOLINT(cppcoreguidelines-owning-memory)
-      ::_exit(0);
-    } catch (const std::exception& e) {
-      // Licensed backends (gurobi, mindopt) throw from their constructor
-      // when no license is reachable (message contains "license") — report
-      // that with a distinct exit code so the parent logs an honest
-      // "license unavailable" skip instead of the ABI-mismatch diagnostic.
-      const std::string_view what {e.what()};
-      ::_exit(what.contains("icense") ? 3 : 1);
-    } catch (...) {
-      ::_exit(1);
-    }
+    ::_exit(run_solver_probe(plugin.create_fn, solver_name));
   }
 
   // Parent: wait for the child, bounded.  This timeout exists ONLY for this
@@ -924,41 +1030,15 @@ bool SolverRegistry::validate_solver_subprocess(
   const int status = *waited;
 
   //  - POSIX macros use bitwise ops
-  if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
-    return true;
-  }
-
-  // License-gated backend (child exit code 3): the plugin is healthy but the
-  // solver cannot start without a license (e.g. gurobi with no gurobi.lic,
-  // mindopt MDOstartenv rc=-10).  Removing it from the registry is the clean
-  // gate — `available_solvers()` / `exact_mip_solvers()` never list it, so
-  // every per-solver test sweep skips it instead of failing.
-  if (WIFEXITED(status) && WEXITSTATUS(status) == 3) {
-    SPDLOG_WARN(
-        "Solver '{}' from plugin '{}' is unavailable: license not found or "
-        "invalid — skipping it (install a valid license to enable it).",
-        solver_name,
-        plugin.plugin_name);
-    return false;
-  }
-
-  // Build a diagnostic message.
-  std::string detail;
   if (WIFSIGNALED(status)) {
-    detail = std::format("signal {}", WTERMSIG(status));
-  } else {
-    detail = std::format("exit code {}", WEXITSTATUS(status));
+    return accept_probe_outcome(std::nullopt,
+                                std::format("signal {}", WTERMSIG(status)),
+                                solver_name,
+                                plugin.plugin_name);
   }
-  const auto msg = std::format(
-      "Solver '{}' from plugin '{}' failed validation ({}). "
-      "This usually indicates an ABI mismatch between the solver "
-      "library and the gtopt binary (e.g. mixed gcc/clang compilers).",
-      solver_name,
-      plugin.plugin_name,
-      detail);
-  SPDLOG_WARN("{}", msg);
-
-  return false;
+  const int code = WEXITSTATUS(status);
+  return accept_probe_outcome(
+      code, std::format("exit code {}", code), solver_name, plugin.plugin_name);
 }
 
 void SolverRegistry::validate_loaded_solvers()
@@ -1209,6 +1289,37 @@ std::string solver_unavailable_message(
   return out;
 }
 
+std::string no_solver_message(const std::vector<std::string>& load_errors)
+{
+  const bool any_refused = std::ranges::any_of(
+      load_errors,
+      [](const std::string& e) { return e.contains(k_plugin_refused_marker); });
+  if (!any_refused) {
+    return "No solver plugins found.\n"
+           "Hints:\n"
+           "  - Set GTOPT_PLUGIN_DIR to the directory containing solver "
+           "plugin libraries\n"
+           "  - Ensure libgtopt_solver_osi.so and/or libgtopt_solver_highs.so "
+           "are installed\n"
+           "  - Install COIN-OR (coinor-libcbc-dev) for CLP/CBC support\n"
+           "  - Install HiGHS for HiGHS support\n"
+           "  - Run 'gtopt --solvers' to list available LP solvers";
+  }
+  std::string out =
+      "No solver available: solver plugins were found, but every one was "
+      "refused or failed to load:";
+  for (const auto& e : load_errors) {
+    out += std::format("\n  {}", e);
+  }
+  out +=
+      "\nHints:\n"
+      "  - Each refusal above names its fix and its override\n"
+      "  - --plugin-check=warning (or GTOPT_PLUGIN_CHECK=warning) loads "
+      "refused plugins anyway\n"
+      "  - Run 'gtopt --solvers' to list the refused plugins";
+  return out;
+}
+
 std::vector<std::string> SolverRegistry::available_solvers() const
 {
   const std::scoped_lock lock(m_mutex_);
@@ -1275,16 +1386,7 @@ std::string_view SolverRegistry::default_solver()
     }
   }
 
-  throw std::runtime_error(
-      "No solver plugins found.\n"
-      "Hints:\n"
-      "  - Set GTOPT_PLUGIN_DIR to the directory containing solver plugin "
-      "libraries\n"
-      "  - Ensure libgtopt_solver_osi.so and/or libgtopt_solver_highs.so are "
-      "installed\n"
-      "  - Install COIN-OR (coinor-libcbc-dev) for CLP/CBC support\n"
-      "  - Install HiGHS for HiGHS support\n"
-      "  - Run 'gtopt --solvers' to list available LP solvers");
+  throw std::runtime_error(no_solver_message(m_load_errors_));
 }
 
 bool SolverRegistry::has_solver_unlocked(std::string_view name) const

@@ -49,7 +49,9 @@ constexpr int kDiagTailLines = 10;
 /**
  * @brief Run gtopt_check_lp on an LP file and return the diagnostic output.
  *
- * Searches PATH for the @c gtopt_check_lp binary.  If found, spawns it
+ * Looks for the @c gtopt_check_lp binary next to the gtopt executable,
+ * then on the absolute, non-world-writable PATH entries
+ * (find_trusted_executable()).  If found, spawns it
  * directly (without invoking a shell) via @c posix_spawn with:
  *
  * @code{.text}
@@ -85,8 +87,8 @@ constexpr int kDiagTailLines = 10;
  * @brief Run `gtopt_check_json --info` on one or more JSON files and return
  *        the captured output.
  *
- * Searches PATH for the @c gtopt_check_json binary.  If found, spawns it
- * directly (without invoking a shell) via @c posix_spawn with:
+ * Looks for the @c gtopt_check_json binary like run_check_lp_diagnostic().  If
+ * found, spawns it directly (without invoking a shell) via @c posix_spawn with:
  *
  * @code{.text}
  *   gtopt_check_json --info --no-color <file1.json> [<file2.json> ...]

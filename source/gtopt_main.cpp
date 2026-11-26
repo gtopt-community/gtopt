@@ -46,6 +46,7 @@
 #include <gtopt/main_options.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/planning_options_lp.hpp>
+#include <gtopt/process_util.hpp>
 #include <gtopt/resolve_planning_args.hpp>
 #include <gtopt/validate_planning.hpp>
 #include <gtopt/work_pool.hpp>
@@ -562,14 +563,17 @@ void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
 
   // 3. Default: `<output_directory>/logs`, with output_directory
   //    resolved by the same precedence as the solver output
-  //    (CLI > --set > JSON > "output").  A non-CLI relative
-  //    output_directory is anchored at the first planning file's
-  //    parent directory, mirroring the resolution in gtopt_main().
+  //    (CLI > --set > JSON > "output").  A command-line value (CLI flag
+  //    or --set) is relative to the current directory; a relative JSON
+  //    (or default) output_directory is anchored at the first planning
+  //    file's parent directory, mirroring the resolution in gtopt_main().
   if (opts.output_directory.has_value()) {
     return fs::path(*opts.output_directory) / "logs";
   }
-  auto json_out = find_set_option(opts.set_options, "output_directory")
-                      .or_else([&peek] { return peek.output_directory; });
+  if (auto set_out = find_set_option(opts.set_options, "output_directory")) {
+    return fs::path(*set_out) / "logs";
+  }
+  auto json_out = peek.output_directory;
   // A config-file output directory is CWD-relative (like a CLI flag), see
   // apply_config_file_defaults().
   if (!json_out && conf != nullptr && conf->output_directory) {
@@ -610,6 +614,9 @@ void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
   // process; placed after the logger upgrade so its confirmation line is async.
   [[maybe_unused]] static const bool jemalloc_bg_enabled =
       enable_jemalloc_background_thread();
+
+  // Every GTOPT_* variable can change behaviour: make them visible.
+  log_gtopt_environment();
 
   // Two cases force the default logger back to synchronous:
   //   1. The user explicitly disabled async via `--no-async-logger` /
@@ -671,8 +678,12 @@ void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
     // This handles the webservice scenario where a zip is extracted to
     // an input directory and the JSON is in a nested subdirectory.
     //
-    // Only applied when the CLI did not explicitly set these directories
-    // (opts.*_directory is nullopt), so user CLI overrides are respected.
+    // Only applied to directories that come from a planning JSON (or the
+    // built-in default).  A directory given on the command line — the
+    // CLI flag (`-D` / `-d`) or `--set input_directory=` /
+    // `--set output_directory=` — is relative to the current directory,
+    // so both spellings resolve the same way.  A `.gtopt.conf` directory
+    // is already absolute (see apply_config_file_defaults).
     if (!opts.planning_files.empty()) {
       namespace fs = std::filesystem;
       const auto json_dir = fs::path(opts.planning_files.front()).parent_path();
@@ -680,19 +691,26 @@ void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
         auto resolve_if_relative =
             [&](std::optional<std::string>& json_dir_opt,
                 const std::optional<std::string>& cli_opt,
+                std::string_view set_key,
                 const char* default_val)
         {
-          if (!cli_opt.has_value()) {
-            const auto effective = json_dir_opt.value_or(default_val);
-            if (fs::path(effective).is_relative()) {
-              json_dir_opt = (json_dir / effective).string();
-            }
+          if (cli_opt.has_value()
+              || find_set_option(opts.set_options, set_key).has_value())
+          {
+            return;
+          }
+          const auto effective = json_dir_opt.value_or(default_val);
+          if (fs::path(effective).is_relative()) {
+            json_dir_opt = (json_dir / effective).string();
           }
         };
-        resolve_if_relative(
-            my_planning.options.input_directory, opts.input_directory, "input");
+        resolve_if_relative(my_planning.options.input_directory,
+                            opts.input_directory,
+                            "input_directory",
+                            "input");
         resolve_if_relative(my_planning.options.output_directory,
                             opts.output_directory,
+                            "output_directory",
                             "output");
       }
     }

@@ -618,7 +618,77 @@ void PlanningLP::validate_line_transmission(Planning& planning)
                              k_power_bound_threshold,
                              &Line::tmax_ba,
                              "Line",
-                             "tmax_ba");
+                             "tmax_ba")
+      + clamp_tb_sched_below(planning.system.line_array,
+                             k_power_bound_threshold,
+                             &Line::max_flow,
+                             "Line",
+                             "max_flow")
+      + clamp_tb_sched_below(planning.system.line_array,
+                             k_power_bound_threshold,
+                             &Line::min_flow,
+                             "Line",
+                             "min_flow")
+      + clamp_tb_sched_below(planning.system.line_array,
+                             k_power_bound_threshold,
+                             &Line::max_rating,
+                             "Line",
+                             "max_rating")
+      + clamp_tb_sched_below(planning.system.line_array,
+                             k_power_bound_threshold,
+                             &Line::min_rating,
+                             "Line",
+                             "min_rating")
+      + clamp_tb_sched_below(planning.system.line_array,
+                             k_power_bound_threshold,
+                             &Line::overload_max_rating,
+                             "Line",
+                             "overload_max_rating")
+      + clamp_tb_sched_below(planning.system.line_array,
+                             k_power_bound_threshold,
+                             &Line::overload_min_rating,
+                             "Line",
+                             "overload_min_rating")
+      + clamp_tb_sched_below(planning.system.line_array,
+                             k_power_bound_threshold,
+                             &Line::outage_max_rating,
+                             "Line",
+                             "outage_max_rating")
+      + clamp_tb_sched_below(planning.system.line_array,
+                             k_power_bound_threshold,
+                             &Line::outage_min_rating,
+                             "Line",
+                             "outage_min_rating")
+      + clamp_tb_sched_below(planning.system.line_array,
+                             k_power_bound_threshold,
+                             &Line::conductor_rating_ab,
+                             "Line",
+                             "conductor_rating_ab")
+      + clamp_tb_sched_below(planning.system.line_array,
+                             k_power_bound_threshold,
+                             &Line::conductor_rating_ba,
+                             "Line",
+                             "conductor_rating_ba")
+      + clamp_tb_sched_below(planning.system.line_array,
+                             k_power_bound_threshold,
+                             &Line::equipment_rating_ab,
+                             "Line",
+                             "equipment_rating_ab")
+      + clamp_tb_sched_below(planning.system.line_array,
+                             k_power_bound_threshold,
+                             &Line::equipment_rating_ba,
+                             "Line",
+                             "equipment_rating_ba")
+      + clamp_tb_sched_below(planning.system.line_array,
+                             k_power_bound_threshold,
+                             &Line::security_limit_ab,
+                             "Line",
+                             "security_limit_ab")
+      + clamp_tb_sched_below(planning.system.line_array,
+                             k_power_bound_threshold,
+                             &Line::security_limit_ba,
+                             "Line",
+                             "security_limit_ba");
 
   if (clamped > 0) {
     spdlog::info(
@@ -798,6 +868,26 @@ void PlanningLP::auto_scale_theta(Planning& planning)
       }
       if (line.tmax_ba.has_value()) {
         tmax = std::max(tmax, tb_sched_to_max(*line.tmax_ba));
+      }
+      // PLEXOS limit fields (signed ``min_*``: use the magnitude).
+      for (const auto* f : {&line.max_flow,
+                            &line.min_flow,
+                            &line.max_rating,
+                            &line.min_rating,
+                            &line.overload_max_rating,
+                            &line.overload_min_rating,
+                            &line.outage_max_rating,
+                            &line.outage_min_rating,
+                            &line.conductor_rating_ab,
+                            &line.conductor_rating_ba,
+                            &line.equipment_rating_ab,
+                            &line.equipment_rating_ba,
+                            &line.security_limit_ab,
+                            &line.security_limit_ba})
+      {
+        if (f->has_value()) {
+          tmax = std::max(tmax, std::abs(tb_sched_to_max(**f)));
+        }
       }
       const double contrib = tmax * x_tau;
       if (contrib > kPerLineThetaContrib) {

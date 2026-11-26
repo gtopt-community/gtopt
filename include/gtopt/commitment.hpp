@@ -256,6 +256,25 @@ struct Commitment
   /// up/down count as 0).  No effect on the MIP or the dispatch.
   OptBool fast_start {};
 
+  /// Integrality of this unit's startup / shutdown columns (v / w):
+  /// `"auto"` (continuous with the transition status rows, binary
+  /// without), `"continuous"` or `"binary"`.  Unset →
+  /// `model_options.transition_integrality` (default `"auto"`).  See
+  /// `TransitionIntegrality`.  `relax` still relaxes u, v, w together.
+  OptName transition_integrality {};
+
+  /// Emit `v <= u` (`startup_status`) and `w <= 1 - u`
+  /// (`shutdown_status`) for this unit.  Unset →
+  /// `model_options.transition_status_rows` (default `true`).  With the
+  /// rows off and continuous v / w, a unit that stays on (or off) can
+  /// take v = w = 1/2 and use the start/stop ramp terms.
+  OptBool transition_status_rows {};
+
+  /// Integrality of this unit's hot / warm / cold startup-tier
+  /// selectors: `"continuous"` (TU tier rows) or `"integer"`.  Unset →
+  /// `model_options.startup_tier_integrality` (default `"continuous"`).
+  OptName startup_tier_integrality {};
+
   /// Per-(stage, block) forced commitment status — pins the ``u`` variable
   /// to a specific value at each (stage, block) where it is set.  Values
   /// are interpreted as ``1.0 → committed``, ``0.0 → not committed``;

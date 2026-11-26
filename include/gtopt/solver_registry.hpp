@@ -50,6 +50,17 @@ namespace gtopt
     const std::vector<std::string>& available,
     const std::vector<std::string>& load_errors);
 
+/// Error text when no solver is usable and none was requested by name.
+/// When some plugin was REFUSED by an integrity check (a load error
+/// carries `k_plugin_refused_marker`), says that plugins were found but
+/// every one was refused, lists the load errors (each refusal names its
+/// own override) and the generic overrides -- not the install hints,
+/// which would send the user after a missing solver that is installed.
+/// Otherwise (genuinely no plugin) returns the "No solver plugins found."
+/// text with the install hints.
+[[nodiscard]] std::string no_solver_message(
+    const std::vector<std::string>& load_errors);
+
 /// Environment variable: when true (`1/true/yes/on`), a `GTOPT_SOLVER`
 /// whose plugin was REFUSED falls back to the automatic choice with a
 /// warning (the old behaviour) instead of failing.
@@ -70,6 +81,11 @@ inline constexpr std::string_view k_solver_fallback_on_refused_env =
     std::string_view solver_name,
     const std::vector<std::string>& load_errors,
     bool fallback_on_refused);
+
+/// Why the plugin at @p path must not be loaded (the file or its directory
+/// is world-writable), or an empty string when its location is acceptable.
+[[nodiscard]] std::string insecure_plugin_location(
+    const std::filesystem::path& path);
 
 /**
  * @brief Singleton registry for dynamically loaded solver plugins.

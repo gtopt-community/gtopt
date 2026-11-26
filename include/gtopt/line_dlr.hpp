@@ -137,6 +137,12 @@ struct LineDlr
   OptReal low_wind_angle {};  ///< Low-wind attack angle [deg] (default 45)
   OptName solar_mode {};  ///< `"ghi"` (default) or `"none"`
   Array<CriticalSpan> critical_spans {};
+  /// How the DLR rating combines with the static limits: `"replace"`
+  /// (it replaces `conductor_rating_*`, or — without one — `max_rating`
+  /// / `min_rating`) or `"min"` (`min(static, DLR)`).  Unset →
+  /// `model_options.dlr_limit_mode`; both unset → `replace` with a
+  /// conductor rating, else `min`.  See `LineDlrLimitMode`.
+  OptName limit_mode {};
 
   [[nodiscard]] constexpr LineDlrSolarMode solar_mode_enum() const noexcept
   {

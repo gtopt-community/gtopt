@@ -25,51 +25,17 @@
 
 // POSIX process-spawning without a command processor (replaces popen/system).
 #include <gtopt/check_lp.hpp>
+#include <gtopt/process_util.hpp>
 #include <spawn.h>  // posix_spawn, posix_spawn_file_actions_t
 #include <spdlog/spdlog.h>
 #include <sys/wait.h>  // waitpid
-#include <unistd.h>  // pipe2, read, close, STDOUT_FILENO, STDERR_FILENO, environ
+#include <unistd.h>  // pipe2, read, close, STDOUT_FILENO, STDERR_FILENO
 
 namespace gtopt
 {
 
 namespace
 {
-
-/**
- * @brief Locate @p name in PATH directories, returning the full path or empty.
- *
- * Mimics POSIX @c which: iterates over colon-separated PATH entries and
- * returns the first regular file entry whose name matches @p name.
- */
-[[nodiscard]] std::string find_on_path(std::string_view name)
-{
-  const char* path_env = std::getenv("PATH");
-  if (path_env == nullptr) {
-    return {};
-  }
-
-  const std::string_view path_view {path_env};
-  std::size_t start = 0;
-
-  while (start < path_view.size()) {
-    const auto end = path_view.find(':', start);
-    const auto len = (end == std::string_view::npos)
-        ? (path_view.size() - start)
-        : (end - start);
-    const std::filesystem::path candidate =
-        std::filesystem::path(path_view.substr(start, len)) / name;
-    std::error_code ec;
-    if (std::filesystem::is_regular_file(candidate, ec)) {
-      return candidate.string();
-    }
-    if (end == std::string_view::npos) {
-      break;
-    }
-    start = end + 1;
-  }
-  return {};
-}
 
 /**
  * @brief RAII wrapper for @c posix_spawn_file_actions_t.
@@ -153,8 +119,9 @@ struct SpawnResult
 /**
  * @brief Core posix_spawn helper used by all public functions.
  *
- * Locates @p tool_name on PATH, optionally prepends a `timeout <N>` wrapper
- * to prevent indefinite hangs, then spawns the process directly (no shell).
+ * Locates @p tool_name (see find_trusted_executable()), optionally prepends a
+ * `timeout <N>` wrapper to prevent indefinite hangs, then spawns the process
+ * directly (no shell).
  *
  * When @p capture_output is @c true the child's stdout and stderr are
  * redirected to a pipe and returned in SpawnResult::output.
@@ -173,9 +140,11 @@ struct SpawnResult
                                      bool capture_output,
                                      int timeout_seconds)
 {
-  const std::string bin = find_on_path(tool_name);
+  const std::string bin = find_trusted_executable(tool_name);
   if (bin.empty()) {
-    SPDLOG_DEBUG("spawn_tool: {} not found on PATH", tool_name);
+    SPDLOG_DEBUG(
+        "spawn_tool: {} not found next to gtopt or on a trusted PATH entry",
+        tool_name);
     return {};
   }
 
@@ -183,8 +152,9 @@ struct SpawnResult
   // When a timeout is requested and the `timeout` utility is available,
   // prepend: timeout <N> <bin>
   const std::string timeout_str = std::to_string(timeout_seconds);
-  const std::string timeout_bin =
-      (timeout_seconds > 0) ? find_on_path("timeout") : std::string {};
+  const std::string timeout_bin = (timeout_seconds > 0)
+      ? find_trusted_executable("timeout")
+      : std::string {};
 
   // Each std::string must outlive posix_spawn().
   std::vector<std::string> arg_strings;
@@ -241,14 +211,12 @@ struct SpawnResult
         ::posix_spawn_file_actions_addclose(&fa.value, pipefd[1]));
 
     pid_t pid = 0;
-    const int spawn_rc = ::posix_spawn(
-        &pid,
-        exec_bin.c_str(),
-        &fa.value,
-        nullptr,
-        argv_ptrs.data(),
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
-        environ);
+    const int spawn_rc = ::posix_spawn(&pid,
+                                       exec_bin.c_str(),
+                                       &fa.value,
+                                       nullptr,
+                                       argv_ptrs.data(),
+                                       spawn_environment());
 
     // Parent must close its write-end copy before the read loop so that
     // EOF is delivered when the child exits.
@@ -287,8 +255,7 @@ struct SpawnResult
         nullptr,  // no file-action redirects; inherit parent stdio
         nullptr,
         argv_ptrs.data(),
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
-        environ);
+        spawn_environment());
 
     if (spawn_rc != 0) {
       SPDLOG_DEBUG("spawn_tool: posix_spawn failed (rc={})", spawn_rc);

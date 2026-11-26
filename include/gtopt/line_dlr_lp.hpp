@@ -96,6 +96,14 @@ public:
     return m_spans_;
   }
 
+  /// `dlr.limit_mode` when set (else the caller uses
+  /// `model_options.dlr_limit_mode`).
+  [[nodiscard]] constexpr const std::optional<LineDlrLimitMode>& limit_mode()
+      const noexcept
+  {
+    return m_limit_mode_;
+  }
+
   /// `dlr.voltage` [kV] when set (else the caller uses `Line.voltage`).
   [[nodiscard]] constexpr const std::optional<double>& voltage() const noexcept
   {
@@ -132,6 +140,7 @@ private:
   double m_low_wind_speed_ {ieee738::kLowWindSpeed};
   double m_low_wind_angle_ {ieee738::kLowWindAttackAngle};
   LineDlrSolarMode m_solar_mode_ {LineDlrSolarMode::ghi};
+  std::optional<LineDlrLimitMode> m_limit_mode_ {};
   std::vector<Span> m_spans_;
 };
 

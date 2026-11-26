@@ -18,6 +18,9 @@
 #   {"<soname>", "<build-id>", "<sha256 if no build-id / FULL_HASH>",
 #    "<real path>"},
 # The file is only rewritten when its content changes.
+
+# Script mode (-P) starts with default (OLD) policies: set them.
+cmake_minimum_required(VERSION 3.25)
 if(NOT OUT)
   message(FATAL_ERROR "PluginLinkedLibraries: OUT is required")
 endif()

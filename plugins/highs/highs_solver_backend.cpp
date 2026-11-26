@@ -348,13 +348,28 @@ void HighsSolverBackend::load_problem(int ncols,
                                       const double* rowlb,
                                       const double* rowub)
 {
+  // clear() drops the model AND resets every HiGHS option to its default
+  // (threads, tolerances, time limit, log file, ...).  Replay the cached
+  // option set right away so `apply_options -> load_problem -> solve`
+  // keeps the caller's settings (the same replay clone() does).  The log
+  // file is re-attached only after passModel(), so the startup banner it
+  // prints stays out of the log.
   m_highs_->clear();
   // clear() resets output_flag to true (HiGHS default).  Suppress
   // output again before passModel() which prints the startup banner.
   m_highs_->setOptionValue("output_flag", false);
   m_highs_->setOptionValue("log_to_console", false);
+  if (m_prep_.options.has_value()) {
+    apply_options_to_highs(*m_highs_, *m_prep_.options);
+  }
+  const auto reattach_log = [this]
+  {
+    apply_log_filename_to_highs(
+        *m_highs_, m_prep_.log_filename, m_prep_.log_level);
+  };
 
   if (ncols == 0 && nrows == 0) {
+    reattach_log();
     return;  // Empty problem — nothing to load
   }
 
@@ -403,6 +418,7 @@ void HighsSolverBackend::load_problem(int ncols,
   if (status == HighsStatus::kError) {
     m_load_failed_ = true;
   }
+  reattach_log();
 }
 
 int HighsSolverBackend::get_num_cols() const

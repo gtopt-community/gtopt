@@ -4,6 +4,9 @@
 # SolverRegistry to verify the plugin before dlopen.
 #
 #   cmake -DREADELF=<readelf> -DFILE=<plugin.so> -P PluginBuildIdManifest.cmake
+
+# Script mode (-P) starts with default (OLD) policies: set them.
+cmake_minimum_required(VERSION 3.25)
 if(NOT READELF OR NOT FILE)
   message(FATAL_ERROR "PluginBuildIdManifest: READELF and FILE are required")
 endif()

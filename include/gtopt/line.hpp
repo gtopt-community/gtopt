@@ -390,8 +390,11 @@ struct Line
   OptName line_thermal_limit_mode {};
 
   /// Dynamic line rating through critical spans (see `line_dlr.hpp`).
-  /// When set, the per-block flow limit is `min(tmax, DLR rating)`
-  /// computed from each span's weather with IEEE Std 738.
+  /// When set, the per-block thermal limit is the DLR rating computed
+  /// from each span's weather with IEEE Std 738 (or a precomputed
+  /// `rating`).  `dlr.limit_mode = "replace"` drops the conductor rating
+  /// (or, when set explicitly without one, `max_rating`); `"min"` keeps
+  /// `min(static, DLR)`.  Every other set limit applies on top.
   OptLineDlr dlr {};
 
   /// Upper bound of the overload slack: `"thermal"` (`min(hard − normal,
@@ -404,6 +407,67 @@ struct Line
   /// `overload_slack_bound = "ratio"` (and the `"thermal"` fallback).
   /// Unset → `model_options.max_overload_ratio` (default 1.5).
   OptReal max_overload_ratio {};
+
+  // ── PLEXOS line limits (System.Lines) ─────────────────────────────
+  // Every limit field is OPTIONAL: unset (or a NaN / missing schedule
+  // cell) means "no limit from that field" in that direction and block —
+  // never 0.  An explicit 0 is a real 0 limit.  The `_ab` / `max_*`
+  // fields bound A→B, the `_ba` / `min_*` fields bound B→A; an unset B→A
+  // side does NOT mirror A→B (same as `tmax_ba` today).  PLEXOS `Min *`
+  // values are SIGNED (≤ 0, the B→A magnitude is `-min_*`).
+
+  /// PLEXOS `Max Flow` [MW]: alias of `tmax_ab` (give one, not both).
+  OptTBRealFieldSched max_flow {};
+  /// PLEXOS `Min Flow` [MW, ≤ 0]: alias of `-tmax_ba`.
+  OptTBRealFieldSched min_flow {};
+  /// PLEXOS `Max Rating` / `Min Rating` [MW]: normal rating (CEN's daily
+  /// operational limit `Lin_MaxRating.csv`).  Limit = min(flow, rating).
+  OptTBRealFieldSched max_rating {};
+  OptTBRealFieldSched min_rating {};  ///< ≤ 0 (B→A normal rating)
+  /// PLEXOS `Overload Max Rating` / `Overload Min Rating` [MW]: emergency
+  /// rating.  With a positive `overload_penalty` (`limit_penalty`) in the
+  /// block it is the hard cap and the normal rating the soft threshold of
+  /// the overload band; otherwise unused.
+  OptTBRealFieldSched overload_max_rating {};
+  OptTBRealFieldSched overload_min_rating {};  ///< ≤ 0
+  /// PLEXOS `Outage Max Rating` / `Outage Min Rating` [MW]: the rating in
+  /// blocks with `units_out > 0` (maintenance derate).  Never replaced by
+  /// the DLR.
+  OptTBRealFieldSched outage_max_rating {};
+  OptTBRealFieldSched outage_min_rating {};  ///< ≤ 0
+  /// PLEXOS `Units Out`: units (circuits) out of service in the block.
+  /// `> 0` activates the `outage_*_rating`.  Unset → 0.
+  OptTBRealFieldSched units_out {};
+  /// PLEXOS `Limit Penalty` [$/MWh]: alias of `overload_penalty` (give
+  /// one, not both).
+  OptTBRealFieldSched limit_penalty {};
+
+  // ── Limit classification (gtopt-specific, optional) ───────────────
+  /// Conductor thermal rating [MW] (weather-dependent; CEN ERST cause
+  /// "Conductor").  The DLR rating replaces it under
+  /// `dlr.limit_mode = replace` (the default when it is set).
+  OptTBRealFieldSched conductor_rating_ab {};
+  OptTBRealFieldSched conductor_rating_ba {};
+  /// Fixed series-equipment limit [MW]: current transformers (TTCC),
+  /// series capacitors (CCSS), wave traps, breakers.  Never replaced.
+  OptTBRealFieldSched equipment_rating_ab {};
+  OptTBRealFieldSched equipment_rating_ba {};
+  /// Security / stability limit [MW]: voltage stability (ERST
+  /// "Estabilidad de Tensión"), transient stability, N-1.  Never replaced.
+  OptTBRealFieldSched security_limit_ab {};
+  OptTBRealFieldSched security_limit_ba {};
+
+  /// True when any rating / classified limit beyond the plain flow limit
+  /// is set (these lines report per-component limit duals).
+  [[nodiscard]] constexpr bool has_rating_limits() const noexcept
+  {
+    return max_rating.has_value() || min_rating.has_value()
+        || overload_max_rating.has_value() || overload_min_rating.has_value()
+        || outage_max_rating.has_value() || outage_min_rating.has_value()
+        || conductor_rating_ab.has_value() || conductor_rating_ba.has_value()
+        || equipment_rating_ab.has_value() || equipment_rating_ba.has_value()
+        || security_limit_ab.has_value() || security_limit_ba.has_value();
+  }
 
   /// Parse overload_slack_bound (nullopt = inherit from global).
   [[nodiscard]] constexpr std::optional<LineOverloadSlackBound>

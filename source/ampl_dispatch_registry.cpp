@@ -203,6 +203,121 @@ std::optional<double> line_param_tmax_ba(const SystemContext& sc,
 {
   return sc.get_element(ObjectSingleId<LineLP> {uid}).param_tmax_ba(s, b);
 }
+std::optional<double> line_param_max_flow(const SystemContext& sc,
+                                          Uid uid,
+                                          StageUid s,
+                                          BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<LineLP> {uid}).param_tmax_ab(s, b);
+}
+std::optional<double> line_param_min_flow(const SystemContext& sc,
+                                          Uid uid,
+                                          StageUid s,
+                                          BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<LineLP> {uid}).param_min_flow(s, b);
+}
+std::optional<double> line_param_max_rating(const SystemContext& sc,
+                                            Uid uid,
+                                            StageUid s,
+                                            BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<LineLP> {uid}).param_max_rating(s, b);
+}
+std::optional<double> line_param_min_rating(const SystemContext& sc,
+                                            Uid uid,
+                                            StageUid s,
+                                            BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<LineLP> {uid}).param_min_rating(s, b);
+}
+std::optional<double> line_param_overload_max_rating(const SystemContext& sc,
+                                                     Uid uid,
+                                                     StageUid s,
+                                                     BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<LineLP> {uid})
+      .param_overload_max_rating(s, b);
+}
+std::optional<double> line_param_overload_min_rating(const SystemContext& sc,
+                                                     Uid uid,
+                                                     StageUid s,
+                                                     BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<LineLP> {uid})
+      .param_overload_min_rating(s, b);
+}
+std::optional<double> line_param_outage_max_rating(const SystemContext& sc,
+                                                   Uid uid,
+                                                   StageUid s,
+                                                   BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<LineLP> {uid})
+      .param_outage_max_rating(s, b);
+}
+std::optional<double> line_param_outage_min_rating(const SystemContext& sc,
+                                                   Uid uid,
+                                                   StageUid s,
+                                                   BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<LineLP> {uid})
+      .param_outage_min_rating(s, b);
+}
+std::optional<double> line_param_units_out(const SystemContext& sc,
+                                           Uid uid,
+                                           StageUid s,
+                                           BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<LineLP> {uid}).param_units_out(s, b);
+}
+std::optional<double> line_param_conductor_rating_ab(const SystemContext& sc,
+                                                     Uid uid,
+                                                     StageUid s,
+                                                     BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<LineLP> {uid})
+      .param_conductor_rating_ab(s, b);
+}
+std::optional<double> line_param_conductor_rating_ba(const SystemContext& sc,
+                                                     Uid uid,
+                                                     StageUid s,
+                                                     BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<LineLP> {uid})
+      .param_conductor_rating_ba(s, b);
+}
+std::optional<double> line_param_equipment_rating_ab(const SystemContext& sc,
+                                                     Uid uid,
+                                                     StageUid s,
+                                                     BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<LineLP> {uid})
+      .param_equipment_rating_ab(s, b);
+}
+std::optional<double> line_param_equipment_rating_ba(const SystemContext& sc,
+                                                     Uid uid,
+                                                     StageUid s,
+                                                     BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<LineLP> {uid})
+      .param_equipment_rating_ba(s, b);
+}
+std::optional<double> line_param_security_limit_ab(const SystemContext& sc,
+                                                   Uid uid,
+                                                   StageUid s,
+                                                   BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<LineLP> {uid})
+      .param_security_limit_ab(s, b);
+}
+std::optional<double> line_param_security_limit_ba(const SystemContext& sc,
+                                                   Uid uid,
+                                                   StageUid s,
+                                                   BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<LineLP> {uid})
+      .param_security_limit_ba(s, b);
+}
 std::optional<double> line_param_tcost(const SystemContext& sc,
                                        Uid uid,
                                        StageUid s,
@@ -977,6 +1092,31 @@ void register_ampl_param_dispatchers(SimulationLP& sim)
   constexpr auto line_cls = Line::class_name.snake_case();
   sim.register_ampl_param(line_cls, "tmax_ab", &line_param_tmax_ab);
   sim.register_ampl_param(line_cls, "tmax_ba", &line_param_tmax_ba);
+  sim.register_ampl_param(line_cls, "max_flow", &line_param_max_flow);
+  sim.register_ampl_param(line_cls, "min_flow", &line_param_min_flow);
+  sim.register_ampl_param(line_cls, "max_rating", &line_param_max_rating);
+  sim.register_ampl_param(line_cls, "min_rating", &line_param_min_rating);
+  sim.register_ampl_param(
+      line_cls, "overload_max_rating", &line_param_overload_max_rating);
+  sim.register_ampl_param(
+      line_cls, "overload_min_rating", &line_param_overload_min_rating);
+  sim.register_ampl_param(
+      line_cls, "outage_max_rating", &line_param_outage_max_rating);
+  sim.register_ampl_param(
+      line_cls, "outage_min_rating", &line_param_outage_min_rating);
+  sim.register_ampl_param(line_cls, "units_out", &line_param_units_out);
+  sim.register_ampl_param(
+      line_cls, "conductor_rating_ab", &line_param_conductor_rating_ab);
+  sim.register_ampl_param(
+      line_cls, "conductor_rating_ba", &line_param_conductor_rating_ba);
+  sim.register_ampl_param(
+      line_cls, "equipment_rating_ab", &line_param_equipment_rating_ab);
+  sim.register_ampl_param(
+      line_cls, "equipment_rating_ba", &line_param_equipment_rating_ba);
+  sim.register_ampl_param(
+      line_cls, "security_limit_ab", &line_param_security_limit_ab);
+  sim.register_ampl_param(
+      line_cls, "security_limit_ba", &line_param_security_limit_ba);
   sim.register_ampl_param(line_cls, "tcost", &line_param_tcost);
   sim.register_ampl_param(line_cls, "reactance", &line_param_reactance);
   sim.register_ampl_param(line_cls, "voltage", &line_param_voltage);

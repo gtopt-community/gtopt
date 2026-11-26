@@ -154,10 +154,10 @@ std::expected<Basis, Error> load_basis(const std::filesystem::path& path)
         std::format("load_basis: '{}' truncated header", path.string())));
   }
 
-  // Body must hold exactly ncols + nrows status bytes.
-  if (off + static_cast<std::size_t>(ncols) + static_cast<std::size_t>(nrows)
-      > src.size())
-  {
+  // Body must hold ncols + nrows status bytes.  Compare against the bytes
+  // left (never sum the untrusted counts: that could wrap around).
+  const std::size_t remaining = src.size() - off;
+  if (ncols > remaining || nrows > remaining - ncols) {
     return std::unexpected(corrupt_error(std::format(
         "load_basis: '{}' truncated body (expected {} cols + {} rows)",
         path.string(),

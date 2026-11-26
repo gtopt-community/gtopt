@@ -40,6 +40,8 @@ public:
   static constexpr std::string_view GenLowerName {"gen_lower"};
   static constexpr std::string_view LogicName {"logic"};
   static constexpr std::string_view ExclusionName {"exclusion"};
+  static constexpr std::string_view StartupStatusName {"startup_status"};
+  static constexpr std::string_view ShutdownStatusName {"shutdown_status"};
   static constexpr std::string_view RampUpName {"ramp_up"};
   static constexpr std::string_view RampDownName {"ramp_down"};
   static constexpr std::string_view SegmentName {"segment"};

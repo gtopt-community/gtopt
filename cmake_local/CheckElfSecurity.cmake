@@ -11,6 +11,9 @@
 # GNU_STACK and the stack protector on every file; FORTIFY (`__*_chk`
 # imports) on the executable when OPTIMIZED.
 
+# Script mode (-P) starts with default (OLD) policies: set them.
+cmake_minimum_required(VERSION 3.25)
+
 if(NOT READELF OR NOT EXE)
   message(FATAL_ERROR "CheckElfSecurity: READELF and EXE are required")
 endif()

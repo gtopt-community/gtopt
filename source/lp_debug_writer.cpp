@@ -20,11 +20,12 @@
 #include <fcntl.h>  // O_RDONLY, O_WRONLY
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/lp_debug_writer.hpp>
+#include <gtopt/process_util.hpp>
 #include <gtopt/work_pool.hpp>
 #include <spawn.h>  // posix_spawn
 #include <spdlog/spdlog.h>
 #include <sys/wait.h>  // waitpid
-#include <unistd.h>  // access, environ
+#include <unistd.h>  // STDIN_FILENO
 #include <zlib.h>
 #include <zstd.h>
 
@@ -33,37 +34,6 @@ namespace gtopt
 
 namespace
 {
-
-/// Locate @p name on PATH without involving a shell.  Empty and relative
-/// PATH entries are skipped so a binary in the current working directory
-/// is never picked up by accident.  Returns an empty string when the
-/// command is not found.
-[[nodiscard]] std::string find_executable(std::string_view name)
-{
-  const char* path_env = std::getenv("PATH");  // NOLINT(concurrency-mt-unsafe)
-  if (path_env == nullptr) {
-    return {};
-  }
-  std::string_view rest {path_env};
-  while (true) {
-    const auto colon = rest.find(':');
-    const auto dir = rest.substr(0, colon);
-    if (!dir.empty() && dir.front() == '/') {
-      const auto candidate = std::filesystem::path(dir) / name;
-      std::error_code ec;
-      if (std::filesystem::is_regular_file(candidate, ec)
-          && ::access(candidate.c_str(), X_OK) == 0)
-      {
-        return candidate.string();
-      }
-    }
-    if (colon == std::string_view::npos) {
-      break;
-    }
-    rest.remove_prefix(colon + 1);
-  }
-  return {};
-}
 
 /// RAII wrapper for posix_spawn_file_actions_t.
 struct LpSpawnActions
@@ -108,14 +78,12 @@ bool run_external(const std::string& bin,
     }
 
     pid_t pid = 0;
-    if (::posix_spawn(
-            &pid,
-            bin.c_str(),
-            &fa.value,
-            nullptr,
-            argv.data(),
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
-            environ)
+    if (::posix_spawn(&pid,
+                      bin.c_str(),
+                      &fa.value,
+                      nullptr,
+                      argv.data(),
+                      spawn_environment())
         != 0)
     {
       return false;
@@ -164,7 +132,7 @@ constexpr std::array<CodecInfo, 5> kCodecs {
 [[nodiscard]] std::string run_codec_binary(const CodecInfo& entry,
                                            const std::string& src_path)
 {
-  const auto bin = find_executable(entry.name);
+  const auto bin = find_trusted_executable(entry.name);
   if (bin.empty()) {
     spdlog::debug("LpDebugWriter: {} binary not found", entry.name);
     return {};
@@ -240,7 +208,7 @@ std::string try_codec(const std::string& src_path, const std::string& codec)
 std::string try_gtopt_compress_lp(const std::string& src_path,
                                   const std::string& codec_hint)
 {
-  const auto bin = find_executable("gtopt_compress_lp");
+  const auto bin = find_trusted_executable("gtopt_compress_lp");
   if (bin.empty()) {
     return {};
   }

@@ -18,6 +18,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <optional>
 #include <tuple>
@@ -105,6 +106,51 @@ public:
   /// ``LineThermalLimitMode``).
   static constexpr std::string_view ThermalpName {"thermalp"};
   static constexpr std::string_view ThermalnName {"thermaln"};
+  /// Binding part of the line limit (lines with rating / classified
+  /// limits).  The effective limit per direction and block is the min
+  /// over the SET parts; one flow bound / thermal row carries it, and its
+  /// dual is attributed to the binding part (ties: earliest in this
+  /// order) as ``<part>{p,n}_dual``: ``conductor`` (static conductor
+  /// rating or DLR), ``rating`` (max/min rating, or the overload rating
+  /// under the band), ``outage``, ``equipment``, ``security``,
+  /// ``flowlimit`` (max/min flow, ``tmax``).
+  enum class LimitPart : uint8_t
+  {
+    conductor = 0,
+    rating,
+    outage,
+    equipment,
+    security,
+    flowlimit,
+  };
+  static constexpr std::array<std::string_view, 6> LimitPartpNames {
+      "conductorp",
+      "ratingp",
+      "outagep",
+      "equipmentp",
+      "securityp",
+      "flowlimitp",
+  };
+  static constexpr std::array<std::string_view, 6> LimitPartnNames {
+      "conductorn",
+      "ratingn",
+      "outagen",
+      "equipmentn",
+      "securityn",
+      "flowlimitn",
+  };
+  /// One direction's binding limit in a block: the part and the bound /
+  /// row carrying it.  ``span_sum``: the DLR binds (conductor) — the dual
+  /// is the sum of the block's span duals.
+  struct LimitRef
+  {
+    LimitPart part {LimitPart::flowlimit};
+    bool span_sum {false};
+    bool is_row {true};
+    Index index {};
+    double coef {1.0};
+    double bound {0.0};
+  };
   static constexpr std::string_view ThetaName {"theta"};
   /// Overload-slack column emitted only when ``Line.tmax_normal_ab`` and
   /// ``Line.overload_penalty`` are configured.  Equals ``max(0, flowp −
@@ -363,6 +409,35 @@ public:
     return out;
   }
 
+  /// Dual ``∂obj/∂L`` (raw LP scale) of one binding-limit ref; ``span``
+  /// is the block's summed span dual (used when ``r.span_sum``).
+  template<typename Primal, typename Cost, typename Dual>
+  [[nodiscard]] static double limit_dual(
+      const LimitRef& r, double span, Primal&& primal, Cost&& cost, Dual&& dual)
+  {
+    if (r.span_sum) {
+      return span;
+    }
+    if (r.is_row) {
+      return dual(RowIndex {r.index});
+    }
+    const auto col = ColIndex {r.index};
+    const double tol = 1e-7 * std::max(1.0, std::abs(r.bound));
+    return std::abs(primal(col) - r.bound) <= tol ? cost(col) / r.coef : 0.0;
+  }
+
+  /// Binding-limit refs per (scenario, stage) and block (A→B / B→A).
+  [[nodiscard]] constexpr const auto& limitp_refs_at(const ScenarioLP& scenario,
+                                                     const StageLP& stage) const
+  {
+    return find_or_empty_inner(limitp_refs, scenario, stage);
+  }
+  [[nodiscard]] constexpr const auto& limitn_refs_at(const ScenarioLP& scenario,
+                                                     const StageLP& stage) const
+  {
+    return find_or_empty_inner(limitn_refs, scenario, stage);
+  }
+
   /// Check if this line created Kirchhoff (theta) rows for a given
   /// (scenario, stage) pair.
   [[nodiscard]] constexpr bool has_theta_rows(
@@ -385,13 +460,126 @@ public:
 
   /// @name Parameter accessors for user constraint resolution
   /// @{
-  [[nodiscard]] auto param_tmax_ab(StageUid s, BlockUid b) const
+  /// Flow limit (PLEXOS ``Max Flow`` / ``Min Flow``) per direction as a
+  /// magnitude: ``tmax_ab`` (= ``max_flow``) and ``tmax_ba`` (=
+  /// ``-min_flow``).  nullopt = no flow limit.
+  [[nodiscard]] std::optional<double> param_tmax_ab(StageUid s,
+                                                    BlockUid b) const
   {
-    return tmax_ab.at(s, b);
+    return lim(tmax_ab, s, b);
   }
-  [[nodiscard]] auto param_tmax_ba(StageUid s, BlockUid b) const
+  [[nodiscard]] std::optional<double> param_tmax_ba(StageUid s,
+                                                    BlockUid b) const
   {
-    return tmax_ba.at(s, b);
+    if (tmax_ba.has_value()) {
+      return lim(tmax_ba, s, b);
+    }
+    return lim(min_flow, s, b, /*negate=*/true);
+  }
+  /// Static limit envelope [MW] at (s, b): max over both directions of
+  /// the min over the set static parts (flow, max(rating, overload),
+  /// conductor, equipment, security); 0 when none is set.  Spans the loss
+  /// PWL.
+  [[nodiscard]] double limit_envelope(StageUid s, BlockUid b) const
+  {
+    double env = 0.0;
+    for (const bool fwd : {true, false}) {
+      auto v = fwd ? param_tmax_ab(s, b) : param_tmax_ba(s, b);
+      const auto take = [&v](std::optional<double> x)
+      {
+        if (x) {
+          v = v ? std::min(*v, *x) : *x;
+        }
+      };
+      auto r = fwd ? lim(max_rating, s, b) : lim(min_rating, s, b, true);
+      const auto o = fwd ? lim(overload_max_rating, s, b)
+                         : lim(overload_min_rating, s, b, true);
+      if (r && o) {
+        r = std::max(*r, *o);
+      } else if (o) {
+        r = o;
+      }
+      take(r);
+      take(lim(fwd ? conductor_rating_ab : conductor_rating_ba, s, b));
+      take(lim(fwd ? equipment_rating_ab : equipment_rating_ba, s, b));
+      take(lim(fwd ? security_limit_ab : security_limit_ba, s, b));
+      if (v) {
+        env = std::max(env, *v);
+      }
+    }
+    return env;
+  }
+  /// Raw (signed, PLEXOS-convention) limit fields for PAMPL.
+  [[nodiscard]] std::optional<double> param_min_flow(StageUid s,
+                                                     BlockUid b) const
+  {
+    const auto v = param_tmax_ba(s, b);
+    return v ? std::optional {-*v} : std::nullopt;
+  }
+  [[nodiscard]] std::optional<double> param_max_rating(StageUid s,
+                                                       BlockUid b) const
+  {
+    return lim(max_rating, s, b);
+  }
+  [[nodiscard]] std::optional<double> param_min_rating(StageUid s,
+                                                       BlockUid b) const
+  {
+    return lim(min_rating, s, b);
+  }
+  [[nodiscard]] std::optional<double> param_overload_max_rating(
+      StageUid s, BlockUid b) const
+  {
+    return lim(overload_max_rating, s, b);
+  }
+  [[nodiscard]] std::optional<double> param_overload_min_rating(
+      StageUid s, BlockUid b) const
+  {
+    return lim(overload_min_rating, s, b);
+  }
+  [[nodiscard]] std::optional<double> param_outage_max_rating(StageUid s,
+                                                              BlockUid b) const
+  {
+    return lim(outage_max_rating, s, b);
+  }
+  [[nodiscard]] std::optional<double> param_outage_min_rating(StageUid s,
+                                                              BlockUid b) const
+  {
+    return lim(outage_min_rating, s, b);
+  }
+  [[nodiscard]] std::optional<double> param_units_out(StageUid s,
+                                                      BlockUid b) const
+  {
+    return lim(units_out, s, b);
+  }
+  [[nodiscard]] std::optional<double> param_conductor_rating_ab(
+      StageUid s, BlockUid b) const
+  {
+    return lim(conductor_rating_ab, s, b);
+  }
+  [[nodiscard]] std::optional<double> param_conductor_rating_ba(
+      StageUid s, BlockUid b) const
+  {
+    return lim(conductor_rating_ba, s, b);
+  }
+  [[nodiscard]] std::optional<double> param_equipment_rating_ab(
+      StageUid s, BlockUid b) const
+  {
+    return lim(equipment_rating_ab, s, b);
+  }
+  [[nodiscard]] std::optional<double> param_equipment_rating_ba(
+      StageUid s, BlockUid b) const
+  {
+    return lim(equipment_rating_ba, s, b);
+  }
+  [[nodiscard]] std::optional<double> param_security_limit_ab(StageUid s,
+                                                              BlockUid b) const
+  {
+    return lim(security_limit_ab, s, b);
+  }
+  [[nodiscard]] std::optional<double> param_security_limit_ba(StageUid s,
+                                                              BlockUid b) const
+  {
+    return lim(security_limit_ba, s, b);
   }
   [[nodiscard]] auto param_tcost(StageUid s, BlockUid b) const
   {
@@ -425,8 +613,44 @@ public:
   /// @}
 
 private:
+  /// Schedule value at (s, b); nullopt when unset or not finite (a NaN /
+  /// missing cell means "no limit", never 0).  ``negate`` flips PLEXOS
+  /// signed ``Min *`` values into B→A magnitudes.
+  [[nodiscard]] static std::optional<double> lim(const OptTBRealSched& sched,
+                                                 StageUid s,
+                                                 BlockUid b,
+                                                 bool negate = false)
+  {
+    const auto v = sched.at(s, b);
+    if (!v || !std::isfinite(*v)) {
+      return std::nullopt;
+    }
+    return negate ? -*v : *v;
+  }
+
   OptTBRealSched tmax_ba;
   OptTBRealSched tmax_ab;
+  /// PLEXOS limit fields and the limit classification (``Line``); every
+  /// one optional (unset / NaN cell = no limit from that field).
+  OptTBRealSched min_flow;
+  OptTBRealSched max_rating;
+  OptTBRealSched min_rating;
+  OptTBRealSched overload_max_rating;
+  OptTBRealSched overload_min_rating;
+  OptTBRealSched outage_max_rating;
+  OptTBRealSched outage_min_rating;
+  OptTBRealSched units_out;
+  OptTBRealSched conductor_rating_ab;
+  OptTBRealSched conductor_rating_ba;
+  OptTBRealSched equipment_rating_ab;
+  OptTBRealSched equipment_rating_ba;
+  OptTBRealSched security_limit_ab;
+  OptTBRealSched security_limit_ba;
+  /// True when any rating / classified limit is set (``Line::
+  /// has_rating_limits``): the line reports per-part limit duals.
+  bool m_rating_limits_ {false};
+  /// True when a conductor rating is set (the default DLR target).
+  bool m_has_conductor_ {false};
   /// Per-(stage, block) in-service flag (PLEXOS ``Line.Units``).  When a
   /// block resolves to ``0`` the line is open for that block: no flow
   /// column, capacity row, loss segment, balance contribution, or KVL
@@ -492,6 +716,8 @@ private:
   STBIndexHolder<double> critical_span_values;
   STBIndexHolder<std::vector<RowIndex>> span_rows;
   STBIndexHolder<std::vector<DlrDualRef>> dlr_dual_refs;
+  STBIndexHolder<LimitRef> limitp_refs;
+  STBIndexHolder<LimitRef> limitn_refs;
   bool m_dlr_never_critical_logged_ {false};
 };
 

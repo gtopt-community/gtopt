@@ -256,7 +256,8 @@ void apply_cplex_params(cpxenv* env, const CplexParams& params)
 /// default primal — empirically best on the GTEP subproblems).  Users can
 /// override the whole warm pass with a `cplex_warmstart.prm` sibling next
 /// to the case's main `.prm` — the SINGLE shared warm-start param file
-/// (carries `CPXPARAM_LPMethod 1` primal + `CPXPARAM_Advance 1`), shipped by
+/// (`CPXPARAM_Advance 1`; plp2gtopt's copy deliberately pins no `LPMethod`
+/// so the typed `algorithm` keeps choosing the warm method), shipped by
 /// plp2gtopt / plexos2gtopt and loaded for BOTH warm paths.  Call this AFTER
 /// the main `.prm` so it wins over a pinned `LPMethod` (the bundled
 /// `cplex.prm` forces barrier).
@@ -278,7 +279,8 @@ void apply_cplex_warmstart(cpxenv* env, const SolverOptions& opts)
 
   // Optional user override: the case's `cplex_warmstart.prm` sibling (next
   // to its main `cplex.prm`) — the single shared warm-start param file
-  // (`LPMethod 1` primal + `Advance 1`), shipped by plp2gtopt / plexos2gtopt
+  // (`Advance 1`, plus `LPMethod 1` in plexos2gtopt's copy), shipped by
+  // plp2gtopt / plexos2gtopt
   // and used by BOTH the fixed-MILP dual pass and the aperture warm-start.
   // Loaded last so it wins over the in-code defaults above.  Applies ONLY
   // the keys the file lists (parsed once per process): the old
@@ -342,7 +344,16 @@ void apply_options_to_env(cpxenv* env, const SolverOptions& opts)
   // converges to the same optimum within tolerance.  Acceptable for
   // SDDP because individual cell solves are themselves wrapped in a
   // tolerance-based convergence test, not a bit-exact compare.
-  CPXsetintparam(env, CPX_PARAM_PARALLELMODE, -1);
+  //
+  // `deterministic_parallel = true` selects deterministic mode (+1)
+  // instead: on a degenerate LP the opportunistic barrier + crossover
+  // ends on a load-dependent optimal basis, so the duals / reduced costs
+  // change between runs (exp_bat_4b_24 at load ~50-70: 6 of 100 runs).
+  CPXsetintparam(env,
+                 CPX_PARAM_PARALLELMODE,
+                 opts.deterministic_parallel_enabled()
+                     ? CPX_PARALLEL_DETERMINISTIC
+                     : CPX_PARALLEL_OPPORTUNISTIC);
 
   CPXsetintparam(env, CPX_PARAM_PREIND, opts.presolve ? CPX_ON : CPX_OFF);
 

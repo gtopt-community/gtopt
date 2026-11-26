@@ -138,6 +138,39 @@ inline constexpr auto line_dlr_span_mode_entries =
   return std::span {line_dlr_span_mode_entries};
 }
 
+// ─── LineDlrLimitMode ────────────────────────────────────────────────
+
+/**
+ * @brief How a dynamic line rating (`Line.dlr`) combines with the static
+ *        conductor rating of the line.
+ *
+ * - `replace` (0): the DLR rating IS the conductor's thermal capacity
+ *   and replaces `conductor_rating_*`; on a line without a conductor
+ *   rating it replaces `max_rating` / `min_rating` instead.  Flow,
+ *   outage, equipment and security limits always apply.
+ * - `min` (1): `min(static limits, DLR)` in every block.
+ *
+ * Unset (per line and in `model_options`): `replace` on lines with a
+ * `conductor_rating_*`, `min` otherwise (the historical
+ * `min(tmax, DLR)`).
+ */
+enum class LineDlrLimitMode : uint8_t
+{
+  replace = 0,  ///< DLR replaces the static thermal rating
+  min = 1,  ///< min(static tmax, DLR rating)
+};
+
+inline constexpr auto line_dlr_limit_mode_entries =
+    std::to_array<EnumEntry<LineDlrLimitMode>>({
+        {.name = "replace", .value = LineDlrLimitMode::replace},
+        {.name = "min", .value = LineDlrLimitMode::min},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(LineDlrLimitMode /*tag*/) noexcept
+{
+  return std::span {line_dlr_limit_mode_entries};
+}
+
 // ─── LineDlrSolarMode ────────────────────────────────────────────────
 
 /**

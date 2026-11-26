@@ -44,6 +44,9 @@ LineDlrLP::LineDlrLP(LineDlr dlr,
           dlr.low_wind_angle.value_or(ieee738::kLowWindAttackAngle))
     , m_solar_mode_(dlr.solar_mode_enum())
 {
+  if (dlr.limit_mode) {
+    m_limit_mode_ = enum_from_name<LineDlrLimitMode>(*dlr.limit_mode);
+  }
   if (dlr.conductor) {
     const auto& c = *dlr.conductor;
     // Resistance: tabulated r25/r75, or r20 + alpha_r (+ ac_factor).

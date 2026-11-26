@@ -151,6 +151,10 @@ private:
   double fail_cost {0.0};
   STBIndexHolder<ColIndex> extraction_cols_;
   STBIndexHolder<ColIndex> saving_cols_;
+  /// Free-disposal (`forfeit`) columns per (scenario, stage, block);
+  /// present only when `VolumeRight::forfeit` is set.  Kept so the
+  /// output closes the ledger balance (`forfeit_sol`).
+  STBIndexHolder<ColIndex> forfeit_cols_;
   /// Stage demand-deficit column and demand-satisfaction row per
   /// (scenario, stage); present only where `demand > 0`.
   STIndexHolder<ColIndex> fail_cols_;

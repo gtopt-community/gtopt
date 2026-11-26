@@ -297,6 +297,9 @@ solver_field_setters()
           {"cold_solve_without_basis",
            [](SolverOptions& o, std::string_view n, const std::string& v)
            { o.cold_solve_without_basis = require_bool(n, v); }},
+          {"deterministic_parallel",
+           [](SolverOptions& o, std::string_view n, const std::string& v)
+           { o.deterministic_parallel = require_bool(n, v); }},
           {"optimal_eps",
            [](SolverOptions& o, std::string_view, const std::string& v)
            { o.optimal_eps = std::stod(v); }},

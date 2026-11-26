@@ -1541,7 +1541,8 @@ auto solve_apertures_for_phase(
           "{}: persistent aperture infeasibility — aperture a{} dropped in "
           "{} consecutive iterations (scene {}, phase {}, aperture {}).  The "
           "model lacks relatively complete recourse for this aperture (e.g. "
-          "a hard `efin` without `efin_cost`): its cut is renormalised away "
+          "a hard `efin` without `efin_cost`, or a full reservoir without a "
+          "spillway under a wetter aperture): its cut is renormalised away "
           "every iteration, the LB is computed over a rescaled distribution "
           "and the run will not be reported as converged while it is "
           "dropped.  See docs/methods/sddp.md (Infeasible apertures).",

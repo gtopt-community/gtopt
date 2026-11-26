@@ -290,9 +290,9 @@ struct LineCommitment
   /// is REPLACED by a tier-dependent cost based on how long the
   /// breaker was open before the close event:
   ///
-  ///   offline_hours ∈ [0, hot_start_time]            → hot_start_cost
-  ///   offline_hours ∈ (hot_start_time, cold_start_time] → warm_start_cost
-  ///   offline_hours >  cold_start_time               → cold_start_cost
+  ///   offline_hours ∈ [0, hot_start_time)            → hot_start_cost
+  ///   offline_hours ∈ [hot_start_time, cold_start_time) → warm_start_cost
+  ///   offline_hours ≥  cold_start_time               → cold_start_cost
   ///
   /// LP form (mirrors ``CommitmentLP`` C8/C9/C10): one tier indicator
   /// per block ``y^hot_l[t], y^warm_l[t], y^cold_l[t] ∈ [0, 1]`` plus
@@ -301,26 +301,27 @@ struct LineCommitment
   ///   C10:  y^warm_l[t] ≤ Σ_{q ∈ warm window} w_l[q]
   /// (cold is the residual via C8 — no explicit row needed).
   /// Pre-event window membership uses block durations: a block ``q``
-  /// is in ``t``'s hot window if Σ duration[q+1..t-1] ≤ hot_start_time.
+  /// is in ``t``'s hot window if Σ duration[q..t-1] < hot_start_time
+  /// (the line is open from the start of the shutdown block ``q``).
   ///
   /// Requires ``cold_start_time >= hot_start_time``; ``validate_planning``
   /// rejects otherwise (and ``LineCommitmentLP`` logs + skips tiers as
   /// a defensive fallback).
   /// @{
-  OptReal hot_start_cost {};  ///< $/start when offline ≤ hot_start_time
-  OptReal warm_start_cost {};  ///< $/start when offline in (hot, cold]
-  OptReal cold_start_cost {};  ///< $/start when offline > cold_start_time
+  OptReal hot_start_cost {};  ///< $/start when offline < hot_start_time
+  OptReal warm_start_cost {};  ///< $/start when offline in [hot, cold)
+  OptReal cold_start_cost {};  ///< $/start when offline ≥ cold_start_time
   OptReal hot_start_time {};  ///< Hot/warm boundary [hours]
   OptReal cold_start_time {};  ///< Warm/cold boundary [hours]
   /// @}
 
   /// Hours offline before the stage starts (pre-stage state).
-  /// Used to size the C9/C10 hot/warm windows that look BACKWARDS
-  /// from block ``t = 0``: an empty stage prefix means there's no
-  /// past ``w`` data to draw from, so ``initial_hours`` substitutes
-  /// for the pre-stage shutdown duration.  Defaults to a large
-  /// sentinel (``1e6``) so an unset value means "the breaker has been
-  /// open forever" (⇒ always cold start at ``t = 0``).
+  /// A line open since before the horizon has been open
+  /// ``initial_hours`` + the in-horizon hours before block ``t``; that
+  /// sizes the C9/C10 hot/warm windows at every block until the first
+  /// in-horizon close.  Defaults to a large sentinel (``1e6``) so an
+  /// unset value means "the breaker has been open forever" (⇒ every
+  /// first close is cold).
   OptReal initial_hours {};
 
   /// True iff all five tier fields are set (LP build then activates

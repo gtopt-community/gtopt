@@ -156,6 +156,10 @@ private:
   /// Private (mkdtemp, 0700) directory holding the level-to-level cut
   /// files; created on first use, removed when solve() returns.
   std::filesystem::path m_tmp_dir_ {};
+
+  /// True when @p path lives directly in m_tmp_dir_, i.e. it is a
+  /// level-to-level hand-off file this run created (and may delete).
+  [[nodiscard]] bool is_owned_temp_file(const std::string& path) const;
 };
 
 }  // namespace gtopt

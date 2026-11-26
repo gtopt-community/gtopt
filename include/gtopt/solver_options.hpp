@@ -413,6 +413,29 @@ struct SolverOptions
    */
   std::optional<bool> cold_solve_without_basis {};
 
+  /** @brief Reproducible multi-threaded solves.
+   *
+   *  - unset / `false` (default): opportunistic parallel mode — fastest,
+   *    but thread timing decides the solve path, so the same LP can end
+   *    on a different optimal basis from run to run, and a degenerate LP
+   *    then reports different duals / reduced costs (seen under machine
+   *    load).  The behaviour before this option.
+   *  - `true`: deterministic parallel mode — the same LP, thread count
+   *    and machine always give the same solution, whatever the load.
+   *    The e2e golden tests run with it.
+   *
+   *  Backend mapping:
+   *  - CPLEX:   CPX_PARAM_PARALLELMODE = 1 (`true`) / -1 (unset, `false`).
+   *  - HiGHS, Gurobi, MindOpt, OSI/CLP: ignored (no opportunistic mode
+   *    enabled by gtopt).
+   */
+  std::optional<bool> deterministic_parallel {};
+
+  [[nodiscard]] constexpr bool deterministic_parallel_enabled() const noexcept
+  {
+    return deterministic_parallel.value_or(false);
+  }
+
   [[nodiscard]] constexpr KappaMode effective_kappa_mode() const noexcept
   {
     return kappa_mode.value_or(KappaMode::estimate);
@@ -455,6 +478,7 @@ struct SolverOptions
     merge_opt(mip_heuristic_effort, other.mip_heuristic_effort);
     merge_opt(kappa_mode, other.kappa_mode);
     merge_opt(cold_solve_without_basis, other.cold_solve_without_basis);
+    merge_opt(deterministic_parallel, other.deterministic_parallel);
     merge_opt(param_file, other.param_file);
   }
 
@@ -526,6 +550,7 @@ struct SolverOptions
     merge_opt(mip_heuristic_effort, user.mip_heuristic_effort);
     merge_opt(kappa_mode, user.kappa_mode);
     merge_opt(cold_solve_without_basis, user.cold_solve_without_basis);
+    merge_opt(deterministic_parallel, user.deterministic_parallel);
     merge_opt(param_file, user.param_file);
   }
 };

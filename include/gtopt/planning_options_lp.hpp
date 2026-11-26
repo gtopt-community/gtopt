@@ -29,6 +29,7 @@
 #include <gtopt/phase_range_set.hpp>
 #include <gtopt/planning_options.hpp>
 #include <gtopt/pricing_mode.hpp>
+#include <gtopt/transition_integrality.hpp>
 #include <gtopt/variable_scale.hpp>
 
 namespace gtopt
@@ -602,6 +603,41 @@ public:
         default_fast_start_max_hours);
   }
 
+  /// Default integrality of the commitment startup / shutdown columns
+  /// (`model_options.transition_integrality`).  Unset or unknown →
+  /// `TransitionIntegrality::automatic` (validation rejects unknown
+  /// names up front).
+  [[nodiscard]] constexpr TransitionIntegrality transition_integrality() const
+  {
+    const auto& m = m_options_.model_options.transition_integrality;
+    if (!m.has_value()) {
+      return TransitionIntegrality::automatic;
+    }
+    return enum_from_name<TransitionIntegrality>(*m).value_or(
+        TransitionIntegrality::automatic);
+  }
+
+  /// Default for emitting the commitment `v <= u` / `w <= 1 - u` rows
+  /// (`model_options.transition_status_rows`, default `true`).
+  [[nodiscard]] constexpr bool transition_status_rows() const
+  {
+    return m_options_.model_options.transition_status_rows.value_or(true);
+  }
+
+  /// Default integrality of the startup-tier selectors
+  /// (`model_options.startup_tier_integrality`).  Unset or unknown →
+  /// `StartupTierIntegrality::continuous`.
+  [[nodiscard]] constexpr StartupTierIntegrality startup_tier_integrality()
+      const
+  {
+    const auto& m = m_options_.model_options.startup_tier_integrality;
+    if (!m.has_value()) {
+      return StartupTierIntegrality::continuous;
+    }
+    return enum_from_name<StartupTierIntegrality>(*m).value_or(
+        StartupTierIntegrality::continuous);
+  }
+
   /// Returns the resolved threshold used by
   /// `PlanningLP::validate_line_resistance` when deciding whether a
   /// line's `|R/V²|` is small enough to warrant rewriting `R` to `0`
@@ -697,6 +733,17 @@ public:
   [[nodiscard]] constexpr bool use_line_dlr() const noexcept
   {
     return m_options_.model_options.use_line_dlr.value_or(true);
+  }
+  /// ``model_options.dlr_limit_mode``: how a ``Line.dlr`` rating
+  /// combines with the static limits.  nullopt when unset (each line then
+  /// picks ``replace`` with a ``conductor_rating_*``, else ``min``).
+  /// Unknown names are rejected by ``validate_planning``.
+  [[nodiscard]] constexpr std::optional<LineDlrLimitMode> dlr_limit_mode() const
+  {
+    if (const auto& m = m_options_.model_options.dlr_limit_mode) {
+      return enum_from_name<LineDlrLimitMode>(*m);
+    }
+    return std::nullopt;
   }
 
   /// @brief Gets the ``<attr>_prev`` stage-boundary link.
@@ -1092,8 +1139,9 @@ public:
   /// (equilibration_method, fast_sqrt_method, ruiz_max_iterations,
   /// ruiz_tolerance, compute_stats, lp_coeff_ratio_threshold, validation)
   /// is filled from ``options.lp_matrix_options``; an explicit field wins
-  /// only when set.  A still-unset `equilibration_method` then takes the
-  /// topology default of `equilibration_method()`.  Applied by
+  /// only when set.  ``options.lp_fingerprint`` turns on
+  /// `compute_fingerprint`.  A still-unset `equilibration_method` then takes
+  /// the topology default of `equilibration_method()`.  Applied by
   /// `SystemLP::create_lp`, so production (`gtopt_lp_runner`), cascade
   /// levels, aperture systems and directly constructed `PlanningLP` /
   /// `SystemLP` (unit tests) all build with the same options.
@@ -1103,6 +1151,13 @@ public:
     explicit_opts.fill_unset_from(m_options_.lp_matrix_options);
     if (!explicit_opts.equilibration_method.has_value()) {
       explicit_opts.equilibration_method = equilibration_method();
+    }
+    // `options.lp_fingerprint` needs the structural fingerprint captured
+    // at the build-time flatten (the only point where the per-column /
+    // per-row class metadata still exists); without this the written
+    // `lp_fingerprint_*.json` carried an empty hash.
+    if (lp_fingerprint()) {
+      explicit_opts.compute_fingerprint = true;
     }
     return explicit_opts;
   }
@@ -1336,14 +1391,14 @@ public:
     return m_options_.sddp_options.free_solver_scratch.value_or(true);
   }
 
-  /// `sddp_options.release_backends` (default false). Under low_memory_mode =
+  /// `sddp_options.release_backends` (default true). Under low_memory_mode =
   /// off, release each solver backend after its solve and rebuild it from an
   /// uncompressed flat-LP snapshot on the next visit, warm-starting from the
-  /// saved basis (false: keep every LP live for the whole run). Under compress
-  /// backends are always released.
+  /// saved basis (false: keep every LP live for the whole run, the previous
+  /// default). Under compress backends are always released.
   [[nodiscard]] constexpr bool sddp_release_backends() const noexcept
   {
-    return m_options_.sddp_options.release_backends.value_or(false);
+    return m_options_.sddp_options.release_backends.value_or(true);
   }
 
   [[nodiscard]] constexpr auto sddp_aperture_use_manual_clone() const

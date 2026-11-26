@@ -18,8 +18,11 @@
 #include <cmath>
 #include <format>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <tuple>
 #include <vector>
 
 #include <gtopt/commitment_lp.hpp>
@@ -30,6 +33,7 @@
 #include <gtopt/reserve_provision_lp.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/transition_integrality.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -153,7 +157,11 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   // per-stage JSON input broadcasts to every block, so this reproduces
   // the legacy per-stage cost byte-for-byte while letting a single-stage
   // PLEXOS conversion carry a per-period Gen_StartCost profile.
-  const auto initial_u = commitment().initial_status.value_or(0.0);
+  // Rounded at 0.5 (as LineCommitment does) so the first period's C1
+  // RHS is integral: with an integral u, v[0] / w[0] are then forced to
+  // {0, 1} by C1 + C3a / C3b like every other period.
+  const auto initial_u =
+      (commitment().initial_status.value_or(0.0) >= 0.5) ? 1.0 : 0.0;
   // ``initial_power`` (≡ ``p_prev`` at the first block of the
   // planning horizon) defaults to 0.  When ``initial_u = 1`` and
   // pmin > 0, this default forces the LP's first-block ramp-up to
@@ -189,6 +197,30 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   const auto has_ramp_down = chronological && ramp_down_.has_value();
   const auto has_startup_ramp = chronological && startup_ramp_.has_value();
   const auto has_shutdown_ramp = chronological && shutdown_ramp_.has_value();
+  // C3a / C3b (`v <= u`, `w <= 1 - u`): per unit, else model_options;
+  // default on.
+  const auto status_rows = commitment().transition_status_rows.value_or(
+      sc.options().transition_status_rows());
+  // Integrality of startup v / shutdown w (`transition_integrality`,
+  // per unit, else model_options; default "auto" = continuous with the
+  // status rows, binary without).  See the u/v/w block for the argument.
+  const auto ti_mode =
+      commitment()
+          .transition_integrality
+          .and_then([](const Name& n)
+                    { return enum_from_name<TransitionIntegrality>(n); })
+          .value_or(sc.options().transition_integrality());
+  const auto binary_transitions = transition_cols_binary(ti_mode, status_rows);
+  // Integrality of the hot / warm / cold tier selectors
+  // (`startup_tier_integrality`, default continuous: the tier rows are
+  // an interval matrix — TU — once v / w are integral).
+  const auto integer_tiers =
+      commitment()
+          .startup_tier_integrality
+          .and_then([](const Name& n)
+                    { return enum_from_name<StartupTierIntegrality>(n); })
+          .value_or(sc.options().startup_tier_integrality())
+      == StartupTierIntegrality::integer;
 
   // Resolve piecewise heat rate curve.
   //
@@ -418,26 +450,40 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
 
     // ── Create v (startup) and w (shutdown) variables ──
     //
-    // These are deliberately CONTINUOUS in [0,1], NOT integer, even on a
-    // non-relaxed (MIP) build.  In this tight 3-binary formulation the
-    // logic equality C1 (`u[p] - u[p-1] - v[p] + w[p] = 0`) together with
-    // the exclusion C3 (`v[p] + w[p] <= 1`) and the nonnegative startup /
-    // shutdown costs force v and w to the integer up/down transition of an
-    // integer u — so they take binary values at every optimal vertex
-    // without being declared integer.  Declaring only u integer cuts the
-    // branching-variable count by ~2/3 with an identical feasible set.
-    // See Knueven, Ostrowski & Watson (2020), "On MIP Formulations for the
-    // Unit Commitment Problem", INFORMS J. Comput. 32(4); and
-    // Morales-España, Latorre & Ramos (2013), "Tight and Compact MILP
-    // Formulation ...", IEEE Trans. Power Syst.
-    // Startup is a once-per-EVENT cost ($/start), NOT a per-hour power cost,
-    // so it must NOT be multiplied by the block duration (Δt).  Use the
-    // no-duration ``cost_factor`` (probability · discount) — present-valued
-    // but face-value in magnitude.  Multiplying by ``rep_block.duration()``
-    // (as ``block_ecost`` does) would inflate it by the block length.
-    // Resolve startup / shutdown cost at this period's representative
-    // block (a scalar/per-stage input broadcasts to the same value on
-    // every block — full back-compat with the legacy per-stage cost).
+    // Integrality of v / w (`transition_integrality`, see
+    // transition_integrality.hpp; `binary_transitions` above).
+    //
+    // With C1 (`u[p] - u[p-1] = v[p] - w[p]`) and C3a / C3b
+    // (`v[p] <= u[p]`, `w[p] <= 1 - u[p]`, below), an integral u and an
+    // integral initial status (rounded at 0.5) force v, w in {0, 1} in all
+    // four (u[p-1], u[p]) cases:
+    //   (0,0): v = w, v <= 0           -> v = w = 0
+    //   (1,1): v = w, w <= 0           -> v = w = 0
+    //   (0,1): v - w = 1, v <= 1       -> v = 1, w = 0
+    //   (1,0): w - v = 1, w <= 1       -> w = 1, v = 0
+    // Any other rows (ramps with SU·v / SD·w, min up/down, tiers, user
+    // constraints) only remove points, so v / w need not be integer:
+    // "auto" (default) keeps them CONTINUOUS while the status rows are on
+    // — only u branches.  Knueven, Ostrowski & Watson (2020), "On MIP
+    // Formulations for the Unit Commitment Problem", INFORMS J. Comput.
+    // 32(4); Rajan & Takriti (2005), "Minimum up/down polytopes of the
+    // unit commitment problem with start-up costs", IBM RC23628.
+    //
+    // Without the status rows (`transition_status_rows = false`) C1 +
+    // C3 admit v = w = 1/2 on a unit that stays on, which the SU·v /
+    // SD·w ramp terms reward — "auto" then declares v / w BINARY.
+    // "continuous" / "binary" force either.  Binary v / w go through
+    // `add_integer_col` with u's domain, so `relax`, relaxed phases and
+    // `--no-mip` relax all three together.
+    //
+    // Startup is a once-per-EVENT cost ($/start), NOT a
+    // per-hour power cost, so it must NOT be multiplied by the block duration
+    // (Δt).  Use the no-duration ``cost_factor`` (probability · discount) —
+    // present-valued but face-value in magnitude.  Multiplying by
+    // ``rep_block.duration()`` (as ``block_ecost`` does) would inflate it by
+    // the block length. Resolve startup / shutdown cost at this period's
+    // representative block (a scalar/per-stage input broadcasts to the same
+    // value on every block — full back-compat with the legacy per-stage cost).
     const auto block_startup_cost =
         startup_cost_.optval(stage.uid(), rep_buid)
             .value_or(tier_fallback_cost.value_or(0.0));
@@ -447,21 +493,42 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
                                           : block_startup_cost
             * CostHelper::cost_factor(scenario.probability_factor(),
                                       stage.discount_factor());
-    // Startup ``v`` is continuous-in-[0,1] always (not integer-declared)
-    // but the C1 logic + nonnegative cost force it to {0, 1} at the
-    // optimum.  Pin ``scale = 1.0`` so the C1 coefficient invariants
-    // survive Ruiz / VariableScaleMap — task #50.
-    auto vcol = lp.add_col({
-        .lowb = 0.0,
-        .uppb = 1.0,
-        .cost = v_cost,
-        .is_integer = false,
-        .pin_scale = true,  // semantically binary even when LP-relaxed
-        .class_name = cname,
-        .variable_name = StartupName,
-        .variable_uid = cuid,
-        .context = ctx,
-    });
+    // Binary with ramp rows, continuous otherwise (see above).  Pin
+    // ``scale = 1.0`` either way so the C1 coefficient invariants survive
+    // Ruiz / VariableScaleMap — task #50.
+    const auto add_transition_col = [&](std::string_view name,
+                                        double cost) -> ColIndex
+    {
+      SparseCol col {
+          .lowb = 0.0,
+          .uppb = 1.0,
+          .cost = cost,
+          .is_integer = false,
+          .pin_scale = true,  // semantically binary even when LP-relaxed
+          .class_name = cname,
+          .variable_name = name,
+          .variable_uid = cuid,
+          .context = ctx,
+      };
+      if (!binary_transitions) {
+        return lp.add_col(std::move(col));
+      }
+      return sc.add_integer_col(
+          lp,
+          IntegerVariable::key(scenario,
+                               stage,
+                               Element::class_name,
+                               cuid,
+                               name,
+                               period_scope,
+                               rep_buid),
+          std::move(col),
+          period_domain,
+          period_scope,
+          rep_buid,
+          std::span<const BlockUid> {period_block_uids[p]});
+    };
+    auto vcol = add_transition_col(StartupName, v_cost);
     vcols[rep_buid] = vcol;
     period_vcol[p] = vcol;
 
@@ -471,18 +538,8 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     const auto w_cost = block_shutdown_cost
         * CostHelper::cost_factor(scenario.probability_factor(),
                                   stage.discount_factor());
-    // Shutdown ``w`` — same shape as startup; pin scale = 1.0.
-    auto wcol = lp.add_col({
-        .lowb = 0.0,
-        .uppb = 1.0,
-        .cost = w_cost,
-        .is_integer = false,
-        .pin_scale = true,  // semantically binary even when LP-relaxed
-        .class_name = cname,
-        .variable_name = ShutdownName,
-        .variable_uid = cuid,
-        .context = ctx,
-    });
+    // Shutdown ``w`` — same shape and integrality as startup.
+    auto wcol = add_transition_col(ShutdownName, w_cost);
     wcols[rep_buid] = wcol;
     period_wcol[p] = wcol;
 
@@ -497,7 +554,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
 
     // ── C1: Logic transition (per period) ──
     // u[p] - u[p-1] - v[p] + w[p] = 0
-    // For first period: u[0] - v[0] + w[0] = initial_status
+    // For first period: u[0] - v[0] + w[0] = initial_status (rounded)
     {
       auto row =
           SparseRow {
@@ -529,6 +586,45 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       row[vcol] = 1.0;
       row[wcol] = 1.0;
       erows[rep_buid] = lp.add_row(std::move(row));
+    }
+
+    // ── C3a / C3b: v[p] <= u[p] and w[p] <= 1 - u[p] ──
+    // A start leaves the unit on, a stop leaves it off.  With an integer
+    // u these two rows and C1 pin v and w to the exact transition in all
+    // four (u[p-1], u[p]) cases; C1 + C3 alone do not: a unit that stays
+    // on (or off) may take v = w = x <= 0.5, and the SU·v / SD·w terms of
+    // the ramp rows (and any user row on startup / shutdown) then buy
+    // SU·x / SD·x of extra ramp for half a start-stop cost (free when the
+    // costs are 0).  With them, an integral u makes v / w integral (see the
+    // u/v/w block), so v / w stay continuous by default; they also tighten
+    // the LP relaxation.  Optional: `transition_status_rows = false` drops
+    // them (the pre-2026-11-25 formulation; "auto" then makes v / w
+    // binary).
+    if (status_rows) {
+      auto row =
+          SparseRow {
+              .class_name = cname,
+              .constraint_name = StartupStatusName,
+              .variable_uid = cuid,
+              .context = ctx,
+          }
+              .less_equal(0.0);
+      row[vcol] = 1.0;
+      row[ucol] = -1.0;
+      std::ignore = lp.add_row(std::move(row));
+    }
+    if (status_rows) {
+      auto row =
+          SparseRow {
+              .class_name = cname,
+              .constraint_name = ShutdownStatusName,
+              .variable_uid = cuid,
+              .context = ctx,
+          }
+              .less_equal(1.0);
+      row[wcol] = 1.0;
+      row[ucol] = 1.0;
+      std::ignore = lp.add_row(std::move(row));
     }
 
     prev_ucol = ucol;
@@ -567,6 +663,11 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     const auto pidx = block_period[bidx];
     const auto vcol = period_vcol[pidx];
     const auto wcol = period_wcol[pidx];
+    // A start / stop of period p happens at its FIRST block: only there do
+    // the ramp rows carry SU·v[p] / SD·w[p].  Interior blocks of an
+    // aggregated period (`commitment_period`) have u[t-1] = u[t] = u[p]
+    // and ramp with RU·u / RD·u alone.
+    const auto period_first = (bidx == period_starts[pidx]);
 
     const auto gen_pmax = lp.get_col_uppb(gcol);
     // ── Resolve commitment-conditional pmin ──
@@ -646,7 +747,10 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       // / ``prev_block_ucol`` for the same quantities.  Without
       // ``initial_p`` on the RHS, hot-start gens with ``ramp_up <
       // pmin`` (e.g. RTS-GMLC ``216_STEAM_1``) go infeasible on the
-      // first block.
+      // first block.  The start term stays the v[0] column there:
+      // ``p[0] − SU·v[0] ≤ initial_p + RU·initial_u`` (the former
+      // constant ``SU·(1 − initial_u)`` is the same for an integral
+      // v[0] but looser in the LP relaxation).
       auto row =
           SparseRow {
               .class_name = cname,
@@ -654,13 +758,13 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
               .variable_uid = cuid,
               .context = ctx,
           }
-              .less_equal(first_block ? initial_p + (ru * initial_u)
-                                  + (su * (1.0 - initial_u))
-                                      : 0.0);
+              .less_equal(first_block ? initial_p + (ru * initial_u) : 0.0);
       row[gcol] = 1.0;
       if (!first_block) {
         row[prev_gcol] = -1.0;
         row[prev_block_ucol] = -ru;
+      }
+      if (period_first) {
         row[vcol] = -su;
       }
       rurows[buid] = lp.add_row(std::move(row));
@@ -674,8 +778,14 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       const auto sd =
           shutdown_ramp_.optval(stage.uid(), buid).value_or(gen_pmax);
 
-      // Mirror the ramp-up first-block convention: ``p_prev`` on the
-      // LHS becomes ``initial_p`` on the RHS for the first block.
+      // First block: ``p_prev`` is the constant ``initial_p`` (moved to
+      // the RHS), but ``u[t]`` / ``w[t]`` stay the block's own columns —
+      // ``initial_p − p[0] ≤ RD·u[0] + SD·w[0]``.  Replacing them by
+      // constants from ``initial_u`` (the former form,
+      // ``initial_p − p[0] ≤ RD·initial_u + SD·(1 − initial_u)``)
+      // dropped the shutdown term for a unit that starts online, so it
+      // could not shut down in block 1 unless ``initial_p ≤ RD``
+      // (RTS-GMLC: 313_CC_1 at 170 MW with RD 82.8 was forced on).
       auto row =
           SparseRow {
               .class_name = cname,
@@ -683,13 +793,13 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
               .variable_uid = cuid,
               .context = ctx,
           }
-              .less_equal(first_block ? (rd * initial_u)
-                                  + (sd * (1.0 - initial_u)) - initial_p
-                                      : 0.0);
+              .less_equal(first_block ? -initial_p : 0.0);
       row[gcol] = -1.0;
       if (!first_block) {
         row[prev_gcol] = 1.0;
-        row[ucol] = -rd;
+      }
+      row[ucol] = -rd;
+      if (period_first) {
         row[wcol] = -sd;
       }
       rdrows[buid] = lp.add_row(std::move(row));
@@ -1017,81 +1127,54 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       const auto tier_blocks_span =
           std::span<const BlockUid> {period_block_uids[p]};
 
-      // Create tier variables with their respective costs.  The
-      // master-side ``IntegerVariable`` registry takes ownership of
-      // integer-vs-LP-relax and per-period dispatch — feature branch's
-      // legacy ``pin_scale`` workaround is subsumed by the registry's
-      // bookkeeping.  Per-event cost stays no-Δt (see comment above).
+      // Tier selectors: continuous by default (with v / w integral the
+      // tier rows — Σ y = v plus the cumulative offline-window rows — are
+      // an interval matrix, hence TU, so optimal vertices are integral);
+      // `startup_tier_integrality = integer` registers them as binaries
+      // through the IntegerVariable registry like u.
+      const auto add_tier_col = [&](std::string_view name,
+                                    double cost) -> ColIndex
+      {
+        SparseCol col {
+            .lowb = 0.0,
+            .uppb = 1.0,
+            .cost = cost,
+            .class_name = cname,
+            .variable_name = name,
+            .variable_uid = cuid,
+            .context = bctx,
+        };
+        if (!integer_tiers) {
+          return lp.add_col(std::move(col));
+        }
+        return sc.add_integer_col(lp,
+                                  IntegerVariable::key(scenario,
+                                                       stage,
+                                                       Element::class_name,
+                                                       cuid,
+                                                       name,
+                                                       period_scope,
+                                                       rep_buid),
+                                  std::move(col),
+                                  period_domain,
+                                  period_scope,
+                                  rep_buid,
+                                  tier_blocks_span);
+      };
+
+      // Create tier variables with their respective costs (continuous,
+      // or registry integers — see `add_tier_col`).  Per-event cost stays
+      // no-Δt (see comment above).
       const auto h_cost = hot_cost * tier_factor;
-      auto hcol = sc.add_integer_col(lp,
-                                     IntegerVariable::key(scenario,
-                                                          stage,
-                                                          Element::class_name,
-                                                          cuid,
-                                                          HotStartName,
-                                                          period_scope,
-                                                          rep_buid),
-                                     SparseCol {
-                                         .lowb = 0.0,
-                                         .uppb = 1.0,
-                                         .cost = h_cost,
-                                         .class_name = cname,
-                                         .variable_name = HotStartName,
-                                         .variable_uid = cuid,
-                                         .context = bctx,
-                                     },
-                                     period_domain,
-                                     period_scope,
-                                     rep_buid,
-                                     tier_blocks_span);
+      auto hcol = add_tier_col(HotStartName, h_cost);
       hcols[rep_buid] = hcol;
 
       const auto wm_cost = warm_cost * tier_factor;
-      auto wmcol = sc.add_integer_col(lp,
-                                      IntegerVariable::key(scenario,
-                                                           stage,
-                                                           Element::class_name,
-                                                           cuid,
-                                                           WarmStartName,
-                                                           period_scope,
-                                                           rep_buid),
-                                      SparseCol {
-                                          .lowb = 0.0,
-                                          .uppb = 1.0,
-                                          .cost = wm_cost,
-                                          .class_name = cname,
-                                          .variable_name = WarmStartName,
-                                          .variable_uid = cuid,
-                                          .context = bctx,
-                                      },
-                                      period_domain,
-                                      period_scope,
-                                      rep_buid,
-                                      tier_blocks_span);
+      auto wmcol = add_tier_col(WarmStartName, wm_cost);
       wmcols[rep_buid] = wmcol;
 
       const auto c_cost = cold_cost * tier_factor;
-      auto ccol = sc.add_integer_col(lp,
-                                     IntegerVariable::key(scenario,
-                                                          stage,
-                                                          Element::class_name,
-                                                          cuid,
-                                                          ColdStartName,
-                                                          period_scope,
-                                                          rep_buid),
-                                     SparseCol {
-                                         .lowb = 0.0,
-                                         .uppb = 1.0,
-                                         .cost = c_cost,
-                                         .class_name = cname,
-                                         .variable_name = ColdStartName,
-                                         .variable_uid = cuid,
-                                         .context = bctx,
-                                     },
-                                     period_domain,
-                                     period_scope,
-                                     rep_buid,
-                                     tier_blocks_span);
+      auto ccol = add_tier_col(ColdStartName, c_cost);
       ccols[rep_buid] = ccol;
 
       // C8: v[p] - y_hot[p] - y_warm[p] - y_cold[p] = 0
@@ -1339,11 +1422,15 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     }
   }
 
-  // Fast-start pricing: register the integer commitment column (u — v / w
-  // are continuous, forced binary by C1/C3) of a fast-start unit so the
-  // `pricing_mode = "fast_start"` pricing LP relaxes it while every other
-  // integer stays pinned at the MIP incumbent.  Registration is cheap and
-  // mode-independent; a relaxed (LP) commitment has no integer to relax.
+  // Fast-start pricing: register the integer commitment columns of a
+  // fast-start unit — u, plus v / w when `transition_integrality` makes
+  // them binary and the hot / warm / cold tier selectors when
+  // `startup_tier_integrality = integer` (otherwise they are continuous
+  // and already free in the pricing LP) — so
+  // the `pricing_mode = "fast_start"` pricing LP relaxes them while every
+  // other integer stays pinned at the MIP incumbent.  Registration is
+  // cheap and mode-independent; a relaxed (LP) commitment has no integer
+  // to relax.
   if (!is_relax
       && is_fast_start(commitment().fast_start,
                        commitment().min_up_time,
@@ -1351,9 +1438,28 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
                        sc.options().fast_start_max_hours()))
   {
     std::vector<ColIndex> fs_cols;
-    fs_cols.reserve(ucols.size());
+    fs_cols.reserve(ucols.size() * (binary_transitions ? 3 : 1));
     for (const auto& [buid, col] : ucols) {
       fs_cols.push_back(col);
+    }
+    if (integer_tiers) {
+      for (const auto* tiers :
+           {&hot_start_cols_, &warm_start_cols_, &cold_start_cols_})
+      {
+        if (const auto it = tiers->find(st_key); it != tiers->end()) {
+          for (const auto& [buid, col] : it->second) {
+            fs_cols.push_back(col);
+          }
+        }
+      }
+    }
+    if (binary_transitions) {
+      for (const auto& [buid, col] : vcols) {
+        fs_cols.push_back(col);
+      }
+      for (const auto& [buid, col] : wcols) {
+        fs_cols.push_back(col);
+      }
     }
     lp.add_fast_start_cols(fs_cols);
   }

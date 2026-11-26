@@ -35,6 +35,7 @@
 #include <gtopt/line_enums.hpp>
 #include <gtopt/pricing_mode.hpp>
 #include <gtopt/storage_state_defaults.hpp>
+#include <gtopt/transition_integrality.hpp>
 #include <gtopt/user_constraint_enums.hpp>
 #include <gtopt/utils.hpp>
 #include <gtopt/validate_planning.hpp>
@@ -1229,16 +1230,39 @@ enum class Positivity : std::uint8_t
 {
   strict,  ///< value must be > 0
   non_negative,  ///< value must be >= 0
+  /// Line limit fields: NaN = "unset in this cell" (allowed), else >= 0.
+  limit_non_negative,
+  /// PLEXOS signed ``Min *`` limits: NaN allowed, else <= 0.
+  limit_non_positive,
 };
 
 [[nodiscard]] constexpr bool violates(double v, Positivity p) noexcept
 {
-  return p == Positivity::strict ? !(v > 0.0) : !(v >= 0.0);
+  switch (p) {
+    case Positivity::strict:
+      return !(v > 0.0);
+    case Positivity::limit_non_negative:
+      return v < 0.0;
+    case Positivity::limit_non_positive:
+      return v > 0.0;
+    case Positivity::non_negative:
+    default:
+      return !(v >= 0.0);
+  }
 }
 
 [[nodiscard]] constexpr std::string_view positivity_name(Positivity p) noexcept
 {
-  return p == Positivity::strict ? "> 0" : ">= 0";
+  switch (p) {
+    case Positivity::strict:
+      return "> 0";
+    case Positivity::limit_non_positive:
+      return "<= 0 (PLEXOS signed Min value)";
+    case Positivity::non_negative:
+    case Positivity::limit_non_negative:
+    default:
+      return ">= 0";
+  }
 }
 
 template<typename Vec>
@@ -1514,16 +1538,85 @@ void check_positivity(ValidationResult& result, const System& sys)
   for (const auto& line : sys.line_array) {
     check_opt_field_positive(result,
                              line.tmax_ab,
-                             Positivity::non_negative,
+                             Positivity::limit_non_negative,
                              "Line",
                              line.name,
                              "tmax_ab");
     check_opt_field_positive(result,
                              line.tmax_ba,
-                             Positivity::non_negative,
+                             Positivity::limit_non_negative,
                              "Line",
                              line.name,
                              "tmax_ba");
+    // PLEXOS limit fields: every one optional (NaN cell = unset).
+    for (const auto& [f, name, p] :
+         {
+             std::tuple {
+                 &line.max_flow, "max_flow", Positivity::limit_non_negative},
+             std::tuple {
+                 &line.min_flow, "min_flow", Positivity::limit_non_positive},
+             std::tuple {&line.max_rating,
+                         "max_rating",
+                         Positivity::limit_non_negative},
+             std::tuple {&line.min_rating,
+                         "min_rating",
+                         Positivity::limit_non_positive},
+             std::tuple {&line.overload_max_rating,
+                         "overload_max_rating",
+                         Positivity::limit_non_negative},
+             std::tuple {&line.overload_min_rating,
+                         "overload_min_rating",
+                         Positivity::limit_non_positive},
+             std::tuple {&line.outage_max_rating,
+                         "outage_max_rating",
+                         Positivity::limit_non_negative},
+             std::tuple {&line.outage_min_rating,
+                         "outage_min_rating",
+                         Positivity::limit_non_positive},
+             std::tuple {
+                 &line.units_out, "units_out", Positivity::limit_non_negative},
+             std::tuple {&line.limit_penalty,
+                         "limit_penalty",
+                         Positivity::limit_non_negative},
+             std::tuple {&line.conductor_rating_ab,
+                         "conductor_rating_ab",
+                         Positivity::limit_non_negative},
+             std::tuple {&line.conductor_rating_ba,
+                         "conductor_rating_ba",
+                         Positivity::limit_non_negative},
+             std::tuple {&line.equipment_rating_ab,
+                         "equipment_rating_ab",
+                         Positivity::limit_non_negative},
+             std::tuple {&line.equipment_rating_ba,
+                         "equipment_rating_ba",
+                         Positivity::limit_non_negative},
+             std::tuple {&line.security_limit_ab,
+                         "security_limit_ab",
+                         Positivity::limit_non_negative},
+             std::tuple {&line.security_limit_ba,
+                         "security_limit_ba",
+                         Positivity::limit_non_negative},
+         })
+    {
+      check_opt_field_positive(result, *f, p, "Line", line.name, name);
+    }
+    // PLEXOS aliases: give one name, not both.
+    const auto alias = [&](bool a_set, bool b_set, std::string_view what)
+    {
+      if (a_set && b_set) {
+        result.errors.push_back(std::format(
+            "Line '{}': {} are aliases; give only one", line.name, what));
+      }
+    };
+    alias(line.tmax_ab.has_value(),
+          line.max_flow.has_value(),
+          "tmax_ab and max_flow");
+    alias(line.tmax_ba.has_value(),
+          line.min_flow.has_value(),
+          "tmax_ba and min_flow (= -tmax_ba)");
+    alias(line.overload_penalty.has_value(),
+          line.limit_penalty.has_value(),
+          "overload_penalty and limit_penalty");
   }
 
   // Waterway (hydro flow): fmin and fmax must be >= 0.  Negative flow
@@ -2656,6 +2749,20 @@ void check_model_option_names(ValidationResult& result,
         *mo.pricing_mode,
         names(std::type_identity<PricingMode> {}));
   }
+  if (mo.transition_integrality
+      && !enum_from_name<TransitionIntegrality>(*mo.transition_integrality))
+  {
+    bad("transition_integrality",
+        *mo.transition_integrality,
+        names(std::type_identity<TransitionIntegrality> {}));
+  }
+  if (mo.startup_tier_integrality
+      && !enum_from_name<StartupTierIntegrality>(*mo.startup_tier_integrality))
+  {
+    bad("startup_tier_integrality",
+        *mo.startup_tier_integrality,
+        names(std::type_identity<StartupTierIntegrality> {}));
+  }
   if (mo.fast_start_max_hours && *mo.fast_start_max_hours < 0.0) {
     result.errors.push_back(
         std::format("{}.fast_start_max_hours: must be >= 0 (got {})",
@@ -2679,6 +2786,40 @@ void check_model_options(ValidationResult& result, const Planning& planning)
           result,
           *level.model_options,
           std::format("cascade_options.level_array[{}].model_options", i));
+    }
+  }
+  std::string ti_names;
+  for (const auto& entry : enum_entries(TransitionIntegrality {})) {
+    ti_names += ti_names.empty() ? "" : ", ";
+    ti_names += entry.name;
+  }
+  for (const auto& cm : planning.system.commitment_array) {
+    if (cm.transition_integrality
+        && !enum_from_name<TransitionIntegrality>(*cm.transition_integrality))
+    {
+      result.errors.push_back(std::format(
+          "Commitment uid={} '{}': transition_integrality '{}' is not one "
+          "of: {}",
+          cm.uid,
+          cm.name,
+          *cm.transition_integrality,
+          ti_names));
+    }
+    if (const auto& sti = cm.startup_tier_integrality;
+        sti && !enum_from_name<StartupTierIntegrality>(*sti))
+    {
+      std::string names;
+      for (const auto& entry : enum_entries(StartupTierIntegrality {})) {
+        names += names.empty() ? "" : ", ";
+        names += entry.name;
+      }
+      result.errors.push_back(std::format(
+          "Commitment uid={} '{}': startup_tier_integrality '{}' is not "
+          "one of: {}",
+          cm.uid,
+          cm.name,
+          sti.value_or(""),
+          names));
     }
   }
 }
@@ -2765,6 +2906,15 @@ void check_line_dlr(ValidationResult& result, const Planning& planning)
                      line.max_overload_ratio);
   }
 
+  if (const auto& m = planning.options.model_options.dlr_limit_mode;
+      m && !enum_from_name<LineDlrLimitMode>(*m))
+  {
+    result.errors.push_back(
+        std::format("model_options: unknown dlr_limit_mode '{}' (expected: {})",
+                    *m,
+                    enum_names_list<LineDlrLimitMode>()));
+  }
+
   std::unordered_map<Uid, std::string> span_owner;
   for (const auto& line : planning.system.line_array) {
     if (!line.dlr) {
@@ -2806,6 +2956,11 @@ void check_line_dlr(ValidationResult& result, const Planning& planning)
       err(std::format("unknown span_mode '{}' (expected: {})",
                       *dlr.span_mode,
                       enum_names_list<LineDlrSpanMode>()));
+    }
+    if (dlr.limit_mode && !enum_from_name<LineDlrLimitMode>(*dlr.limit_mode)) {
+      err(std::format("unknown limit_mode '{}' (expected: {})",
+                      *dlr.limit_mode,
+                      enum_names_list<LineDlrLimitMode>()));
     }
     if (dlr.solar_mode && !enum_from_name<LineDlrSolarMode>(*dlr.solar_mode)) {
       err(std::format("unknown solar_mode '{}' (expected: {})",

@@ -124,9 +124,12 @@ Outputs
 =======
 
 By default gtopt writes its results, logs, and traces under the
-configured output directory (CLI: --set output_directory=<dir>;
-default: 'output' relative to the case file's parent).  The layout
-is:
+configured output directory.  A directory given on the command line
+(--set output_directory=<dir>) is relative to the current directory;
+options.output_directory in the planning JSON is relative to the JSON
+file's directory; the default is 'output' next to the JSON file, or
+'results' inside the case directory when gtopt is given a directory
+('gtopt case/').  The layout is:
 
   <output_directory>/                 results: per-element parquet/csv
                     /solution.csv     scalar solve summary (status,
@@ -162,6 +165,33 @@ record — `--quiet` further silences the log file too.
 namespace
 {
 
+/// Load errors that are integrity-check refusals (`k_plugin_refused_marker`).
+[[nodiscard]] std::vector<std::string> refused_load_errors(
+    const std::vector<std::string>& errors)
+{
+  std::vector<std::string> refused;
+  std::ranges::copy_if(errors,
+                       std::back_inserter(refused),
+                       [](const std::string& e)
+                       { return e.contains(k_plugin_refused_marker); });
+  return refused;
+}
+
+/// The "Refused plugins:" section (nothing when no plugin was refused).
+/// Printed whether or not any plugin loaded: when every plugin found was
+/// refused it is the only explanation of why no solver is available.
+void print_refused_plugins(std::ostream& out,
+                           const std::vector<std::string>& errors)
+{
+  const auto refused = refused_load_errors(errors);
+  if (!refused.empty()) {
+    out << "\nRefused plugins:\n";
+    for (const auto& e : refused) {
+      out << "  " << e << '\n';
+    }
+  }
+}
+
 /// Identity of every loaded plugin: path, ELF build-id vs manifest, build
 /// tag vs this binary, and per solver the compiled/runtime library version
 /// and the solver library actually loaded.  Printed after a blank line so
@@ -188,17 +218,7 @@ void print_plugin_details(std::ostream& out, const SolverRegistry& registry)
           "    {:<10} {}\n", lib.solver, describe_solver_library(lib));
     }
   }
-  std::vector<std::string> refused;
-  std::ranges::copy_if(registry.load_errors(),
-                       std::back_inserter(refused),
-                       [](const std::string& e)
-                       { return e.contains(k_plugin_refused_marker); });
-  if (!refused.empty()) {
-    out << "\nRefused plugins:\n";
-    for (const auto& e : refused) {
-      out << "  " << e << '\n';
-    }
-  }
+  print_refused_plugins(out, registry.load_errors());
 }
 
 }  // namespace
@@ -209,25 +229,39 @@ int print_available_solvers(std::ostream& out)
   registry.load_all_plugins();
   const auto solvers = registry.available_solvers();
   if (solvers.empty()) {
-    out << "No LP solver plugins found.\n\n";
+    const auto& errors = registry.load_errors();
+    const auto refused = refused_load_errors(errors);
+    if (refused.empty()) {
+      out << "No LP solver plugins found.\n\n";
+    } else {
+      out << "No LP solver available: every solver plugin found was "
+             "refused.\n\n";
+    }
     out << "Search directories:\n";
     for (const auto& dir : registry.searched_directories()) {
       out << "  " << dir << '\n';
     }
-    const auto& errors = registry.load_errors();
-    if (!errors.empty()) {
+    std::vector<std::string> other;
+    std::ranges::copy_if(errors,
+                         std::back_inserter(other),
+                         [](const std::string& e)
+                         { return !e.contains(k_plugin_refused_marker); });
+    if (!other.empty()) {
       out << "\nPlugin load errors:\n";
-      for (const auto& err : errors) {
+      for (const auto& err : other) {
         out << "  " << err << '\n';
       }
     }
-    out << "\nHints:\n"
-        << "  - Set GTOPT_PLUGIN_DIR to the directory containing solver "
-           "plugin libraries\n"
-        << "  - Ensure solver plugins (osi and/or highs) are installed\n"
-        << "  - Install COIN-OR (coinor-libcbc-dev) for CLP/CBC support\n"
-        << "  - Install HiGHS for HiGHS support\n"
-        << "  - Plugins from another build or a stale install are refused "
+    print_refused_plugins(out, errors);
+    out << "\nHints:\n";
+    if (refused.empty()) {
+      out << "  - Set GTOPT_PLUGIN_DIR to the directory containing solver "
+             "plugin libraries\n"
+          << "  - Ensure solver plugins (osi and/or highs) are installed\n"
+          << "  - Install COIN-OR (coinor-libcbc-dev) for CLP/CBC support\n"
+          << "  - Install HiGHS for HiGHS support\n";
+    }
+    out << "  - Plugins from another build or a stale install are refused "
            "in plugin check mode 'error'; rebuild/reinstall them, or use "
            "--plugin-check=warning to load them anyway\n";
   } else {

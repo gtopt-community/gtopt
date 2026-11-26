@@ -285,15 +285,29 @@ public:
                 // 1e30` and break Benders cut numerics.  See
                 // the large hydrothermal case regression diagnosis 2026-04-30
                 // (LB compounded ~10x per iter to 1.1B vs UB ~155M).
+                //
+                // Query the solver the LP will be built with (same chain
+                // as the build: flat_opts pin, then planning pin, then the
+                // process default), not always the default: with
+                // `--solver highs` and HiGHS refused, the default lookup
+                // reported "No solver plugins found" instead of
+                // "Solver 'highs' not available." and its refusal.
                 auto& reg = SolverRegistry::instance();
+                const std::string solver_name = !flat_opts.solver_name.empty()
+                    ? flat_opts.solver_name
+                    : planning.options.lp_matrix_options.solver_name;
                 const double solver_infinity = [&]
                 {
-                  if (auto v = reg.plugin_infinity(); v.has_value()) {
+                  if (auto v = reg.plugin_infinity(solver_name);
+                      v.has_value()) {
                     return *v;
                   }
                   // Fallback: older plugin without `gtopt_solver_infinity`
-                  // entry — instantiate a throwaway backend and query.
-                  auto backend = reg.create(reg.default_solver());
+                  // entry (or a requested solver that is not available,
+                  // which create() reports) — instantiate a throwaway
+                  // backend and query.
+                  auto backend = reg.create(
+                      solver_name.empty() ? reg.default_solver() : solver_name);
                   return backend->infinity();
                 }();
                 auto_scale_reservoirs(planning, solver_infinity);

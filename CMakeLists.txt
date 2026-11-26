@@ -117,6 +117,9 @@ CPMAddPackage(
   NAME spdlog
   GITHUB_REPOSITORY gabime/spdlog
   VERSION 1.15.0
+  # Dependencies are pinned by commit (tags can move); keep the tag name
+  # in the comment when bumping.
+  GIT_TAG 8e5613379f5140fefb0b60412fbf1f5406e7c7f8 # v1.15.0
   OPTIONS "SPDLOG_USE_STD_FORMAT 1" "SPDLOG_INSTALL YES" "SPDLOG_BUILD_SHARED ON"
   SYSTEM YES
 )
@@ -127,6 +130,7 @@ CPMAddPackage(
   NAME daw
   GITHUB_REPOSITORY beached/daw_json_link
   VERSION 3.31.0
+  GIT_TAG 507bdd08853b1ebbcc3ea90a4a871cfcd163a80a # v3.31.0
   DOWNLOAD_ONLY YES
 )
 
@@ -164,15 +168,13 @@ CPMAddPackage(
   # Pin a release tag, never master: upstream master moved the _u64/_u32
   # literals into daw::UIntLiterals (unreleased, 2026-10/11), which
   # daw_json_link 3.31-3.38 cannot find.
-  GIT_TAG v2.136.0
-  GIT_SHALLOW ON
+  GIT_TAG 57cb8d16a9ec60f0b119482859196a92213d3273 # v2.136.0
   DOWNLOAD_ONLY YES
 )
 CPMAddPackage(
   NAME daw_utf_range
   GITHUB_REPOSITORY beached/utf_range
-  GIT_TAG v2.2.6
-  GIT_SHALLOW ON
+  GIT_TAG b0b9cd05ea00f73d51cda5e3a2fd8fb004f5881d # v2.2.6
   DOWNLOAD_ONLY YES
 )
 add_library(daw::daw-json-link INTERFACE IMPORTED)
@@ -197,6 +199,7 @@ CPMAddPackage(
   NAME strong_type
   GITHUB_REPOSITORY rollbear/strong_type
   VERSION 15
+  GIT_TAG 8a2b339474904887cbb9820c48cbe28d8d9af538 # v15
   SYSTEM YES
   EXCLUDE_FROM_ALL YES
 )

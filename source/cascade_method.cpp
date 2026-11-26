@@ -21,7 +21,6 @@
 #include <vector>
 
 #include <daw/daw_read_file.h>
-#include <fcntl.h>  // open, O_*
 #include <gtopt/arrow_index_cache.hpp>
 #include <gtopt/as_label.hpp>
 #include <gtopt/cascade_method.hpp>
@@ -32,14 +31,13 @@
 #include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/process_util.hpp>
 #include <gtopt/sddp_common.hpp>  // gtopt::format_si
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sparse_row.hpp>
 #include <gtopt/system_file_loader.hpp>
 #include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
-#include <sys/stat.h>  // S_IRUSR, S_IWUSR
-#include <unistd.h>  // close
 
 namespace gtopt
 {
@@ -327,22 +325,6 @@ void write_cascade_levels_csv(const std::filesystem::path& dir,
   return std::filesystem::path {templ};
 }
 
-/// Create @p path as a new, empty regular file (O_EXCL | O_NOFOLLOW, 0600)
-/// so the following write can never land on a pre-existing file or follow
-/// a symlink.  Returns false when the path already exists.
-[[nodiscard]] bool create_exclusive_file(const std::filesystem::path& path)
-{
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
-  const int fd = ::open(path.c_str(),
-                        O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
-                        S_IRUSR | S_IWUSR);
-  if (fd < 0) {
-    return false;
-  }
-  ::close(fd);
-  return true;
-}
-
 /// Removes the cascade's private temp directory when solve() returns.
 class CascadeTempDirCleanup
 {
@@ -370,6 +352,14 @@ private:
 };
 
 }  // namespace
+
+bool CascadePlanningMethod::is_owned_temp_file(const std::string& path) const
+{
+  if (m_tmp_dir_.empty() || path.empty()) {
+    return false;
+  }
+  return std::filesystem::path {path}.parent_path() == m_tmp_dir_;
+}
 
 auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
                                   const SolverOptions& opts)
@@ -889,8 +879,14 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
                     level_name,
                     load_result.error().message);
       }
-      std::error_code ec;
-      std::filesystem::remove(m_prev_cuts_file_, ec);
+      // Only delete the hand-off file when gtopt created it in its own
+      // private temp directory.  On --recover the inherited file is the
+      // previous level's persisted cuts output (a user-visible artifact
+      // that may also be named explicitly in the options): keep it.
+      if (is_owned_temp_file(m_prev_cuts_file_)) {
+        std::error_code ec;
+        std::filesystem::remove(m_prev_cuts_file_, ec);
+      }
       m_prev_cuts_file_.clear();
     }
 

@@ -106,7 +106,8 @@ struct json_data_contract<LineDlr>
       json_number_null<"low_wind_speed", OptReal>,
       json_number_null<"low_wind_angle", OptReal>,
       json_string_null<"solar_mode", OptName>,
-      json_array_null<"critical_spans", Array<CriticalSpan>, CriticalSpan>>;
+      json_array_null<"critical_spans", Array<CriticalSpan>, CriticalSpan>,
+      json_string_null<"limit_mode", OptName>>;
 
   constexpr static auto to_json_data(LineDlr const& d)
   {
@@ -122,7 +123,8 @@ struct json_data_contract<LineDlr>
                                  d.low_wind_speed,
                                  d.low_wind_angle,
                                  d.solar_mode,
-                                 d.critical_spans);
+                                 d.critical_spans,
+                                 d.limit_mode);
   }
 };
 

@@ -252,6 +252,10 @@ void log_pre_solve_stats(
          mo.use_line_dlr.has_value()
              ? std::string(eff_opts.use_line_dlr() ? "true" : "false")
              : "true (default)");
+  log_kv("dlr_limit_mode",
+         eff_opts.dlr_limit_mode()
+             ? std::string(enum_name(*eff_opts.dlr_limit_mode()))
+             : "auto (replace with conductor_rating, else min)");
   log_kv(
       "equilibration",
       std::format("{}{}",

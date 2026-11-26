@@ -489,8 +489,9 @@ struct MainOptions
  *   3. `options.log_directory` in the planning JSON (later files win);
  *   4. `<output_directory>/logs`, where output_directory is CLI
  *      `--output-directory` > `--set output_directory` > JSON >
- *      `"output"`; a non-CLI relative output_directory is anchored at
- *      the first planning file's parent directory.
+ *      `"output"`; a command-line value (flag or `--set`) is relative
+ *      to the CWD, a relative JSON / default value is anchored at the
+ *      first planning file's parent directory.
  *
  * Explicit log directories (1–3) are used verbatim (CWD-relative).
  * Does not create the directory.  Expects @p opts to have gone through

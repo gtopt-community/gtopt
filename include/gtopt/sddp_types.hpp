@@ -1022,8 +1022,9 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// Under low_memory_mode = off, release each solver backend after its solve
   /// and rebuild it from an uncompressed flat-LP snapshot on the next visit,
   /// warm-starting from the saved basis (false: keep every LP live for the
-  /// whole run). Under compress backends are always released. Default: false.
-  bool release_backends {false};
+  /// whole run, the previous default). Under compress backends are always
+  /// released. Default: true.
+  bool release_backends {true};
 
   /// Free the CPLEX / Gurobi / MindOpt copy-out getter scratch after each solve
   /// under low_memory = off (false: keep it, the previous behaviour). Default:
