@@ -1,0 +1,51 @@
+name: Feature request
+description: Propose a new capability, model element, option or converter
+title: "Feature: <short description>"
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the proposal.  Search the open issues first; if the
+        feature is close to an existing one, comment there instead.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What do you want to model or do that GTOpt cannot do today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: >-
+        How it could look: new element or field, option, CLI flag, output,
+        converter.  A JSON snippet or a formula helps.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - LP / MIP model (elements, constraints)
+        - Solution methods (monolithic, SDDP, cascade)
+        - Input / output formats
+        - Converters (PLP, PLEXOS, PSR SDDP, PSS/E, pandapower, ...)
+        - Solvers and performance
+        - GUI, TUI, web service
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you use today, or other tools that do this.
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Papers, operator rules or test cases that define the feature.
