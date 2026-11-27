@@ -2578,8 +2578,7 @@ $\lambda_n = (c^{\text{dn}} - \pi_z)/\alpha$: the bus price is the
 down-reserve price, amplified by $1/\alpha$ and with negative sign, even
 when the battery itself has spare headroom; and the auxiliary tank
 creates (or, on the up side, destroys) $`\alpha\,r`$ MWh per hour.
-See `docs/studies/sscc_battery_constraint.md` and
-`test/source/test_bess_reserve_native.cpp`.
+See `test/source/test_bess_reserve_native.cpp`.
 
 **Per-side response caps** (PLEXOS `Max Response` / `Max Charge
 Response`).  When a provision of the battery sets `urmax_response`,
