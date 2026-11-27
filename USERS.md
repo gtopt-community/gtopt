@@ -9,7 +9,7 @@ peers, shows where the tool is used and guides what we build next.
 - **Pull request**: add a row to the table that fits, in alphabetical
   order, and open a pull request (adding a row needs no CLA).
 - **Issue**: open an
-  [“Add me to USERS.md” issue](https://github.com/gtopt-community/gtopt/issues/new?template=add_user.yml)
+  [“Register as a GTOpt user” form](https://github.com/gtopt-community/gtopt/issues/new?template=add_user.yml)
   and we add it for you.
 
 A short description of what you use GTOpt for is enough. Do not include

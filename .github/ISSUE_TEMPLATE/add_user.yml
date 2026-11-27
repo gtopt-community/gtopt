@@ -1,13 +1,14 @@
-name: Add me to USERS.md
+name: Register as a GTOpt user
 description: List your organization, group or yourself as a GTOpt user
-title: "USERS.md: add <name>"
+title: "New GTOpt user"
 labels: ["users"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for using GTOpt! Fill in the fields below and we will add
-        you to [USERS.md](https://github.com/gtopt-community/gtopt/blob/master/USERS.md).
+        Thanks for using GTOpt! Just fill in the fields below; you do not
+        need to change the title or edit any file.  We will add you to the
+        [list of users](https://github.com/gtopt-community/gtopt/blob/master/USERS.md).
         Everything you write here is public; do not include confidential
         information.
   - type: dropdown
