@@ -10,6 +10,10 @@
 [![Docs](https://github.com/gtopt-community/gtopt/actions/workflows/docs.yml/badge.svg)](https://github.com/gtopt-community/gtopt/actions/workflows/docs.yml)
 [![License: AGPL-3.0 / commercial](https://img.shields.io/badge/license-AGPL--3.0%20%7C%20commercial-blue)](LICENSING.md)
 
+**[Documentation](docs/) · [Publications](PUBLICATIONS.md) ·
+[Who uses GTOpt](USERS.md) · [Contributing](CONTRIBUTING.md) ·
+[Support](#support-and-services)**
+
 **GTOpt — Generation, Transmission and storage Optimization** — is an
 open-source solver for planning and operating power systems. It builds sparse
 LP/MIP models of multi-stage systems and minimizes the expected discounted
@@ -472,6 +476,13 @@ repository" button on GitHub).  BibTeX, the papers behind each method,
 applications, presentations and the third-party references are in
 [`PUBLICATIONS.md`](PUBLICATIONS.md).
 
+## Who uses GTOpt
+
+Companies, system operators, universities and researchers using GTOpt
+are listed in [`USERS.md`](USERS.md). Using GTOpt? Fill in the
+[“Register as a GTOpt user” form](https://github.com/gtopt-community/gtopt/issues/new?template=add_user.yml)
+and we add you.
+
 ## Contributing
 
 Contributions are welcome: see [`CONTRIBUTING.md`](CONTRIBUTING.md). Pull
@@ -480,11 +491,9 @@ CLA bot requests on your first PR. Questions and ideas go to
 [Discussions](https://github.com/gtopt-community/gtopt/discussions);
 security issues to [`SECURITY.md`](SECURITY.md).
 
-Using GTOpt? Add your organization or group to
-[`USERS.md`](USERS.md). The people and organizations who helped build
-GTOpt are in [`FRIENDS.md`](FRIENDS.md), and the companies offering
-maintenance and development of GTOpt, and energy studies and
-consulting, in
+The people and organizations who helped build GTOpt are in
+[`FRIENDS.md`](FRIENDS.md), and the companies offering maintenance and
+development of GTOpt, and energy studies and consulting, in
 [`PROVIDERS.md`](PROVIDERS.md).
 
 ## Acknowledgements
