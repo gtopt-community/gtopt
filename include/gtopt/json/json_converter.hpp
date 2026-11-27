@@ -33,6 +33,16 @@ struct json_data_contract<Converter>
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,
       json_bool_null<"integer_expmod", OptBool>,
+      json_variant_null<"overnight_capcost",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,
+      json_variant_null<"economic_life",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,
+      json_variant_null<"wacc", OptTRealFieldSched, jvtl_TRealFieldSched>,
+      json_variant_null<"fixed_om_cost",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,
       json_bool_null<"commitment", OptBool>,  ///< Gate inner gen/demand
                                               ///< floors with per-block
                                               ///< integer u (MIP)
@@ -56,6 +66,10 @@ struct json_data_contract<Converter>
                                  converter.annual_capcost,
                                  converter.annual_derating,
                                  converter.integer_expmod,
+                                 converter.overnight_capcost,
+                                 converter.economic_life,
+                                 converter.wacc,
+                                 converter.fixed_om_cost,
                                  converter.commitment,
                                  converter.exclusive_charge_discharge,
                                  converter.energy_power_ratio);

@@ -443,6 +443,43 @@ def case_reduce_and_solve(ctx: CliRun) -> None:
     assert_solved(ctx.run_gtopt(reduced))
 
 
+@e2e("gtopt_cost_recovery")
+def case_cost_recovery_screening(ctx: CliRun) -> None:
+    """Cost recovery of the committed ``invest_screening_1b`` LP golden.
+
+    Peak-load pricing: base / mid / peak each recover opex + capex exactly
+    (profit 0), so the make-whole uplift is 0.
+    """
+    golden = CASES_DIR / "invest_screening_1b" / "golden" / "lp"
+    report = ctx.tmp_path / "recovery.json"
+    csv = ctx.tmp_path / "recovery.csv"
+    res = ctx.run([golden, "--json-out", report, "--csv-out", csv])
+    assert "Gene:base" in res.output, res.output[-2000:]
+    data = load_json(report)
+    assert data["total_make_whole"] <= 1e-6 * data["total_capex"] + 1.0
+    assert abs(data["total_profit"]) < 1e-6 * data["total_capex"] + 1.0
+    assert csv.is_file()
+
+
+@e2e("gtopt_private_eval")
+def case_private_eval_battery_cl(ctx: CliRun) -> None:
+    """Private (pre-tax EBIT) evaluation of the ``invest_bat_1b`` LP golden.
+
+    Chilean market: energy at the marginal price + potencia de suficiencia
+    + SSCC; the battery that recovers its annuity in the LP also has a
+    positive private NPV once the sufficiency payment is added.
+    """
+    golden = CASES_DIR / "invest_bat_1b" / "golden" / "lp"
+    cfg = SCRIPTS_DIR / "gtopt_private_eval" / "configs" / "invest_bat.json"
+    report = ctx.tmp_path / "private.json"
+    res = ctx.run([golden, "--config", cfg, "--market", "cl", "--json-out", report])
+    assert "Battery:bess" in res.output, res.output[-2000:]
+    data = load_json(report)
+    (proj,) = data["projects"]
+    assert proj["years"][0]["revenues"]["sufficiency"] > 0
+    assert proj["npv"] > 0
+
+
 @e2e("gtopt_pricing_uplift")
 def case_uplift_uc_pricing_fixed(ctx: CliRun) -> None:
     """Uplift of the committed ``uc_pricing_fixed`` goldens (offline).

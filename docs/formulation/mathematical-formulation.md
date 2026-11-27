@@ -399,6 +399,46 @@ $$
 The same expansion structure applies to demands, lines, batteries, and
 converters. The CAPEX term generalizes to all expandable components.
 
+**Annuity from an overnight cost (per-candidate private rate).** A
+generator, line, battery (energy and power axes) or converter may give
+its investment as an overnight cost $I_g$ (`overnight_capcost`, \$ per
+unit of capacity), an economic life $n_g$ (`economic_life`, years) and
+its own private rate $\rho_g$ (`wacc`) instead of `annual_capcost`.
+Where `annual_capcost` is unset the LP uses
+
+$$
+K_g^{\text{cap}} = I_g \cdot \mathrm{CRF}(\rho_g, n_g),
+\qquad
+\mathrm{CRF}(\rho, n) = \frac{\rho (1 + \rho)^n}{(1 + \rho)^n - 1}
+$$
+
+with $\rho_g = r$ (the social `annual_discount_rate`) when `wacc` is
+unset, $\mathrm{CRF} = 1/n$ at $\rho = 0$ and $\mathrm{CRF} = \rho$
+(perpetuity) when $n_g$ is unset.  The stage discount factor
+$\delta_t$ keeps the social rate $r$: present values are social, the
+annuity is the investor's.  Each candidate carries its own $\rho_g$, so
+alternative candidates for one site (many small modules at one rate,
+one large lumpy module at another) compete on their own financing
+cost.  All three fields unset (default) leave the LP unchanged.  See
+[investment economics](../methods/investment-economics.md).
+
+**Fixed O&M of expansion capacity.**  Every expandable element (and the
+battery power axis, `power_fixed_om_cost`, forwarded to its converter)
+may give a fixed O&M cost $F_g$ (`fixed_om_cost`, \$ per unit of
+capacity and year, a stage schedule).  It is a yearly cost of each unit
+built, charged with the annuity and with the same stage discounting:
+
+$$
+K_g^{\text{cap}} \leftarrow K_g^{\text{cap}} + F_g ,
+$$
+
+so the capacity-cost row accumulates $(K_g + F_g)/8760$ per MW-hour
+built from that stage on.  An absolute \$/MW-year value is used (not a
+fraction of the overnight cost) because published cost data quote fixed
+O&M that way and because it then applies equally to `annual_capcost`
+and `overnight_capcost` candidates.  Unset (default) leaves the LP
+bit-identical.
+
 ### 4.4 Complete Objective
 
 $$
@@ -3395,7 +3435,10 @@ $$
 \frac{\delta_t \cdot T_t}{\sigma}
 $$
 
-where $T_t$ is the stage duration in hours.
+where $T_t$ is the stage duration in hours.  When `annual_capcost` is
+unset and `overnight_capcost` is given,
+$K_g^{\text{cap}} = I_g \cdot \mathrm{CRF}(\rho_g, n_g)$, plus the
+fixed O&M $F_g$ when `fixed_om_cost` is set (§4.3).
 
 #### Variable Type
 

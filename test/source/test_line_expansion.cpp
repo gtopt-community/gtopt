@@ -660,7 +660,7 @@ TEST_CASE(
   CHECK(result.value() == 0);
 }
 
-TEST_CASE("LineLP — capainst primal col_sol binds at capmin lower bound")
+TEST_CASE("LineLP — lossless expansion: capainst follows the load")
 {
   using namespace gtopt;
 
@@ -678,7 +678,7 @@ TEST_CASE("LineLP — capainst primal col_sol binds at capmin lower bound")
   //     LP minimizes expmod_col to just what the load requires).
   //
   // Expected:
-  //   - capainst primal ∈ [20, 110]; in particular ≥ 20 (load-driven
+  //   - capainst primal = 30 (load-driven
   //     binding), well above the base capacity of 10 MW.
 
   const Array<Bus> bus_array = {
@@ -776,13 +776,13 @@ TEST_CASE("LineLP — capainst primal col_sol binds at capmin lower bound")
   const auto cap_col = line_lp.capacity_col_at(stage_lp);
   const auto& cap_idx = test_support::require_value(cap_col);
 
-  // Without use_line_losses, the LineLP transport constraint is bounded
-  // by tmax_ab/tmax_ba and the capacity_col is not tied to the flow row.
-  // Positive annual_capcost then drives the LP to pin capainst at its
-  // lower bound `stage_capacity = 10` (with expmod_col = 0.1 closing the
-  // -capainst + expcap*expmod = 0 equality).
+  // Without use_line_losses the line takes the `none` loss mode, which
+  // ties the flow to the installed capacity (|f| <= capainst) like every
+  // other loss mode.  The 30 MW load at b2 can only be served through the
+  // line (fail cost 1000 >> annual_capcost), so the LP expands it to
+  // exactly the load: capainst = 30 (expmod_col = 0.3).
   const auto cap_val = lp.get_col_sol()[cap_idx];
-  CHECK(cap_val == doctest::Approx(10.0).epsilon(1e-6));
+  CHECK(cap_val == doctest::Approx(30.0).epsilon(1e-6));
   CHECK(cap_val <= 110.0 + 1e-6);
 }
 

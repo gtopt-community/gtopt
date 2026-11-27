@@ -1,0 +1,127 @@
+{
+  "options": {
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "model_options": {
+      "use_single_bus": true,
+      "use_kirchhoff": false,
+      "scale_objective": 1000,
+      "demand_fail_cost": 10000
+    }
+  },
+  "simulation": {
+    "annual_discount_rate": 0.08,
+    "block_array": [
+      {
+        "uid": 1,
+        "duration": 20
+      },
+      {
+        "uid": 2,
+        "duration": 60
+      },
+      {
+        "uid": 3,
+        "duration": 400
+      },
+      {
+        "uid": 4,
+        "duration": 1500
+      },
+      {
+        "uid": 5,
+        "duration": 3000
+      },
+      {
+        "uid": 6,
+        "duration": 3780
+      }
+    ],
+    "stage_array": [
+      {
+        "uid": 1,
+        "first_block": 0,
+        "count_block": 6,
+        "active": 1
+      }
+    ],
+    "scenario_array": [
+      {
+        "uid": 1,
+        "probability_factor": 1
+      }
+    ]
+  },
+  "system": {
+    "name": "invest_wacc_uniform_lp",
+    "bus_array": [
+      {
+        "uid": 1,
+        "name": "b1"
+      }
+    ],
+    "generator_array": [
+      {
+        "uid": 1,
+        "name": "base_small",
+        "bus": "b1",
+        "gcost": 10.0,
+        "capacity": 0,
+        "expcap": 50,
+        "expmod": 16,
+        "overnight_capcost": 3200000,
+        "economic_life": 30
+      },
+      {
+        "uid": 2,
+        "name": "base_large",
+        "bus": "b1",
+        "gcost": 10.0,
+        "capacity": 0,
+        "expcap": 600,
+        "expmod": 1,
+        "overnight_capcost": 2600000,
+        "economic_life": 30
+      },
+      {
+        "uid": 3,
+        "name": "mid",
+        "bus": "b1",
+        "gcost": 45.0,
+        "capacity": 0,
+        "expcap": 100,
+        "expmod": 20,
+        "overnight_capcost": 1100000,
+        "economic_life": 25
+      },
+      {
+        "uid": 4,
+        "name": "peak",
+        "bus": "b1",
+        "gcost": 110.0,
+        "capacity": 0,
+        "expcap": 50,
+        "expmod": 40,
+        "overnight_capcost": 500000,
+        "economic_life": 20
+      }
+    ],
+    "demand_array": [
+      {
+        "uid": 1,
+        "name": "load",
+        "bus": "b1",
+        "lmax": [
+          [
+            1020,
+            950,
+            850,
+            700,
+            550,
+            400
+          ]
+        ]
+      }
+    ]
+  }
+}

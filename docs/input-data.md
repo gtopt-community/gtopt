@@ -806,6 +806,10 @@ A generation unit connected to a bus.
 | `capmax`           | number\|array\|string| MW          | No       | Absolute maximum capacity |
 | `annual_capcost`   | number\|array\|string| $/MW-year   | No       | Annualized investment cost |
 | `annual_derating`  | number\|array\|string| p.u./year   | No       | Annual capacity derating factor |
+| `overnight_capcost` | number\|array\|string| $/MW | No | Overnight investment cost, used only when `annual_capcost` is unset: the LP charges `overnight_capcost × CRF(wacc, economic_life)` per MW-year ([investment economics](methods/investment-economics.md#7-social-vs-private-discount-rates)) |
+| `economic_life`    | number\|array\|string| years       | No       | Life of the annuity of `overnight_capcost` (unset: perpetuity, CRF = `wacc`) |
+| `wacc`             | number\|array\|string| p.u./year   | No       | Private discount rate of THIS candidate's annuity (WACC / hurdle rate). Unset: the social `annual_discount_rate`. The stage discount factors always use the social rate |
+| `fixed_om_cost`    | number\|array\|string| $/MW-year   | No       | Fixed O&M of the expansion capacity, charged on the capacity built next to the annuity, with the same stage discounting; unset = none ([investment economics](methods/investment-economics.md#73-gtopt-support)) |
 | `emission_rate`  | number\|array\|string| tCO₂/MWh   | No       | **Legacy** CO₂ emission rate (scalar only), folded into a `co2` `EmissionSource`. Prefer `emissions` or `emission_source_array`; see [Emissions](#325-emissions) |
 | `emissions`      | array                | —            | No       | Inline `EmissionSource` rows (`zone`, `emission`, `rate`, `upstream_rate`) for this generator |
 | `emission_captures` | array             | —            | No       | CCS per pollutant: `emission`, capture fraction `rate` [p.u.], `cost` [$/t captured] |
@@ -840,6 +844,10 @@ An electrical demand (load) connected to a bus.
 | `expmod`           | number\|array\|string| —           | No       | Maximum number of expansion modules |
 | `capmax`           | number\|array\|string| MW          | No       | Absolute maximum capacity |
 | `annual_capcost`   | number\|array\|string| $/MW-year   | No       | Annualized investment cost |
+| `overnight_capcost` | number\|array\|string| $/MW | No | Overnight investment cost of an expandable demand (e.g. a desalination plant), used only when `annual_capcost` is unset: the LP charges `overnight_capcost × CRF(wacc, economic_life)` per MW-year ([investment economics](methods/investment-economics.md#9-demand-side-and-public-projects)) |
+| `economic_life`    | number\|array\|string| years       | No       | Life of the annuity of `overnight_capcost` (unset: perpetuity, CRF = `wacc`) |
+| `wacc`             | number\|array\|string| p.u./year   | No       | Rate of the annuity; unset = `simulation.annual_discount_rate` (a public project at the social rate) |
+| `fixed_om_cost`    | number\|array\|string| $/MW-year   | No       | Fixed O&M of the expansion capacity, charged on the capacity built next to the annuity, with the same stage discounting; unset = none ([investment economics](methods/investment-economics.md#73-gtopt-support)) |
 | `annual_derating`  | number\|array\|string| p.u./year   | No       | Annual capacity derating factor |
 
 #### Stepwise failure curve (`fail_segments`)
@@ -929,6 +937,10 @@ A transmission line connecting two buses.
 | `capmax`           | number\|array\|string| MW          | No       | Absolute maximum capacity |
 | `annual_capcost`   | number\|array\|string| $/MW-year   | No       | Annualized investment cost |
 | `annual_derating`  | number\|array\|string| p.u./year   | No       | Annual capacity derating factor |
+| `overnight_capcost` | number\|array\|string| $/MW | No | Overnight investment cost, used only when `annual_capcost` is unset: the LP charges `overnight_capcost × CRF(wacc, economic_life)` per MW-year ([investment economics](methods/investment-economics.md#7-social-vs-private-discount-rates)) |
+| `economic_life`    | number\|array\|string| years       | No       | Life of the annuity of `overnight_capcost` (unset: perpetuity, CRF = `wacc`) |
+| `wacc`             | number\|array\|string| p.u./year   | No       | Private discount rate of THIS candidate's annuity (WACC / hurdle rate). Unset: the social `annual_discount_rate`. The stage discount factors always use the social rate |
+| `fixed_om_cost`    | number\|array\|string| $/MW-year   | No       | Fixed O&M of the expansion capacity, charged on the capacity built next to the annuity, with the same stage discounting; unset = none ([investment economics](methods/investment-economics.md#73-gtopt-support)) |
 | `integer_expmod`   | boolean             | —            | No       | Build whole expansion modules only (integer `expmod`, MIP) |
 
 #### Line limits
@@ -1252,14 +1264,20 @@ be defined manually (see §3.6 Converter).
 | `capmax`            | number\|array\|string| MWh         | No       | Absolute maximum energy capacity |
 | `annual_capcost`    | number\|array\|string| $/MWh-year  | No       | Annualized investment cost |
 | `annual_derating`   | number\|array\|string| p.u./year   | No       | Annual capacity derating factor |
+| `overnight_capcost` | number\|array\|string| $/MWh | No | Overnight investment cost, used only when `annual_capcost` is unset: the LP charges `overnight_capcost × CRF(wacc, economic_life)` per MWh-year ([investment economics](methods/investment-economics.md#7-social-vs-private-discount-rates)) |
+| `economic_life`    | number\|array\|string| years       | No       | Life of the annuity of `overnight_capcost` (unset: perpetuity, CRF = `wacc`) |
+| `wacc`             | number\|array\|string| p.u./year   | No       | Private discount rate of THIS candidate's annuity (WACC / hurdle rate). Unset: the social `annual_discount_rate`. The stage discount factors always use the social rate |
+| `fixed_om_cost`    | number\|array\|string| $/MWh-year | No       | Fixed O&M of the expansion capacity, charged on the capacity built next to the annuity, with the same stage discounting; unset = none ([investment economics](methods/investment-economics.md#73-gtopt-support)) |
 | `power_capacity`    | number\|array\|string| MW          | No       | Installed power (charge + discharge per block ≤ installed power) |
 | `power_expcap`      | number\|array\|string| MW          | No       | Power per expansion module |
 | `power_expmod`      | number\|array\|string| —           | No       | Maximum number of power modules |
 | `power_capmax`      | number\|array\|string| MW          | No       | Absolute maximum power. Set `pmax_charge` / `pmax_discharge` at least this high on a candidate battery |
 | `power_annual_capcost` | number\|array\|string| $/MW-year | No     | Annualized investment cost of power |
 | `power_annual_derating` | number\|array\|string| p.u./year | No    | Annual power derating factor |
+| `power_overnight_capcost` | number\|array\|string| $/MW | No | Overnight cost of power; annuity at the battery's `wacc` / `economic_life` when `power_annual_capcost` is unset |
+| `power_fixed_om_cost` | number\|array\|string| $/MW-year | No | Fixed O&M of expansion power, forwarded to the converter (`fixed_om_cost`) |
 | `energy_power_ratio` | number             | h            | No       | Fixed storage duration: installed energy = ratio × installed power, so both axes are built together. Unset = energy and power expand independently |
-| `integer_expmod`    | boolean             | —            | No       | Build whole expansion modules only (MIP) |
+| `integer_expmod`    | boolean             | —            | No       | Build whole expansion modules only (MIP), on the energy axis and, when the power axis is expandable, on the converter's power modules too |
 | `max_cycles_day`    | number              | cycles/day   | No       | Hard daily throughput limit `Σ discharge·Δt ≤ N · capacity` per day (PLEXOS *Max Cycles Day*); a constraint, not a cost |
 | `type`              | string              | —            | No       | Optional battery type tag (metadata, e.g. `"lithium"`, `"flow"`) |
 | `soft_emin`         | number\|array\|string| MWh         | No       | Soft minimum energy per stage (penalized slack below `emin`) |
@@ -1391,6 +1409,10 @@ Links a battery to a discharge generator and a charge demand.
 | `capmax`           | number\|array\|string| MW              | No       | Absolute maximum power capacity |
 | `annual_capcost`   | number\|array\|string| $/MW-year       | No       | Annualized investment cost |
 | `annual_derating`  | number\|array\|string| p.u./year       | No       | Annual capacity derating factor |
+| `overnight_capcost` | number\|array\|string| $/MW | No | Overnight investment cost, used only when `annual_capcost` is unset: the LP charges `overnight_capcost × CRF(wacc, economic_life)` per MW-year ([investment economics](methods/investment-economics.md#7-social-vs-private-discount-rates)) |
+| `economic_life`    | number\|array\|string| years       | No       | Life of the annuity of `overnight_capcost` (unset: perpetuity, CRF = `wacc`) |
+| `wacc`             | number\|array\|string| p.u./year   | No       | Private discount rate of THIS candidate's annuity (WACC / hurdle rate). Unset: the social `annual_discount_rate`. The stage discount factors always use the social rate |
+| `fixed_om_cost`    | number\|array\|string| $/MW-year   | No       | Fixed O&M of the expansion capacity, charged on the capacity built next to the annuity, with the same stage discounting; unset = none ([investment economics](methods/investment-economics.md#73-gtopt-support)) |
 | `commitment`       | boolean             | —               | No       | Gate the charge demand / discharge generator bounds with per-block mode binaries (set from `Battery.commitment`) |
 | `exclusive_charge_discharge` | boolean   | —               | No       | With `commitment`: add `u_charge + u_discharge ≤ 1` per block (row `charge_discharge_exclusive`). Default `true` |
 | `energy_power_ratio` | number            | h               | No       | Fixed storage duration (set from `Battery.energy_power_ratio`) |
@@ -2452,6 +2474,8 @@ power block, …) moves energy from one carrier's node to another's:
 | `efficiency` | p.u. | Output per unit input, per (stage, block); default 1 |
 | `ocost` | $/MWh input | Operating cost per unit of input flow; default 0 |
 | `capacity`, `expcap`, `expmod`, `capmax`, `annual_capcost`, `annual_derating`, `integer_expmod` | MW input | Installed input capacity and capacity expansion |
+| `overnight_capcost`, `economic_life`, `wacc` | $/MW, years, p.u./year | Annuity `overnight_capcost × CRF(wacc, economic_life)` when `annual_capcost` is unset; `wacc` unset = the social `annual_discount_rate` ([investment economics](methods/investment-economics.md#7-social-vs-private-discount-rates)) |
+| `fixed_om_cost` | $/MW-year | Fixed O&M of the expansion capacity, charged with the annuity |
 
 ### 3.29 Fuel
 

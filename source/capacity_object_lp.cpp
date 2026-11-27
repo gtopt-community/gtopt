@@ -12,12 +12,28 @@
  */
 
 #include <gtopt/capacity_object_lp.hpp>
+#include <gtopt/capital_recovery.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>  // sc.system().scene() needs the full definition
 
 namespace gtopt
 {
+
+double CapacityObjectBase::annual_capcost_at(StageUid stage_uid,
+                                             double social_rate) const
+{
+  if (const auto annual = m_annual_capcost_.at(stage_uid)) {
+    return *annual;
+  }
+  const auto overnight = m_overnight_capcost_.at(stage_uid);
+  if (!overnight) {
+    return 0.0;
+  }
+  return annuity_from_overnight(*overnight,
+                                m_wacc_.at(stage_uid).value_or(social_rate),
+                                m_economic_life_.at(stage_uid));
+}
 
 bool CapacityObjectBase::add_to_lp(SystemContext& sc,
                                    std::string_view ampl_class,
@@ -61,8 +77,19 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   const auto stage_capmax =
       m_capmax_.at(stage_uid).value_or(stage_maxexpcap + stage_capacity);
 
-  const auto stage_hour_capcost =
-      m_annual_capcost_.at(stage_uid).value_or(0.0) / hours_per_year;
+  // Social rate: the one the stage discount factors use (simulation
+  // first, then options) — the `wacc` fallback of an overnight cost.
+  const auto social_rate =
+      sc.simulation().simulation().annual_discount_rate.value_or(
+          sc.options().annual_discount_rate());
+  // Annuity plus, when set, the fixed O&M of the expansion capacity:
+  // both are yearly costs of each MW built (an unset fixed O&M leaves
+  // the coefficient bit-identical).
+  auto stage_annual_cost = annual_capcost_at(stage_uid, social_rate);
+  if (const auto fixed_om = fixed_om_cost_at(stage_uid)) {
+    stage_annual_cost += *fixed_om;
+  }
+  const auto stage_hour_capcost = stage_annual_cost / hours_per_year;
   const auto stage_derating = m_annual_derating_.at(stage_uid).value_or(0.0)
       * stage.timeinit() / hours_per_year;
 

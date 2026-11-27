@@ -92,6 +92,60 @@ struct CapacityObjectBase
   }
 
   /**
+   * @brief Set the annuity inputs of an object priced by overnight cost
+   *
+   * Used where `annual_capcost` is unset at a stage: the LP charges
+   * `overnight_capcost × CRF(wacc, economic_life)` per unit-year, `wacc`
+   * falling back to the planning-wide `annual_discount_rate`.
+   */
+  template<typename OF>
+  constexpr void set_annuity_inputs(const InputContext& ic,
+                                    OF&& overnight_capcost,
+                                    OF&& economic_life,
+                                    OF&& wacc)
+  {
+    m_overnight_capcost_ = OptTRealSched {ic,
+                                          m_class_name_.full_name(),
+                                          id(),
+                                          std::forward<OF>(overnight_capcost)};
+    m_economic_life_ = OptTRealSched {
+        ic, m_class_name_.full_name(), id(), std::forward<OF>(economic_life)};
+    m_wacc_ = OptTRealSched {
+        ic, m_class_name_.full_name(), id(), std::forward<OF>(wacc)};
+  }
+
+  /**
+   * @brief Set the fixed O&M cost of the expansion capacity
+   *
+   * `fixed_om_cost` [$/unit-year] is charged, next to the annuity, on
+   * the capacity built from a stage on.  Unset → no fixed O&M.
+   */
+  template<typename OF>
+  constexpr void set_fixed_om_cost(const InputContext& ic, OF&& fixed_om_cost)
+  {
+    m_fixed_om_cost_ = OptTRealSched {
+        ic, m_class_name_.full_name(), id(), std::forward<OF>(fixed_om_cost)};
+  }
+
+  /**
+   * @brief Fixed O&M cost [$/unit-year] at a stage (nullopt when unset)
+   */
+  [[nodiscard]] OptReal fixed_om_cost_at(StageUid stage_uid) const
+  {
+    return m_fixed_om_cost_.at(stage_uid);
+  }
+
+  /**
+   * @brief Annualized investment cost [$/unit-year] at a stage
+   *
+   * `annual_capcost` when set; else the annuity of `overnight_capcost`
+   * at the object's `wacc` (or @p social_rate when unset) over its
+   * `economic_life`; else 0.
+   */
+  [[nodiscard]] double annual_capcost_at(StageUid stage_uid,
+                                         double social_rate) const;
+
+  /**
    * @brief Get the column index for capacity at a specific stage
    * @param stage The stage to get column index for
    * @return Optional containing column index if exists
@@ -214,6 +268,13 @@ private:
   OptTRealSched m_annual_capcost_;
   OptTRealSched m_annual_derating_;
   bool m_integer_expmod_ {false};
+  /// Annuity inputs (`overnight_capcost` / `economic_life` / `wacc`):
+  /// read only where `annual_capcost` is unset.  Empty by default.
+  OptTRealSched m_overnight_capcost_ {};
+  OptTRealSched m_economic_life_ {};
+  OptTRealSched m_wacc_ {};
+  /// Fixed O&M [$/unit-year] of the expansion capacity.  Empty by default.
+  OptTRealSched m_fixed_om_cost_ {};
 
   TIndexHolder<ColIndex> capainst_cols;
   TIndexHolder<ColIndex> capacost_cols;
@@ -276,6 +337,20 @@ struct CapacityObjectLP
                            std::move(object().annual_derating),
                            object().integer_expmod)
   {
+    if constexpr (requires(const Object& o) {
+                    o.overnight_capcost;
+                    o.economic_life;
+                    o.wacc;
+                  })
+    {
+      set_annuity_inputs(ic,
+                         std::move(object().overnight_capcost),
+                         std::move(object().economic_life),
+                         std::move(object().wacc));
+    }
+    if constexpr (requires(const Object& o) { o.fixed_om_cost; }) {
+      set_fixed_om_cost(ic, std::move(object().fixed_om_cost));
+    }
   }
 };
 

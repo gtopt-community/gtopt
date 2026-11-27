@@ -101,6 +101,23 @@ struct CarrierConverter
   OptTRealFieldSched annual_capcost {};  ///< Annualised investment cost.
   OptTRealFieldSched annual_derating {};  ///< Annual derating factor.
   OptBool integer_expmod {};  ///< Integer-constrain the expmod variable.
+
+  /// @name Annuity from overnight cost (per-candidate private rate)
+  /// Used only when ``annual_capcost`` is unset: the LP charges
+  /// ``annual_capcost = overnight_capcost × CRF(wacc, economic_life)``.
+  /// ``wacc`` unset → the social ``annual_discount_rate`` (a public
+  /// project).  All unset (default) → today's LP.
+  /// @{
+  OptTRealFieldSched overnight_capcost {};  ///< Overnight investment cost
+                                            ///< per unit of capacity [$/MW]
+  OptTRealFieldSched economic_life {};  ///< Annuity life [years]
+  OptTRealFieldSched wacc {};  ///< Private discount rate of the annuity
+                               ///< [p.u./year]
+  /// Fixed O&M of the expansion capacity [$/unit-year], charged on the
+  /// capacity built from this stage on, next to the annuity and with
+  /// the same stage discounting.  Unset → no fixed O&M.
+  OptTRealFieldSched fixed_om_cost {};
+  /// @}
 };
 
 }  // namespace gtopt

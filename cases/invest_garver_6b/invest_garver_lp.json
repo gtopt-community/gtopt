@@ -1,0 +1,354 @@
+{
+  "options": {
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "model_options": {
+      "use_single_bus": false,
+      "use_kirchhoff": false,
+      "scale_objective": 1000,
+      "demand_fail_cost": 10000
+    }
+  },
+  "simulation": {
+    "annual_discount_rate": 0.0,
+    "block_array": [
+      {
+        "uid": 1,
+        "duration": 1000
+      },
+      {
+        "uid": 2,
+        "duration": 4000
+      },
+      {
+        "uid": 3,
+        "duration": 3760
+      }
+    ],
+    "stage_array": [
+      {
+        "uid": 1,
+        "first_block": 0,
+        "count_block": 3,
+        "active": 1
+      }
+    ],
+    "scenario_array": [
+      {
+        "uid": 1,
+        "probability_factor": 1
+      }
+    ]
+  },
+  "system": {
+    "name": "invest_garver_lp",
+    "bus_array": [
+      {
+        "uid": 1,
+        "name": "b1"
+      },
+      {
+        "uid": 2,
+        "name": "b2"
+      },
+      {
+        "uid": 3,
+        "name": "b3"
+      },
+      {
+        "uid": 4,
+        "name": "b4"
+      },
+      {
+        "uid": 5,
+        "name": "b5"
+      },
+      {
+        "uid": 6,
+        "name": "b6"
+      }
+    ],
+    "generator_array": [
+      {
+        "uid": 1,
+        "name": "g1",
+        "bus": "b1",
+        "gcost": 40.0,
+        "capacity": 150
+      },
+      {
+        "uid": 2,
+        "name": "g3",
+        "bus": "b3",
+        "gcost": 30.0,
+        "capacity": 360
+      },
+      {
+        "uid": 3,
+        "name": "g6",
+        "bus": "b6",
+        "gcost": 15.0,
+        "capacity": 600
+      }
+    ],
+    "demand_array": [
+      {
+        "uid": 1,
+        "name": "d1",
+        "bus": "b1",
+        "lmax": [
+          [
+            80.0,
+            64.0,
+            48.0
+          ]
+        ]
+      },
+      {
+        "uid": 2,
+        "name": "d2",
+        "bus": "b2",
+        "lmax": [
+          [
+            240.0,
+            192.0,
+            144.0
+          ]
+        ]
+      },
+      {
+        "uid": 3,
+        "name": "d3",
+        "bus": "b3",
+        "lmax": [
+          [
+            40.0,
+            32.0,
+            24.0
+          ]
+        ]
+      },
+      {
+        "uid": 4,
+        "name": "d4",
+        "bus": "b4",
+        "lmax": [
+          [
+            160.0,
+            128.0,
+            96.0
+          ]
+        ]
+      },
+      {
+        "uid": 5,
+        "name": "d5",
+        "bus": "b5",
+        "lmax": [
+          [
+            240.0,
+            192.0,
+            144.0
+          ]
+        ]
+      }
+    ],
+    "line_array": [
+      {
+        "uid": 1,
+        "name": "l1_2",
+        "bus_a": "b1",
+        "bus_b": "b2",
+        "reactance": 0.4,
+        "tmax_ab": 500,
+        "tmax_ba": 500,
+        "capacity": 100,
+        "expcap": 100,
+        "expmod": 4,
+        "annual_capcost": 33544.06
+      },
+      {
+        "uid": 2,
+        "name": "l1_3",
+        "bus_a": "b1",
+        "bus_b": "b3",
+        "reactance": 0.38,
+        "tmax_ab": 400,
+        "tmax_ba": 400,
+        "capacity": 0,
+        "expcap": 100,
+        "expmod": 4,
+        "annual_capcost": 31866.86
+      },
+      {
+        "uid": 3,
+        "name": "l1_4",
+        "bus_a": "b1",
+        "bus_b": "b4",
+        "reactance": 0.6,
+        "tmax_ab": 400,
+        "tmax_ba": 400,
+        "capacity": 80,
+        "expcap": 80,
+        "expmod": 4,
+        "annual_capcost": 62895.12
+      },
+      {
+        "uid": 4,
+        "name": "l1_5",
+        "bus_a": "b1",
+        "bus_b": "b5",
+        "reactance": 0.2,
+        "tmax_ab": 500,
+        "tmax_ba": 500,
+        "capacity": 100,
+        "expcap": 100,
+        "expmod": 4,
+        "annual_capcost": 16772.03
+      },
+      {
+        "uid": 5,
+        "name": "l1_6",
+        "bus_a": "b1",
+        "bus_b": "b6",
+        "reactance": 0.68,
+        "tmax_ab": 280,
+        "tmax_ba": 280,
+        "capacity": 0,
+        "expcap": 70,
+        "expmod": 4,
+        "annual_capcost": 81464.16
+      },
+      {
+        "uid": 6,
+        "name": "l2_3",
+        "bus_a": "b2",
+        "bus_b": "b3",
+        "reactance": 0.2,
+        "tmax_ab": 500,
+        "tmax_ba": 500,
+        "capacity": 100,
+        "expcap": 100,
+        "expmod": 4,
+        "annual_capcost": 16772.03
+      },
+      {
+        "uid": 7,
+        "name": "l2_4",
+        "bus_a": "b2",
+        "bus_b": "b4",
+        "reactance": 0.4,
+        "tmax_ab": 500,
+        "tmax_ba": 500,
+        "capacity": 100,
+        "expcap": 100,
+        "expmod": 4,
+        "annual_capcost": 33544.06
+      },
+      {
+        "uid": 8,
+        "name": "l2_5",
+        "bus_a": "b2",
+        "bus_b": "b5",
+        "reactance": 0.31,
+        "tmax_ab": 400,
+        "tmax_ba": 400,
+        "capacity": 0,
+        "expcap": 100,
+        "expmod": 4,
+        "annual_capcost": 25996.65
+      },
+      {
+        "uid": 9,
+        "name": "l2_6",
+        "bus_a": "b2",
+        "bus_b": "b6",
+        "reactance": 0.3,
+        "tmax_ab": 400,
+        "tmax_ba": 400,
+        "capacity": 0,
+        "expcap": 100,
+        "expmod": 4,
+        "annual_capcost": 25158.05
+      },
+      {
+        "uid": 10,
+        "name": "l3_4",
+        "bus_a": "b3",
+        "bus_b": "b4",
+        "reactance": 0.59,
+        "tmax_ab": 328,
+        "tmax_ba": 328,
+        "capacity": 0,
+        "expcap": 82,
+        "expmod": 4,
+        "annual_capcost": 60338.41
+      },
+      {
+        "uid": 11,
+        "name": "l3_5",
+        "bus_a": "b3",
+        "bus_b": "b5",
+        "reactance": 0.2,
+        "tmax_ab": 500,
+        "tmax_ba": 500,
+        "capacity": 100,
+        "expcap": 100,
+        "expmod": 4,
+        "annual_capcost": 16772.03
+      },
+      {
+        "uid": 12,
+        "name": "l3_6",
+        "bus_a": "b3",
+        "bus_b": "b6",
+        "reactance": 0.48,
+        "tmax_ab": 400,
+        "tmax_ba": 400,
+        "capacity": 0,
+        "expcap": 100,
+        "expmod": 4,
+        "annual_capcost": 40252.88
+      },
+      {
+        "uid": 13,
+        "name": "l4_5",
+        "bus_a": "b4",
+        "bus_b": "b5",
+        "reactance": 0.63,
+        "tmax_ab": 300,
+        "tmax_ba": 300,
+        "capacity": 0,
+        "expcap": 75,
+        "expmod": 4,
+        "annual_capcost": 70442.54
+      },
+      {
+        "uid": 14,
+        "name": "l4_6",
+        "bus_a": "b4",
+        "bus_b": "b6",
+        "reactance": 0.3,
+        "tmax_ab": 400,
+        "tmax_ba": 400,
+        "capacity": 0,
+        "expcap": 100,
+        "expmod": 4,
+        "annual_capcost": 25158.05
+      },
+      {
+        "uid": 15,
+        "name": "l5_6",
+        "bus_a": "b5",
+        "bus_b": "b6",
+        "reactance": 0.61,
+        "tmax_ab": 312,
+        "tmax_ba": 312,
+        "capacity": 0,
+        "expcap": 78,
+        "expmod": 4,
+        "annual_capcost": 65582.95
+      }
+    ]
+  }
+}

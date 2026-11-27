@@ -1,0 +1,10 @@
+{
+  "_comment": "cases/invest_screening_1b golden/private: the case's private WACC per candidate (base 11 %, mid 8 %, peak 9 %, nuclear 12 %).",
+  "finance": {"wacc": 0.08},
+  "projects": {
+    "base": {"technology": "coal", "overnight_capcost": 3000000, "economic_life": 30, "wacc": 0.11},
+    "mid": {"technology": "ccgt", "overnight_capcost": 1100000, "economic_life": 25, "wacc": 0.08},
+    "peak": {"technology": "ocgt", "overnight_capcost": 500000, "economic_life": 20, "wacc": 0.09},
+    "nuclear": {"technology": "nuclear", "overnight_capcost": 6000000, "economic_life": 40, "wacc": 0.12}
+  }
+}

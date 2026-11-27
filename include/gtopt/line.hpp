@@ -333,6 +333,24 @@ struct Line
       annual_derating {};  ///< Annual capacity derating factor [p.u./year]
   OptBool integer_expmod {};  ///< Integer-constrain the expmod variable
 
+  /// @name Annuity from overnight cost (per-candidate private rate)
+  /// Used only when ``annual_capcost`` is unset: the LP charges
+  /// ``annual_capcost = overnight_capcost × CRF(wacc, economic_life)``,
+  /// CRF(r, n) = r(1+r)^n / ((1+r)^n − 1).  ``wacc`` unset → the social
+  /// ``annual_discount_rate`` (the stage discount factors are never
+  /// changed).  All unset (default) → today's LP.
+  /// @{
+  OptTRealFieldSched overnight_capcost {};  ///< Overnight investment cost
+                                            ///< per unit of capacity [$/MW]
+  OptTRealFieldSched economic_life {};  ///< Annuity life [years]
+  OptTRealFieldSched wacc {};  ///< Private discount rate of the annuity
+                               ///< (WACC / hurdle rate) [p.u./year]
+  /// Fixed O&M of the expansion capacity [$/unit-year], charged on the
+  /// capacity built from this stage on, next to the annuity and with
+  /// the same stage discounting.  Unset → no fixed O&M.
+  OptTRealFieldSched fixed_om_cost {};
+  /// @}
+
   /// Off-nominal tap ratio [p.u.].  For transformers only; ignored for
   /// plain lines.  When set to a value other than 1.0 the effective
   /// susceptance of the branch in the DC power-flow (Kirchhoff) constraint

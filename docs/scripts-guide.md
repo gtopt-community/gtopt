@@ -177,6 +177,8 @@ One line per console script installed by `pip install ./scripts`:
 | `gtopt_diagram` | Network topology and planning-structure diagrams | [gtopt_diagram](scripts/gtopt_diagram.md) |
 | `gtopt_results_summary` | Summarise a gtopt output directory | — |
 | `gtopt_pricing_uplift` | Make-whole and lost-opportunity uplift and price statistics of unit-commitment runs (compare `pricing_mode`s) | [Pricing modes](unit-commitment.md#111-pricing-modes) |
+| `gtopt_cost_recovery` | Per-project cost recovery of expansion runs: revenue at marginal prices vs opex + annualised capex, profit, make-whole uplift, market balance | [Investment economics](methods/investment-economics.md#8-the-gtopt_cost_recovery-tool) |
+| `gtopt_private_eval` | Private-investor (pre-tax EBIT) evaluation of the selected projects under a market model (`energy_only`, `capacity_market`, `reliability_option`, `cfd`, `cl` Chile): revenue stack, EBITDA, NPV, IRR, payback, LCOE vs the planning annuity; `capex-trajectory` sub-command | [Private-investor evaluation](methods/private-investor-evaluation.md) |
 | `gtopt_timeseries_export` | Export gtopt results as tidy time series | — |
 | `gtopt2pbi` | Reshape gtopt Parquet outputs for Power BI | — |
 | `gtopt-marginal-units` | Marginal-unit / marginal-emission identification from gtopt results | [plan](scripts/gtopt_marginal_units_plan.md) |

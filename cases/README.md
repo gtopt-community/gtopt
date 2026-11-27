@@ -95,6 +95,11 @@ can be checked by hand.
 | [`bat_4b`](bat_4b/) | The four-bus network with a battery (200 MWh, 60 MW, 95% charge and discharge efficiency) and a solar profile, four blocks. |
 | [`bat_4b_24`](bat_4b_24/) | `bat_4b` over 24 hours: daily battery cycling. Also compared against pandapower. Used in [`docs/storage-and-water-values.md`](../docs/storage-and-water-values.md). |
 | [`exp_bat_4b`](exp_bat_4b/), [`exp_bat_4b_24`](exp_bat_4b_24/) | The battery cases with battery expansion: capacity starts at zero and is built if it pays off. |
+| [`invest_screening_1b`](invest_screening_1b/) | One bus, six-block load-duration curve, four candidate technologies: screening curve / peak-load pricing with VOLL scarcity. Variants LP, MIP (integer modules), social rate and private WACC. Every built unit recovers opex + annuity at the LP prices ([investment economics](../docs/methods/investment-economics.md)). |
+| [`invest_garver_6b`](invest_garver_6b/) | Garver (1970) 6-bus transmission expansion, transport model, data from Romero et al. (2002): congestion rent pays each expanded corridor; LP and MIP. |
+| [`invest_bat_1b`](invest_bat_1b/) | One bus, 24 h with solar: battery expansion with separate energy and power annuities; arbitrage revenue = energy + power capex. |
+| [`invest_wacc_1b`](invest_wacc_1b/) | Many small base-load modules vs one large block, with a uniform rate and with a private rate per candidate (`overnight_capcost`, `economic_life`, `wacc`); LP and MIP. |
+| [`invest_wacc_2c`](invest_wacc_2c/) | Two candidates differing in cost and `wacc`, one 8760-h block: the small end-to-end check of the per-candidate annuity. |
 | [`uc_small`](uc_small/) | One bus, three units with unit commitment over six hours: minimum output, no-load and start-up costs, minimum up and down times and initial status. |
 | [`uc_power_based`](uc_power_based/) | One bus, three units over eight hours with the power-based unit commitment (`uc_formulation = "power_based"`): boundary powers, trapezoid energies, ramp limits on the instantaneous power, start-up and shut-down trajectories. |
 | [`uc_power_based_philipsen2019`](uc_power_based_philipsen2019/) | Power-based schedule from the literature: Philipsen et al., Applied Energy 2019, Scenario 2 — two ramp-limited units, published optimum 12 570 (Table 9) and schedule (Table 8). |

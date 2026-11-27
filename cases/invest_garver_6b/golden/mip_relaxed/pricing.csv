@@ -1,0 +1,2 @@
+scene,phase,pricing_mode,applied_mode,fallback,attempted,relaxed_columns,pinned_columns,status,reason
+0,0,relaxed,relaxed,0,1,15,0,0,""

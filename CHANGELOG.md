@@ -12,6 +12,31 @@ in [docs/whats-new.md](docs/whats-new.md).
 
 ### Added
 
+- **Per-candidate cost of capital (`overnight_capcost`,
+  `economic_life`, `wacc`).** Generators, lines, batteries (energy and
+  `power_overnight_capcost`), converters, demands and carrier
+  converters can give an overnight cost,
+  a life and a private rate; the LP charges the annuity
+  `overnight_capcost × CRF(wacc, economic_life)` when `annual_capcost`
+  is unset, `wacc` falling back to `simulation.annual_discount_rate`.
+  Stage discounting keeps the social rate.  Cases without the fields
+  build the same LP.  See
+  [docs/methods/investment-economics.md](docs/methods/investment-economics.md).
+- **Fixed O&M of expansion candidates (`fixed_om_cost`,
+  `Battery.power_fixed_om_cost`).** A \$/unit-year cost of the capacity
+  built, charged in the LP with the annuity and the same stage
+  discounting, on generators, lines, batteries (energy; power through
+  the converter), converters, demands and carrier converters.  Unset
+  leaves the LP unchanged.  `gtopt_cost_recovery` reports it as an opex
+  component.
+- **`gtopt_cost_recovery` tool and investment cases.** Per-project
+  revenue, opex, annualised capex, profit and make-whole uplift at the
+  marginal prices, each margin split into variable-cost margin,
+  capacity rent and failure rent (`--price-blocks`: λ = set cost +
+  capacity rent per block; margin earned at failure prices is warned
+  about); cases `invest_screening_1b`, `invest_garver_6b`,
+  `invest_bat_1b`, `invest_wacc_1b`, `invest_multi_3b` (electrolyser and
+  desalination candidates) and the e2e case `invest_wacc_2c`.
 - **Radial lines: one-way and dead-end detection
   (`model_options.line_direction_mode`, `Line.flow_direction`).** The
   bridges of the transport graph (every line ever active, DC links and
@@ -635,6 +660,15 @@ in [docs/whats-new.md](docs/whats-new.md).
   and the HiGHS section of `docs/solvers.md`.
 
 ### Fixed
+
+- **`Battery.integer_expmod` now also makes the converter's power
+  modules integer** when the power axis is expandable (it was not
+  forwarded to the expanded converter).
+
+- **Lossless expandable lines ignored their built capacity.** With no
+  loss model (`none` mode) the flow bounds used only the existing
+  capacity, so a candidate line was never limited by `capainst`; the
+  `capacityp`/`capacityn` rows are now added as in the other loss modes.
 
 - **Kappa: a solver "infinity" is no kappa.** CPLEX answers
   `CPX_KAPPA` with status 0 and its huge-value sentinel 1e75 when it

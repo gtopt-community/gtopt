@@ -124,6 +124,16 @@ struct json_data_contract<Battery>
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,  ///< Annual derating factor
       json_bool_null<"integer_expmod", OptBool>,  ///< Integer expansion modules
+      json_variant_null<"overnight_capcost",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,
+      json_variant_null<"economic_life",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,
+      json_variant_null<"wacc", OptTRealFieldSched, jvtl_TRealFieldSched>,
+      json_variant_null<"fixed_om_cost",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,
       json_bool_null<"use_state_variable", OptBool>,  ///< Stage/phase coupling
       json_bool_null<"daily_cycle", OptBool>,  ///< Daily cycle operation
       json_string_null<"storage_integration", OptName>,
@@ -160,6 +170,12 @@ struct json_data_contract<Battery>
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,
       json_variant_null<"power_annual_derating",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,
+      json_variant_null<"power_overnight_capcost",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,
+      json_variant_null<"power_fixed_om_cost",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,
       json_number_null<"energy_power_ratio", OptReal>>;
@@ -204,6 +220,10 @@ struct json_data_contract<Battery>
                                  battery.annual_capcost,
                                  battery.annual_derating,
                                  battery.integer_expmod,
+                                 battery.overnight_capcost,
+                                 battery.economic_life,
+                                 battery.wacc,
+                                 battery.fixed_om_cost,
                                  battery.use_state_variable,
                                  battery.daily_cycle,
                                  battery.storage_integration,
@@ -220,6 +240,8 @@ struct json_data_contract<Battery>
                                  battery.power_capmax,
                                  battery.power_annual_capcost,
                                  battery.power_annual_derating,
+                                 battery.power_overnight_capcost,
+                                 battery.power_fixed_om_cost,
                                  battery.energy_power_ratio);
   }
 };

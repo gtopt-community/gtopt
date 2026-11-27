@@ -1,0 +1,10 @@
+{
+  "_comment": "cases/invest_bat_1b: battery 200 k$/MWh + 100 k$/MW, 15 y, 8 % (case README); one representative day x 365.",
+  "finance": {"wacc": 0.08},
+  "projects": {
+    "bess": {"technology": "bess", "overnight_capcost": 200000, "power_overnight_capcost": 100000, "economic_life": 15},
+    "solar": {"technology": "solar_pv"},
+    "coal": {"technology": "coal"},
+    "gas": {"technology": "ocgt"}
+  }
+}

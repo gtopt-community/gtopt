@@ -296,6 +296,16 @@ void System::expand_batteries()
         .capmax = inherit(battery.power_capmax),
         .annual_capcost = inherit(battery.power_annual_capcost),
         .annual_derating = inherit(battery.power_annual_derating),
+        // One candidate project: whole modules on the energy axis imply
+        // whole modules on the power axis (only acts when the converter
+        // is expandable, i.e. has power_expcap / power_expmod).
+        .integer_expmod = battery.integer_expmod,
+        // Annuity inputs of the power axis: the battery's own private
+        // rate and life apply to both axes (one candidate project).
+        .overnight_capcost = inherit(battery.power_overnight_capcost),
+        .economic_life = inherit(battery.economic_life),
+        .wacc = inherit(battery.wacc),
+        .fixed_om_cost = inherit(battery.power_fixed_om_cost),
         .commitment = battery.commitment,
         .exclusive_charge_discharge = battery.exclusive_charge_discharge,
         .energy_power_ratio = battery.energy_power_ratio,

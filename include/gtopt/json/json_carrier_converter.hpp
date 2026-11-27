@@ -52,7 +52,11 @@ struct CarrierConverterConstructor
       OptTRealFieldSched capmax,
       OptTRealFieldSched annual_capcost,
       OptTRealFieldSched annual_derating,
-      OptBool integer_expmod) const
+      OptBool integer_expmod,
+      OptTRealFieldSched overnight_capcost,
+      OptTRealFieldSched economic_life,
+      OptTRealFieldSched wacc,
+      OptTRealFieldSched fixed_om_cost) const
   {
     CarrierConverter c;
     c.uid = uid;
@@ -73,6 +77,10 @@ struct CarrierConverterConstructor
     c.annual_capcost = std::move(annual_capcost);
     c.annual_derating = std::move(annual_derating);
     c.integer_expmod = std::move(integer_expmod);
+    c.overnight_capcost = std::move(overnight_capcost);
+    c.economic_life = std::move(economic_life);
+    c.wacc = std::move(wacc);
+    c.fixed_om_cost = std::move(fixed_om_cost);
     return c;
   }
 };
@@ -105,7 +113,17 @@ struct json_data_contract<CarrierConverter>
       json_variant_null<"annual_derating",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,
-      json_bool_null<"integer_expmod", OptBool>>;
+      json_bool_null<"integer_expmod", OptBool>,
+      json_variant_null<"overnight_capcost",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,
+      json_variant_null<"economic_life",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,
+      json_variant_null<"wacc", OptTRealFieldSched, jvtl_TRealFieldSched>,
+      json_variant_null<"fixed_om_cost",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>>;
 
   static auto to_json_data(CarrierConverter const& c)
   {
@@ -125,7 +143,11 @@ struct json_data_contract<CarrierConverter>
                            c.capmax,
                            c.annual_capcost,
                            c.annual_derating,
-                           c.integer_expmod);
+                           c.integer_expmod,
+                           c.overnight_capcost,
+                           c.economic_life,
+                           c.wacc,
+                           c.fixed_om_cost);
   }
 };
 }  // namespace daw::json

@@ -111,7 +111,17 @@ struct json_data_contract<Demand>
       json_variant_null<"annual_derating",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,
-      json_bool_null<"integer_expmod", OptBool>>;
+      json_bool_null<"integer_expmod", OptBool>,
+      json_variant_null<"overnight_capcost",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,
+      json_variant_null<"economic_life",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,
+      json_variant_null<"wacc", OptTRealFieldSched, jvtl_TRealFieldSched>,
+      json_variant_null<"fixed_om_cost",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>>;
 
   constexpr static auto to_json_data(Demand const& demand)
   {
@@ -135,7 +145,11 @@ struct json_data_contract<Demand>
                                  demand.capmax,
                                  demand.annual_capcost,
                                  demand.annual_derating,
-                                 demand.integer_expmod);
+                                 demand.integer_expmod,
+                                 demand.overnight_capcost,
+                                 demand.economic_life,
+                                 demand.wacc,
+                                 demand.fixed_om_cost);
   }
 };
 

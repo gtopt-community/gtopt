@@ -1,0 +1,10 @@
+{
+  "_comment": "cases/invest_wacc_1b: overnight cost, life and wacc come from the elements; base_small / base_large = coal-like, mid = CCGT, peak = OCGT.",
+  "finance": {"wacc": 0.08},
+  "projects": {
+    "base_small": {"technology": "coal"},
+    "base_large": {"technology": "coal"},
+    "mid": {"technology": "ccgt"},
+    "peak": {"technology": "ocgt"}
+  }
+}

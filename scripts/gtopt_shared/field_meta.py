@@ -538,6 +538,37 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         (
+            "overnight_capcost",
+            _J_SCHED,
+            False,
+            "Overnight investment cost [$/MW]; annuity = overnight x "
+            "CRF(wacc, economic_life) when annual_capcost is unset",
+            None,
+        ),
+        (
+            "economic_life",
+            _J_SCHED,
+            False,
+            "Economic life for the annuity [years]",
+            None,
+        ),
+        (
+            "wacc",
+            _J_SCHED,
+            False,
+            "Private rate (WACC) of this element for the annuity [p.u./year]; "
+            "default: simulation.annual_discount_rate",
+            None,
+        ),
+        (
+            "fixed_om_cost",
+            _J_SCHED,
+            False,
+            "Fixed O&M of the expansion capacity [$/MW-year], charged with the "
+            "annuity on the capacity built",
+            None,
+        ),
+        (
             "capmax",
             _J_SCHED,
             False,
@@ -785,6 +816,37 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             False,
             "When true, restrict the expansion-module count to integer values "
             "(otherwise continuous; default: false).",
+            None,
+        ),
+        (
+            "overnight_capcost",
+            _J_SCHED,
+            False,
+            "Overnight investment cost [$/MW]; annuity = overnight x "
+            "CRF(wacc, economic_life) when annual_capcost is unset",
+            None,
+        ),
+        (
+            "economic_life",
+            _J_SCHED,
+            False,
+            "Economic life for the annuity [years]",
+            None,
+        ),
+        (
+            "wacc",
+            _J_SCHED,
+            False,
+            "Private rate (WACC) of this element for the annuity [p.u./year]; "
+            "default: simulation.annual_discount_rate",
+            None,
+        ),
+        (
+            "fixed_om_cost",
+            _J_SCHED,
+            False,
+            "Fixed O&M of the expansion capacity [$/MW-year], charged with the "
+            "annuity on the capacity built",
             None,
         ),
         (
@@ -1394,6 +1456,37 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         (
+            "overnight_capcost",
+            _J_SCHED,
+            False,
+            "Overnight investment cost [$/MW]; annuity = overnight x "
+            "CRF(wacc, economic_life) when annual_capcost is unset",
+            None,
+        ),
+        (
+            "economic_life",
+            _J_SCHED,
+            False,
+            "Economic life for the annuity [years]",
+            None,
+        ),
+        (
+            "wacc",
+            _J_SCHED,
+            False,
+            "Private rate (WACC) for the annuity [p.u./year]; "
+            "default: simulation.annual_discount_rate (public project)",
+            None,
+        ),
+        (
+            "fixed_om_cost",
+            _J_SCHED,
+            False,
+            "Fixed O&M of the expansion capacity [$/MW-year], charged with the "
+            "annuity on the capacity built",
+            None,
+        ),
+        (
             "capmax",
             _J_SCHED,
             False,
@@ -1612,6 +1705,37 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         (
+            "overnight_capcost",
+            _J_SCHED,
+            False,
+            "Overnight investment cost [$/MWh]; annuity = overnight x "
+            "CRF(wacc, economic_life) when annual_capcost is unset",
+            None,
+        ),
+        (
+            "economic_life",
+            _J_SCHED,
+            False,
+            "Economic life for the annuity [years]",
+            None,
+        ),
+        (
+            "wacc",
+            _J_SCHED,
+            False,
+            "Private rate (WACC) of this element for the annuity [p.u./year]; "
+            "default: simulation.annual_discount_rate",
+            None,
+        ),
+        (
+            "fixed_om_cost",
+            _J_SCHED,
+            False,
+            "Fixed O&M of the expansion capacity [$/MWh-year], charged with the "
+            "annuity on the capacity built",
+            None,
+        ),
+        (
             "capmax",
             _J_SCHED,
             False,
@@ -1710,6 +1834,20 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         (
+            "power_overnight_capcost",
+            _J_SCHED,
+            False,
+            "Overnight power investment cost [$/MW] (converter annuity)",
+            None,
+        ),
+        (
+            "power_fixed_om_cost",
+            _J_SCHED,
+            False,
+            "Fixed O&M of expansion power [$/MW-year] (converter)",
+            None,
+        ),
+        (
             "energy_power_ratio",
             _J_NUM,
             False,
@@ -1780,6 +1918,37 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             False,
             "When true, restrict the expansion-module count to integer values "
             "(otherwise continuous; default: false).",
+            None,
+        ),
+        (
+            "overnight_capcost",
+            _J_SCHED,
+            False,
+            "Overnight investment cost [$/MW]; annuity = overnight x "
+            "CRF(wacc, economic_life) when annual_capcost is unset",
+            None,
+        ),
+        (
+            "economic_life",
+            _J_SCHED,
+            False,
+            "Economic life for the annuity [years]",
+            None,
+        ),
+        (
+            "wacc",
+            _J_SCHED,
+            False,
+            "Private rate (WACC) of this element for the annuity [p.u./year]; "
+            "default: simulation.annual_discount_rate",
+            None,
+        ),
+        (
+            "fixed_om_cost",
+            _J_SCHED,
+            False,
+            "Fixed O&M of the expansion capacity [$/MW-year], charged with the "
+            "annuity on the capacity built",
             None,
         ),
         (
@@ -2361,6 +2530,37 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("annual_capcost", _J_SCHED, False, "Annualised investment cost", None),
         ("annual_derating", _J_SCHED, False, "Annual derating factor", None),
         ("integer_expmod", _J_BOOL, False, "Integer-constrain expmod (1=yes)", None),
+        (
+            "overnight_capcost",
+            _J_SCHED,
+            False,
+            "Overnight investment cost [$/MW]; annuity = overnight x "
+            "CRF(wacc, economic_life) when annual_capcost is unset",
+            None,
+        ),
+        (
+            "economic_life",
+            _J_SCHED,
+            False,
+            "Economic life for the annuity [years]",
+            None,
+        ),
+        (
+            "wacc",
+            _J_SCHED,
+            False,
+            "Private rate (WACC) for the annuity [p.u./year]; "
+            "default: simulation.annual_discount_rate (public project)",
+            None,
+        ),
+        (
+            "fixed_om_cost",
+            _J_SCHED,
+            False,
+            "Fixed O&M of the expansion capacity [$/MW-year], charged with the "
+            "annuity on the capacity built",
+            None,
+        ),
     ],
     # ------------------------------------------------------------------
     # System — CO₂ cap-and-trade allowance pool (PR #495 / #496)

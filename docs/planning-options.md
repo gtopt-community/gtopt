@@ -80,6 +80,13 @@ demand_fail_cost=5000` is rewritten to
 > For backward compatibility it is still accepted as a flat field in
 > `options`, but emits a deprecation warning.
 
+`annual_discount_rate` is the planning-wide (social) rate of the stage
+discount factors.  It is also the fallback annuity rate of a capacity
+element priced by `overnight_capcost` without its own `wacc`; an element
+with `wacc` set annualises its overnight cost at that private rate while
+present values stay at the social rate (see
+[investment economics](methods/investment-economics.md#7-social-vs-private-discount-rates)).
+
 ### Solver Selection
 
 | Field | Type | Default | Description |

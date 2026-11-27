@@ -1,0 +1,71 @@
+{
+  "options": {
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "model_options": {
+      "use_single_bus": true,
+      "use_kirchhoff": false,
+      "scale_objective": 1000,
+      "demand_fail_cost": 10000
+    }
+  },
+  "simulation": {
+    "annual_discount_rate": 0.06,
+    "block_array": [
+      {
+        "uid": 1,
+        "duration": 8760
+      }
+    ],
+    "stage_array": [
+      {
+        "uid": 1,
+        "first_block": 0,
+        "count_block": 1,
+        "active": 1
+      }
+    ],
+    "scenario_array": [
+      {
+        "uid": 1,
+        "probability_factor": 1
+      }
+    ]
+  },
+  "system": {
+    "name": "invest_fom_1c",
+    "bus_array": [
+      {
+        "uid": 1,
+        "name": "b1"
+      }
+    ],
+    "generator_array": [
+      {
+        "uid": 1,
+        "name": "plant",
+        "bus": "b1",
+        "gcost": 10,
+        "capacity": 0,
+        "expcap": 10,
+        "expmod": 20,
+        "overnight_capcost": 1000000,
+        "economic_life": 25,
+        "wacc": 0.07,
+        "fixed_om_cost": 25000
+      }
+    ],
+    "demand_array": [
+      {
+        "uid": 1,
+        "name": "load",
+        "bus": "b1",
+        "lmax": [
+          [
+            100
+          ]
+        ]
+      }
+    ]
+  }
+}

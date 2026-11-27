@@ -1,0 +1,10 @@
+{
+  "_comment": "cases/invest_screening_1b: illustrative round-number costs (case README); base = coal-like, mid = CCGT, peak = OCGT. Private WACC = the case's 8 %.",
+  "finance": {"wacc": 0.08},
+  "projects": {
+    "base": {"technology": "coal", "overnight_capcost": 3000000, "economic_life": 30},
+    "mid": {"technology": "ccgt", "overnight_capcost": 1100000, "economic_life": 25},
+    "peak": {"technology": "ocgt", "overnight_capcost": 500000, "economic_life": 20},
+    "nuclear": {"technology": "nuclear", "overnight_capcost": 6000000, "economic_life": 40}
+  }
+}

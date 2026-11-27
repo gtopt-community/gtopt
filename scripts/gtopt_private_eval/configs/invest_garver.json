@@ -1,0 +1,10 @@
+{
+  "_comment": "cases/invest_garver_6b: circuit cost annualised at 8 % over 40 years (case README); generators g1 (40 $/MWh) / g3 (30) / g6 (15) mapped to OCGT / CCGT / coal for the CO2 accounting.",
+  "finance": {"wacc": 0.08, "default_life": 40},
+  "technologies": {"line": {"life": 40}},
+  "projects": {
+    "g1": {"technology": "ocgt"},
+    "g3": {"technology": "ccgt"},
+    "g6": {"technology": "coal"}
+  }
+}

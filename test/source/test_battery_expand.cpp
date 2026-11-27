@@ -3,9 +3,12 @@
 #include <gtopt/battery.hpp>
 #include <gtopt/battery_lp.hpp>
 #include <gtopt/converter.hpp>
+#include <gtopt/converter_lp.hpp>
 #include <gtopt/demand.hpp>
 #include <gtopt/generator.hpp>
+#include <gtopt/json/json_planning.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_options.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system.hpp>
@@ -897,4 +900,111 @@ TEST_CASE(
   REQUIRE(system.commitment_array.size() == 1);
   system.expand_batteries();
   CHECK(system.commitment_array.size() == 1);
+}
+
+TEST_CASE("expand_batteries forwards integer_expmod to the Converter")
+{
+  System system;
+  system.bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  system.battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat_int",
+          .bus = Uid {1},
+          .integer_expmod = true,
+      },
+      {
+          .uid = Uid {2},
+          .name = "bat_cont",
+          .bus = Uid {1},
+      },
+  };
+
+  system.expand_batteries();
+  REQUIRE(system.converter_array.size() == 2);
+  const auto& c_int = system.converter_array[0];
+  const auto& c_cont = system.converter_array[1];
+  CHECK(c_int.name == "bat_int_conv");
+  CHECK(c_int.integer_expmod.value_or(false));
+  CHECK_FALSE(c_cont.integer_expmod.has_value());
+}
+
+TEST_CASE("expand_batteries forwards power_fixed_om_cost")  // NOLINT
+{
+  System system;
+  system.bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  system.battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat",
+          .bus = Uid {1},
+          .fixed_om_cost = OptTRealFieldSched {3000.0},
+          .power_fixed_om_cost = OptTRealFieldSched {7000.0},
+      },
+  };
+  system.expand_batteries();
+  REQUIRE(system.converter_array.size() == 1);
+  const auto& conv = system.converter_array.front();
+  CHECK(std::get<Real>(conv.fixed_om_cost.value_or(RealFieldSched {0.0}))
+        == doctest::Approx(7000.0));
+  // The energy fixed O&M stays on the battery.
+  CHECK(system.battery_array.front().fixed_om_cost.has_value());
+}
+
+namespace
+{
+/// Battery with expandable energy (20 MWh modules) and power (10 MW
+/// modules); @p integer selects `integer_expmod`.
+std::string battery_expmod_json(bool integer)
+{
+  return std::string {R"json({
+  "options": {"model_options": {"use_single_bus": true}},
+  "simulation": {
+    "block_array": [ {"uid": 1, "duration": 1} ],
+    "stage_array": [ {"uid": 1, "first_block": 0, "count_block": 1} ],
+    "scenario_array": [ {"uid": 1, "probability_factor": 1} ]
+  },
+  "system": {
+    "name": "bat_int",
+    "bus_array": [ {"uid": 1, "name": "b1"} ],
+    "demand_array": [ {"uid": 1, "name": "d1", "bus": "b1", "lmax": 10} ],
+    "generator_array": [
+      {"uid": 1, "name": "g1", "bus": "b1", "gcost": 10, "capacity": 100}
+    ],
+    "battery_array": [
+      {"uid": 1, "name": "bess", "bus": "b1",
+       "capacity": 0, "expcap": 20, "expmod": 5, "annual_capcost": 1000,
+       "power_capacity": 0, "power_expcap": 10, "power_expmod": 5,
+       "power_annual_capcost": 500,
+       "integer_expmod": )json"}
+  + (integer ? "true" : "false") + R"json(}
+    ]
+  }
+})json";
+}
+}  // namespace
+
+TEST_CASE("Battery integer_expmod makes both expmod columns integer")
+{
+  for (const bool integer : {true, false}) {
+    CAPTURE(integer);
+    auto planning =
+        daw::json::from_json<Planning>(battery_expmod_json(integer));
+    PlanningLP planning_lp(std::move(planning));
+    auto& system_lp = planning_lp.systems().front().front();
+    const auto& li = system_lp.linear_interface();
+    const auto& stage = planning_lp.simulation().stages().front();
+
+    const auto& bats = system_lp.elements<BatteryLP>();
+    REQUIRE(bats.size() == 1);
+    const auto e_col = bats.front().expmod_col_at(stage);
+    REQUIRE(e_col.has_value());
+    CHECK(li.is_integer(e_col.value_or(ColIndex {0})) == integer);
+
+    const auto& convs = system_lp.elements<ConverterLP>();
+    REQUIRE(convs.size() == 1);
+    const auto p_col = convs.front().expmod_col_at(stage);
+    REQUIRE(p_col.has_value());
+    CHECK(li.is_integer(p_col.value_or(ColIndex {0})) == integer);
+  }
 }

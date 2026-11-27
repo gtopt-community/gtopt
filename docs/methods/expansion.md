@@ -121,6 +121,9 @@ the full derivation.
 
 ## 5. Related
 
+- [Investment Economics](investment-economics.md) — cost recovery of the
+  built projects at the marginal prices, MIP uplift and per-candidate
+  rates (`overnight_capcost`, `economic_life`, `wacc`).
 - [SDDP Method](sddp.md) — the operational oracle.
 - [Monolithic Method](monolithic.md) — the convergence target
   (the extensive-form MIP the master reproduces).

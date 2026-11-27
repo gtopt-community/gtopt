@@ -286,6 +286,24 @@ struct Battery
       annual_derating {};  ///< Annual capacity derating factor [p.u./year]
   OptBool integer_expmod {};  ///< Integer-constrain the expmod variable
 
+  /// @name Annuity from overnight cost (per-candidate private rate)
+  /// Used only when ``annual_capcost`` is unset: the LP charges
+  /// ``annual_capcost = overnight_capcost × CRF(wacc, economic_life)``,
+  /// CRF(r, n) = r(1+r)^n / ((1+r)^n − 1).  ``wacc`` unset → the social
+  /// ``annual_discount_rate`` (the stage discount factors are never
+  /// changed).  All unset (default) → today's LP.
+  /// @{
+  OptTRealFieldSched overnight_capcost {};  ///< Overnight investment cost
+                                            ///< per unit of capacity [$/MWh]
+  OptTRealFieldSched economic_life {};  ///< Annuity life [years]
+  OptTRealFieldSched wacc {};  ///< Private discount rate of the annuity
+                               ///< (WACC / hurdle rate) [p.u./year]
+  /// Fixed O&M of the expansion capacity [$/unit-year], charged on the
+  /// capacity built from this stage on, next to the annuity and with
+  /// the same stage discounting.  Unset → no fixed O&M.
+  OptTRealFieldSched fixed_om_cost {};
+  /// @}
+
   /// Whether to propagate SoC state across stage/phase boundaries via
   /// StateVariables (SDDP-style coupling). When false (the default for
   /// batteries), each phase is solved independently with no state carry-over;
@@ -417,6 +435,13 @@ struct Battery
   OptTRealFieldSched
       power_annual_capcost {};  ///< Annualized power cost [$/MW-year]
   OptTRealFieldSched power_annual_derating {};  ///< Power derating [p.u./year]
+  OptTRealFieldSched
+      power_overnight_capcost {};  ///< Overnight power cost [$/MW]; annuity
+                                   ///< at the battery's ``wacc`` /
+                                   ///< ``economic_life`` (see above)
+  OptTRealFieldSched
+      power_fixed_om_cost {};  ///< Fixed O&M of expansion power
+                               ///< [$/MW-year]; forwarded to the converter
 
   /// Fixed storage duration [h]: when set, the LP adds per stage
   /// ``energy capainst = energy_power_ratio × power capainst`` (installed

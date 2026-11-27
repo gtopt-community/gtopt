@@ -1009,6 +1009,7 @@ BlockResult add_none(const ScenarioLP& scenario,
                      double block_tmax_ab,
                      double block_tmax_ba,
                      double block_tcost,
+                     std::optional<ColIndex> capacity_col,
                      Uid uid,
                      bool enforce_capacity)
 {
@@ -1031,6 +1032,36 @@ BlockResult add_none(const ScenarioLP& scenario,
   brow_a[fpc] = -1.0;
   brow_b[fpc] = +1.0;
 
+  // Expandable lossless line: the installed capacity caps the signed
+  // flow in both directions (``capainst − f ≥ 0``, ``capainst + f ≥ 0``),
+  // as every lossy mode does.  Without these rows an expandable line
+  // with no loss model was limited only by ``tmax`` and its expansion
+  // never bound (nothing was ever built).
+  std::optional<RowIndex> capp_row;
+  std::optional<RowIndex> capn_row;
+  if (capacity_col && enforce_capacity) {
+    capp_row = add_capacity_row(lp,
+                                scenario,
+                                stage,
+                                block,
+                                LineLP::CapacitypName,
+                                uid,
+                                *capacity_col,
+                                fpc);
+    auto neg_cap_row =
+        SparseRow {
+            .class_name = Line::class_name.full_name(),
+            .constraint_name = LineLP::CapacitynName,
+            .variable_uid = uid,
+            .context =
+                make_block_context(scenario.uid(), stage.uid(), block.uid()),
+        }
+            .greater_equal(0);
+    neg_cap_row[*capacity_col] = 1;
+    neg_cap_row[fpc] = +1;
+    capn_row = lp.add_row(std::move(neg_cap_row));
+  }
+
   return {
       .fp_col = fpc,
       .fn_col = {},
@@ -1038,8 +1069,8 @@ BlockResult add_none(const ScenarioLP& scenario,
       .fn_loss = {},
       .lossp_col = {},
       .lossn_col = {},
-      .capp_row = {},
-      .capn_row = {},
+      .capp_row = capp_row,
+      .capn_row = capn_row,
       .seg_p_cols = {},
       .seg_n_cols = {},
       .seg_p_loss = {},
@@ -3647,6 +3678,7 @@ BlockResult dispatch_block(const LossConfig& config,
                     block_tmax_ab,
                     block_tmax_ba,
                     block_tcost,
+                    capacity_col,
                     uid,
                     enforce_capacity);
   }
@@ -3661,6 +3693,7 @@ BlockResult dispatch_block(const LossConfig& config,
                       block_tmax_ab,
                       block_tmax_ba,
                       block_tcost,
+                      capacity_col,
                       uid,
                       enforce_capacity);
 
@@ -3768,6 +3801,7 @@ BlockResult dispatch_block(const LossConfig& config,
                       block_tmax_ab,
                       block_tmax_ba,
                       block_tcost,
+                      capacity_col,
                       uid,
                       enforce_capacity);
   }

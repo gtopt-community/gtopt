@@ -340,6 +340,12 @@ add_e2e_case(bat_4b_24 bat_4b_24.json)
 add_e2e_case(exp_gen_4b exp_gen_4b.json)
 add_e2e_case(exp_bat_4b exp_bat_4b.json)
 add_e2e_case(exp_bat_4b_24 exp_bat_4b_24.json)
+# Per-candidate private rate (overnight_capcost + wacc): the 7 % large
+# block beats the 9 % small modules.  See cases/invest_wacc_2c/README.md.
+add_e2e_case(invest_wacc_2c invest_wacc_2c.json)
+# Fixed O&M of an expansion candidate charged with its annuity: the
+# price pays annuity + fixed O&M.  See cases/invest_fom_1c/README.md.
+add_e2e_case(invest_fom_1c invest_fom_1c.json)
 
 # Decoupled ``Line.loss_envelope`` (rating 100 MW, tmax 1000 MW) with
 # demand forcing flow to 0.5x / 3x / 8x the envelope on a

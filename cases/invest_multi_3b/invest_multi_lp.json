@@ -1,0 +1,370 @@
+{
+ "options": {
+  "output_format": "csv",
+  "output_compression": "uncompressed",
+  "model_options": {
+   "use_single_bus": false,
+   "use_kirchhoff": false,
+   "use_line_losses": false,
+   "scale_objective": 1000,
+   "demand_fail_cost": 10000
+  }
+ },
+ "simulation": {
+  "annual_discount_rate": 0.06,
+  "block_array": [
+   {
+    "uid": 1,
+    "duration": 1
+   },
+   {
+    "uid": 2,
+    "duration": 1
+   },
+   {
+    "uid": 3,
+    "duration": 1
+   },
+   {
+    "uid": 4,
+    "duration": 1
+   },
+   {
+    "uid": 5,
+    "duration": 1
+   },
+   {
+    "uid": 6,
+    "duration": 1
+   },
+   {
+    "uid": 7,
+    "duration": 1
+   },
+   {
+    "uid": 8,
+    "duration": 1
+   },
+   {
+    "uid": 9,
+    "duration": 1
+   },
+   {
+    "uid": 10,
+    "duration": 1
+   },
+   {
+    "uid": 11,
+    "duration": 1
+   },
+   {
+    "uid": 12,
+    "duration": 1
+   },
+   {
+    "uid": 13,
+    "duration": 1
+   },
+   {
+    "uid": 14,
+    "duration": 1
+   },
+   {
+    "uid": 15,
+    "duration": 1
+   },
+   {
+    "uid": 16,
+    "duration": 1
+   },
+   {
+    "uid": 17,
+    "duration": 1
+   },
+   {
+    "uid": 18,
+    "duration": 1
+   },
+   {
+    "uid": 19,
+    "duration": 1
+   },
+   {
+    "uid": 20,
+    "duration": 1
+   },
+   {
+    "uid": 21,
+    "duration": 1
+   },
+   {
+    "uid": 22,
+    "duration": 1
+   },
+   {
+    "uid": 23,
+    "duration": 1
+   },
+   {
+    "uid": 24,
+    "duration": 1
+   }
+  ],
+  "stage_array": [
+   {
+    "uid": 1,
+    "first_block": 0,
+    "count_block": 24
+   }
+  ],
+  "scenario_array": [
+   {
+    "uid": 1,
+    "probability_factor": 1
+   }
+  ]
+ },
+ "system": {
+  "name": "invest_multi_3b",
+  "bus_array": [
+   {
+    "uid": 1,
+    "name": "north"
+   },
+   {
+    "uid": 2,
+    "name": "city"
+   },
+   {
+    "uid": 3,
+    "name": "coast"
+   }
+  ],
+  "generator_array": [
+   {
+    "uid": 1,
+    "name": "coal",
+    "bus": "city",
+    "gcost": 40,
+    "capacity": 250
+   },
+   {
+    "uid": 2,
+    "name": "gas",
+    "bus": "coast",
+    "gcost": 90,
+    "capacity": 400
+   },
+   {
+    "uid": 3,
+    "name": "solar",
+    "bus": "north",
+    "gcost": 0,
+    "capacity": 0,
+    "expcap": 10,
+    "expmod": 100,
+    "overnight_capcost": 700000,
+    "economic_life": 25,
+    "wacc": 0.07
+   },
+   {
+    "uid": 4,
+    "name": "ccgt",
+    "bus": "city",
+    "gcost": 55,
+    "capacity": 0,
+    "expcap": 10,
+    "expmod": 60,
+    "overnight_capcost": 1000000,
+    "economic_life": 25,
+    "wacc": 0.08
+   }
+  ],
+  "generator_profile_array": [
+   {
+    "uid": 1,
+    "name": "gp_solar",
+    "generator": "solar",
+    "profile": [
+     [
+      [
+       0.0,
+       0.0,
+       0.0,
+       0.0,
+       0.0,
+       0.0,
+       0.05,
+       0.15,
+       0.35,
+       0.55,
+       0.75,
+       0.9,
+       1.0,
+       0.95,
+       0.85,
+       0.7,
+       0.5,
+       0.3,
+       0.1,
+       0.02,
+       0.0,
+       0.0,
+       0.0,
+       0.0
+      ]
+     ]
+    ]
+   }
+  ],
+  "demand_array": [
+   {
+    "uid": 1,
+    "name": "city_load",
+    "bus": "city",
+    "lmax": [
+     [
+      150.0,
+      138.0,
+      132.0,
+      132.0,
+      138.0,
+      162.0,
+      204.0,
+      279.0,
+      354.0,
+      405.0,
+      429.0,
+      444.0,
+      456.0,
+      444.0,
+      423.0,
+      405.0,
+      414.0,
+      444.0,
+      504.0,
+      555.0,
+      531.0,
+      480.0,
+      375.0,
+      246.0
+     ]
+    ]
+   },
+   {
+    "uid": 2,
+    "name": "desal",
+    "bus": "coast",
+    "type": "desalination",
+    "description": "reverse osmosis, 3.5 kWh/m3; fcost = social value 1.2 $/m3 / 3.5 kWh/m3",
+    "lmax": 80,
+    "fcost": 342.8571,
+    "capacity": 0,
+    "expcap": 5,
+    "expmod": 16,
+    "overnight_capcost": 6857143,
+    "economic_life": 25
+   }
+  ],
+  "line_array": [
+   {
+    "uid": 1,
+    "name": "north_city",
+    "bus_a": "north",
+    "bus_b": "city",
+    "capacity": 100,
+    "tmax_ab": 1000,
+    "tmax_ba": 1000,
+    "expcap": 10,
+    "expmod": 60,
+    "overnight_capcost": 300000,
+    "economic_life": 40,
+    "wacc": 0.05
+   },
+   {
+    "uid": 2,
+    "name": "city_coast",
+    "bus_a": "city",
+    "bus_b": "coast",
+    "capacity": 150,
+    "tmax_ab": 1000,
+    "tmax_ba": 1000,
+    "expcap": 10,
+    "expmod": 40,
+    "overnight_capcost": 250000,
+    "economic_life": 40,
+    "wacc": 0.05
+   },
+   {
+    "uid": 3,
+    "name": "north_coast",
+    "bus_a": "north",
+    "bus_b": "coast",
+    "capacity": 0,
+    "tmax_ab": 1000,
+    "tmax_ba": 1000,
+    "expcap": 10,
+    "expmod": 60,
+    "overnight_capcost": 600000,
+    "economic_life": 40,
+    "wacc": 0.05
+   }
+  ],
+  "battery_array": [
+   {
+    "uid": 1,
+    "name": "bess",
+    "bus": "city",
+    "input_efficiency": 0.92,
+    "output_efficiency": 0.92,
+    "annual_standing_loss": 0,
+    "emin": 0,
+    "eini": 0,
+    "capacity": 0,
+    "expcap": 10,
+    "expmod": 100,
+    "overnight_capcost": 200000,
+    "power_capacity": 0,
+    "power_expcap": 5,
+    "power_expmod": 100,
+    "power_overnight_capcost": 100000,
+    "economic_life": 15,
+    "wacc": 0.08
+   }
+  ],
+  "hydrogen_node_array": [
+   {
+    "uid": 1,
+    "name": "h2"
+   }
+  ],
+  "carrier_converter_array": [
+   {
+    "uid": 1,
+    "name": "electrolyser",
+    "type": "electrolyser",
+    "from_carrier": "electric",
+    "to_carrier": "hydrogen",
+    "from_node": "north",
+    "to_node": "h2",
+    "efficiency": 0.7,
+    "ocost": 2.0,
+    "capacity": 0,
+    "expcap": 5,
+    "expmod": 60,
+    "overnight_capcost": 900000,
+    "economic_life": 20,
+    "wacc": 0.09
+   }
+  ],
+  "hydrogen_demand_array": [
+   {
+    "uid": 1,
+    "name": "h2_offtake",
+    "hydrogen_node": "h2",
+    "lmax": 150,
+    "price": 90.009
+   }
+  ]
+ }
+}
