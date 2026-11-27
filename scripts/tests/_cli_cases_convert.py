@@ -409,6 +409,41 @@ def case_legacy_alias_offline(ctx: CliRun) -> None:
 
 
 # ---------------------------------------------------------------------------
+# gtopt2plp / gtopt2sddp / gtopt2plexos (gtopt -> other tools' inputs)
+# ---------------------------------------------------------------------------
+
+
+@e2e("gtopt2plp")
+def case_export_plp_ieee_4b(ctx: CliRun) -> None:
+    """gtopt JSON (ieee_4b_ori) -> PLP .dat files."""
+    out = ctx.tmp_path / "plp"
+    ctx.run([CASES_DIR / "ieee_4b_ori" / "ieee_4b_ori.json", "-o", out])
+    for name in ("plpbar.dat", "plpblo.dat", "plpcnfce.dat", "plpdem.dat"):
+        assert (out / name).stat().st_size > 0, name
+    assert "warnings" in json.loads((out / "gtopt2plp.json").read_text())
+
+
+@e2e("gtopt2sddp")
+def case_export_sddp_ieee_4b(ctx: CliRun) -> None:
+    """gtopt JSON (ieee_4b_ori) -> PSR SDDP block study .dat files."""
+    out = ctx.tmp_path / "sddp"
+    ctx.run([CASES_DIR / "ieee_4b_ori" / "ieee_4b_ori.json", "-o", out])
+    for name in ("sddp.dat", "dbus.dat", "dcirc.dat", "ctermigt.dat"):
+        assert (out / name).stat().st_size > 0, name
+    assert "warnings" in json.loads((out / "gtopt2sddp.json").read_text())
+
+
+@e2e("gtopt2plexos")
+def case_export_plexos_ieee_4b(ctx: CliRun) -> None:
+    """gtopt JSON (ieee_4b_ori) -> PLEXOS XML dataset + data files."""
+    out = ctx.tmp_path / "plexos"
+    ctx.run([CASES_DIR / "ieee_4b_ori" / "ieee_4b_ori.json", "-o", out])
+    assert list(out.glob("*.xml"))
+    assert (out / "block_layout.csv").stat().st_size > 0
+    assert "warnings" in json.loads((out / "gtopt2plexos.json").read_text())
+
+
+# ---------------------------------------------------------------------------
 # gtopt2pp
 # ---------------------------------------------------------------------------
 
