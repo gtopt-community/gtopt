@@ -25,12 +25,40 @@ in [docs/whats-new.md](docs/whats-new.md).
   logs the classification. `Line.flow_direction = ab | ba | both | auto`
   pins or opts out per line. Default `off`: the LP is unchanged.
   `gtopt_check_topology --directions` previews the classification.
+- **`plp2gtopt`, `sddp2gtopt`, `plexos2gtopt --results`: import the
+  source tool's solution as a gtopt output directory.** The output uses
+  the same layout as a gtopt run: Parquet files with the same names,
+  columns, uids and scenario / stage / block indexing, zstd by default,
+  plus `solution.csv`, `solver_status.json` and `planning.json`.
+  Existing readers load it unchanged.
+  - Imported results: generation, served and unserved demand, LMPs,
+    line flows, reservoir volumes and water values, turbined and spilled
+    water, and battery operation.
+  - Elements that cannot be matched are reported as warnings.
+  - Output goes to `<out>/results_<tool>`; `--results-only` skips the
+    conversion of the inputs.
+- **`gtopt_compare_runs`: compare two gtopt output directories.** It
+  reports the objective, every stream and the top differing elements,
+  and lists the elements found in only one run.
+  - Elements are aligned by name and by scenario / stage / block
+    position.
+  - Generation is summed by technology, and reservoir end-of-stage
+    volumes are compared stage by stage.
+  - Reports can be written as CSV, JSON and plots.
+  - Tolerances are set with `--abs-tol` / `--rel-tol`; the exit code is
+    1 when a stream is beyond tolerance.
+  - `plexos2gtopt.compare_with_plexos` now builds on it, with a new
+    `--run-diff` flag.
+
+  See
+  [docs/scripts/gtopt_compare_runs.md](docs/scripts/gtopt_compare_runs.md).
 - **`gtopt2plp`, `gtopt2sddp`, `gtopt2plexos`: export a gtopt case and
   its results to PLP, PSR SDDP and PLEXOS formats.** Inputs are written in
   the layouts `plp2gtopt`, `sddp2gtopt` and `plexos2gtopt` read back;
   `--results DIR` also writes a solved run as the tool's own outputs
   (PLP `plpcen`/`plpbar`/`plplin`/`plpemb`/`plpess` CSVs, PSR graf CSVs,
-  PLEXOS solution tables read by `plexos_solution`). Whatever the target format cannot hold (merged demands per bus,
+  PLEXOS solution tables read by `plexos_solution`). Whatever the
+  target format cannot hold (merged demands per bus,
   intra-stage variation, turbine flow capacity, battery `eini`, user
   constraints, ...) is reported as a warning and in
   `gtopt2plp.json` / `gtopt2sddp.json`; `--strict` turns warnings into

@@ -131,15 +131,17 @@ class PlexosSolution:
 
     # ── series ───────────────────────────────────────────────────────
     def fetch(
-        self, wanted: Iterable[tuple[str, str]]
+        self, wanted: Iterable[tuple[str, str]], sample: str = "0"
     ) -> dict[SeriesKey, dict[int, float]]:
         """Read every object's ``(class, property)`` series in one pass.
 
         ``wanted`` lists ``(class_name, property_name)`` pairs of the
         System collections (``("Storage", "End Volume")``, ``("Battery",
         "Energy")``, ``("Decision Variable", "Value")`` …).  Returns
-        ``{SeriesKey: {period: value}}`` for the band-1, sample-0 keys of
-        the phase.  Pairs absent from the solution are simply missing.
+        ``{SeriesKey: {period: value}}`` for the band-1 keys of the phase
+        and ``sample`` (``"0"``, the default, is the mean over the
+        samples; ``"s"`` is sample / scenario ``s``).  Pairs absent from the
+        solution are simply missing.
         """
         wanted = tuple(wanted)
         classes = {r["name"]: r["class_id"] for r in self._table("t_class")}
@@ -175,7 +177,7 @@ class PlexosSolution:
                 prop is None
                 or not obj
                 or r.get("phase_id", self.phase_id) != self.phase_id
-                or r.get("sample_id", "0") != "0"
+                or r.get("sample_id", "0") != sample
                 or r.get("band_id", "1") not in ("1", "0")
             ):
                 continue

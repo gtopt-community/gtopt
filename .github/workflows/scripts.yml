@@ -210,7 +210,7 @@ jobs:
           PYLINT: ${{ steps.affected.outputs.pylint }}
         run: |
           if [ "$MODE" = "full" ] || [ "$PY" = "full" ]; then
-            pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt gtopt2pp gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_solvers gtopt_compress_lp gtopt_config run_gtopt sddp2gtopt gtopt2plp gtopt2sddp gtopt2plexos plexos2gtopt gasnet2gtopt dlr2gtopt
+            pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt gtopt2pp gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_solvers gtopt_compress_lp gtopt_config run_gtopt sddp2gtopt gtopt2plp gtopt2sddp gtopt2plexos plexos2gtopt gasnet2gtopt dlr2gtopt gtopt_compare_runs
           elif [ -n "$PYLINT" ]; then
             # shellcheck disable=SC2086
             pylint --jobs=0 $PYLINT
@@ -228,7 +228,7 @@ jobs:
           MYPY: ${{ steps.affected.outputs.mypy }}
         run: |
           if [ "$MODE" = "full" ] || [ "$PY" = "full" ]; then
-            mypy cen2gtopt cen_demanda cucdata2gtopt cvs2parquet dlr2gtopt gtopt2pbi gtopt2pp gtopt_canonical_feed gtopt_check_cases gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_check_topology gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_expand gtopt_field_extractor gasnet2gtopt gtopt_marginal_units gtopt_monitor gtopt_operators gtopt_pricing_uplift gtopt_reduce_network gtopt_results_summary gtopt_shared gtopt_timeseries_export igtopt nrel118_to_gtopt plexos2gtopt plexos_compress_case plp2gtopt plp_compress_case pp2gtopt psse2gtopt rts_gmlc_to_gtopt run_gtopt sddp2gtopt gtopt2plp gtopt2sddp gtopt2plexos sienna2gtopt ts2gtopt --ignore-missing-imports
+            mypy cen2gtopt cen_demanda cucdata2gtopt cvs2parquet dlr2gtopt gtopt2pbi gtopt2pp gtopt_canonical_feed gtopt_check_cases gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_check_topology gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_expand gtopt_field_extractor gasnet2gtopt gtopt_marginal_units gtopt_monitor gtopt_operators gtopt_pricing_uplift gtopt_reduce_network gtopt_results_summary gtopt_shared gtopt_timeseries_export igtopt nrel118_to_gtopt plexos2gtopt plexos_compress_case plp2gtopt plp_compress_case pp2gtopt psse2gtopt rts_gmlc_to_gtopt run_gtopt sddp2gtopt gtopt2plp gtopt2sddp gtopt2plexos sienna2gtopt ts2gtopt --ignore-missing-imports gtopt_compare_runs
           elif [ -n "$MYPY" ]; then
             # shellcheck disable=SC2086
             mypy $MYPY --ignore-missing-imports

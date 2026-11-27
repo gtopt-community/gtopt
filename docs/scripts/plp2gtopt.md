@@ -275,6 +275,65 @@ the `[plp2gtopt]` section of `~/.gtopt.conf` (`--init-config` writes it).
 | `--init-config` | — | Write a `[plp2gtopt]` section with the defaults to `~/.gtopt.conf` |
 | `-V, --version` | — | Print the version and exit |
 
+### Importing PLP results (`--results`)
+
+```bash
+plp2gtopt -i plp_case -o gtopt_case --results          # PLP output in plp_case/
+plp2gtopt -i plp_case -o gtopt_case --results plp_out  # PLP output elsewhere
+plp2gtopt -i plp_case -o gtopt_case --results plp_out --results-only
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--results [PATH]` | off | Import the PLP results in PATH as a gtopt output directory; without PATH: the input directory |
+| `--results-only` | off | With `--results`: skip the conversion and import against the planning JSON already in the output directory |
+| `--results-output DIR` | `<output dir>/results_plp` | Where the imported results go (kept apart from `<out>/results`, where a gtopt run of the case writes) |
+
+| PLP file | Columns | gtopt stream |
+|----------|---------|--------------|
+| `plpcen.csv` | `CenPgen` [MW]; `CenQgen` [m3/s] of hydro centrals | `Generator/generation_sol`; `Turbine/flow_sol` |
+| `plpfal.csv` | `CenPgen` per bus [MW] | `Demand/fail_sol` |
+| `plpbar.csv` | `CMgBar` [$/MWh]; `DemBarP` - deficit [MW] | `Bus/balance_dual`; `Demand/load_sol` |
+| `plplin.csv` | `LinFluP`, `LinPerP` [MW] | `Line/flow_sol`, `Line/loss_sol` |
+| `plpemb.csv` | `EmbVini` / `EmbVfin` x `EmbFac` [hm3] | `Reservoir/eini_sol`, `efin_sol`, `energy_sol` |
+| | `EmbQver`, `EmbQFil` [m3/s] | spill waterway `<name>_ver*` (else `Junction/drain_sol`), seepage waterway `Waterway/flow_sol` |
+| | `EmbPsom2` [$/dam3] x 1000 | `Reservoir/water_value_dual` [$/hm3] |
+| `plpess.csv` | `Efin`, `DCar`, `GDes`, `EfPSom` | `Battery/energy_sol`, `finp_sol`, `fout_sol`, `energy_dual` |
+| `plpcostop.csv` | `CostoOperActual` [$] | `solution.csv` `obj_value` |
+
+Elements are matched by name, `Bloque` is the block uid, and `Hidro = Sim N`
+is the scenario of simulation N's stage-1 hydrology (`plpidsim.dat`, else
+hydrology N); `MEDIA` rows are skipped.  PLP volumes are stage values, so the
+per-block `Reservoir/energy_sol` is interpolated in time within each stage
+(exact at the stage's last block).  The CSV files carry two decimals (water
+values two decimals of $/dam3), which bounds the precision of the import.
+`gtopt2plp --results` writes the same files from a gtopt run, so
+`gtopt2plp --results` -> `plp2gtopt --results` round-trips a solution.
+
+The imported directory is written exactly as a `gtopt` run of the converted
+case would write it: one hive partition per (scene, phase)
+(`<Class>/<field>.parquet/scene=<S>/phase=<P>/part.parquet`), the long
+schema `scenario, stage, block, uid` (`int32`) `value` (`float32`, rounded
+to `output_round_decimals`), gtopt's uids, Parquet `zstd` (or the case's
+`output_compression`), exact zeros of `_sol` streams dropped and `_dual`
+streams dense, plus `solution.csv` (gtopt's header, one row per
+(scene, phase)), `solver_status.json` (`"method": "imported"`),
+`planning.json` and a `README.md`.  Batteries with a `bus` get the
+`<battery>_gen` / `<battery>_dem` streams gtopt synthesises for them.
+Readers of gtopt output (`gtopt_results_summary`,
+[`gtopt_compare_runs`](gtopt_compare_runs.md), `GtoptResults`) load it
+unchanged, so an external run compares against a gtopt run of the same case
+with
+
+```bash
+gtopt_compare_runs <out>/results_plp <out>/results   # external vs gtopt
+```
+
+`solution.csv` reports, per (scene, phase), the probability-weighted cost of
+the scene from the phase on (the convention of a phased gtopt run; the whole
+horizon in a single-phase case).  Names that match no element of the case
+are listed as warnings (console, `solver_status.json`, `README.md`).
+
 ---
 
 ## Supported source variants

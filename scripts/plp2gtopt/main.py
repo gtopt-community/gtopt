@@ -10,6 +10,13 @@ from typing import Any
 from gtopt_config import DEFAULT_CONFIG_PATH, get_version, load_config, save_section
 from gtopt_shared.cli_flags import apply_legacy_profile
 from gtopt_shared.operator import add_operator_argument, select_operator
+from gtopt_shared.results_writer import (
+    RESULTS_AUTO,
+    add_results_arguments,
+    load_planning,
+    report_import,
+    results_output_dir,
+)
 from gtopt_shared.sanity_report import add_sanity_report_argument
 from gtopt_shared.source_versions import (
     add_source_version_argument,
@@ -261,8 +268,33 @@ def make_parser() -> argparse.ArgumentParser:
     add_source_version_argument(parser, SOURCE_FORMAT)
     add_operator_argument(parser)
     add_sanity_report_argument(parser)
+    add_results_arguments(
+        parser,
+        source="PLP",
+        what="the directory of plpcen.csv, plpbar.csv, plplin.csv, plpemb.csv, "
+        "plpess.csv, plpfal.csv, plpcostop.csv",
+        auto="the input directory",
+    )
 
     return parser
+
+
+def _import_results(args: argparse.Namespace, opts: dict[str, Any]) -> int:
+    """``--results``: import PLP output files next to the converted case."""
+    from .results_import import import_plp_results  # noqa: PLC0415
+
+    src = Path(args.input_dir) if args.results == RESULTS_AUTO else Path(args.results)
+    case_json = Path(opts["output_file"])
+    out = results_output_dir(Path(opts["output_dir"]), "plp", args.results_output)
+    try:
+        res = import_plp_results(
+            src, load_planning(case_json), out, Path(args.input_dir)
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"error: --results: {exc}", file=sys.stderr)
+        return 1
+    report_import(res, out)
+    return 0
 
 
 # Keys and hard-coded defaults for the [plp2gtopt] config section.
@@ -808,6 +840,12 @@ def main(argv: list[str] | None = None) -> None:
         provenance=_opts_for_snapshot,
         log=logging.getLogger("plp2gtopt"),
     )
+    if getattr(args, "results_only", False):
+        if getattr(args, "results", None) is None:
+            parser.error("--results-only needs --results")
+        if _import_results(args, _opts_for_snapshot):
+            sys.exit(1)
+        return
     try:
         critical_count = convert_plp_case(_opts_for_snapshot)
     except (RuntimeError, FileNotFoundError) as exc:
@@ -840,6 +878,11 @@ def main(argv: list[str] | None = None) -> None:
         write_plp2gtopt_readme(_snapshot_out_dir)
     except (OSError, KeyError, ValueError) as exc:
         print(f"warning: failed to write state snapshot: {exc}", file=sys.stderr)
+
+    if getattr(args, "results", None) is not None and _import_results(
+        args, _opts_for_snapshot
+    ):
+        sys.exit(1)
 
     # A structural bug in the generated planning (duplicate entity names,
     # missing references, etc.) surfaces as a CRITICAL finding from

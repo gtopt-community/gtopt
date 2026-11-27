@@ -29,6 +29,13 @@ from gtopt_shared.cli_flags import (
     apply_legacy_profile,
 )
 from gtopt_shared.operator import add_operator_argument, select_operator
+from gtopt_shared.results_writer import (
+    RESULTS_AUTO,
+    add_results_arguments,
+    load_planning,
+    report_import,
+    results_output_dir,
+)
 from gtopt_shared.sanity_report import add_sanity_report_argument
 from gtopt_shared.cli_signals import (
     install_termination_handlers,
@@ -1558,7 +1565,50 @@ def make_parser() -> argparse.ArgumentParser:
     )
     add_operator_argument(parser)
     add_sanity_report_argument(parser)
+    add_results_arguments(
+        parser,
+        source="PLEXOS",
+        what="a solution .accdb, a RES*.zip[.xz] bundle or a directory of "
+        "t_*.csv solution tables as gtopt2plexos --results writes",
+        auto="--plexos-solution-accdb, the RES bundle next to the input, or "
+        "<input>/plexos_solution",
+    )
     return parser
+
+
+def _import_results(
+    args: argparse.Namespace, bundle: Path, options: dict[str, Any]
+) -> int:
+    """``--results``: import a PLEXOS solution next to the converted case."""
+    # pylint: disable=import-outside-toplevel
+    from .plexos_solution import open_solution
+    from .results_import import import_plexos_results, open_results
+
+    out_dir, case_json, _name = _resolve_output_paths(
+        bundle,
+        options.get("output_dir"),
+        options.get("output_file"),
+        options.get("name"),
+    )
+    out = results_output_dir(Path(out_dir), "plexos", args.results_output)
+    try:
+        if args.results == RESULTS_AUTO:
+            sol = open_solution(accdb=args.plexos_solution_accdb, input_bundle=bundle)
+            local = Path(bundle) / "plexos_solution"
+            if sol is None and local.is_dir():
+                sol = open_results(local)
+        else:
+            sol = open_results(Path(args.results))
+        if sol is None:
+            raise FileNotFoundError("no PLEXOS solution found (pass --results PATH)")
+        res = import_plexos_results(
+            sol, load_planning(Path(case_json)), out, Path(out_dir)
+        )
+    except (FileNotFoundError, ValueError, OSError) as exc:
+        print(f"error: --results: {exc}", file=sys.stderr)
+        return 1
+    report_import(res, out)
+    return 0
 
 
 def _resolve_bundle(args: argparse.Namespace) -> Path | None:
@@ -1765,6 +1815,13 @@ def main(argv: list[str] | None = None) -> None:
     if args.validate:
         sys.exit(0 if validate_plexos_bundle(options) else 1)
 
+    if getattr(args, "results_only", False):
+        if getattr(args, "results", None) is None:
+            parser.error("--results-only needs --results")
+        if _import_results(args, bundle, options):
+            sys.exit(1)
+        return
+
     # Pre-conversion state snapshot + README.  Resolves the output
     # directory the same way ``convert_plexos_bundle`` will (via the
     # shared ``_resolve_output_paths`` helper), creates it if needed,
@@ -1817,6 +1874,11 @@ def main(argv: list[str] | None = None) -> None:
             "finding(s) — fix the underlying issue before using the output.",
             file=sys.stderr,
         )
+        sys.exit(1)
+
+    if getattr(args, "results", None) is not None and _import_results(
+        args, bundle, options
+    ):
         sys.exit(1)
 
 

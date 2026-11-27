@@ -46,12 +46,18 @@ from typing import Any
 from rich.console import Console
 from rich.table import Table
 
+from gtopt_compare_runs import CompareOptions, Report, Run, compare_runs
+from gtopt_compare_runs.engine import element_aggregates
+from gtopt_compare_runs.report import render as render_run_diff
+from gtopt_compare_runs.report import write_csv, write_json
+from gtopt_shared import safe_archive
+from gtopt_shared.results_writer import load_planning
 from plexos2gtopt._plexos_versions import (
     canonical_property_map,
     canonicalize_keys,
     find_solution_db,
 )
-from gtopt_shared import safe_archive
+from plexos2gtopt.results_import import import_plexos_results, open_results
 
 
 # Cache schema version — bump on ANY signature / field change to the
@@ -448,6 +454,56 @@ def _load_case_bundle(case_dir: Path) -> dict[str, Any]:
         raise FileNotFoundError(f"no PLEXOS-source JSON in {case_dir}")
     bundle: dict[str, Any] = json.loads(bundle_path.read_text())
     return bundle
+
+
+def run_generic_diff(
+    case_dir: Path,
+    solution_path: Path,
+    console: Console,
+    *,
+    top: int = 10,
+    out_dir: Path | None = None,
+) -> Report:
+    """PLEXOS vs gtopt through the generic run comparison.
+
+    The PLEXOS solution (``.accdb``, RES zip or ``t_*.csv`` dir) is
+    imported into gtopt's output layout with the case bundle's names
+    (:mod:`plexos2gtopt.results_import`), then compared with
+    ``<case>/output`` by :func:`gtopt_compare_runs.compare_runs` and
+    rendered.  With ``out_dir`` the imported run is kept in
+    ``out_dir/plexos`` and the CSV tables + ``report.json`` are written
+    there.
+    """
+    bundle = _find_case_bundle(case_dir)
+    if bundle is None:
+        raise FileNotFoundError(f"no PLEXOS-source JSON in {case_dir}")
+    solution = open_results(solution_path)
+    if solution is None:
+        raise FileNotFoundError(f"{solution_path}: no PLEXOS solution")
+    planning = load_planning(bundle)
+    with tempfile.TemporaryDirectory(prefix="plexos_run_") as tmp:
+        plexos_out = (out_dir / "plexos") if out_dir is not None else Path(tmp)
+        import_plexos_results(solution, planning, plexos_out, case_dir)
+        report = compare_runs(
+            Run.load(plexos_out, bundle, label="PLEXOS"),
+            Run.load(case_dir / "output", bundle, label="gtopt"),
+            CompareOptions(top=top),
+        )
+    render_run_diff(report, console)
+    if out_dir is not None:
+        write_csv(report, out_dir)
+        write_json(report, out_dir / "report.json")
+    return report
+
+
+def _gtopt_run(case_dir: Path) -> Run | None:
+    """``<case>/output`` as a :class:`gtopt_compare_runs.Run` named by the
+    case bundle; ``None`` without an output directory or bundle."""
+    out = case_dir / "output"
+    bundle = _find_case_bundle(case_dir)
+    if not out.is_dir() or bundle is None:
+        return None
+    return Run.load(out, bundle, label="gtopt")
 
 
 def _mdb_dump_raw(accdb_path: Path, table: str) -> list[dict[str, str]]:
@@ -2653,36 +2709,15 @@ def compute_gtopt_reservoir_water_value(
 ) -> dict[str, float]:
     """Per-reservoir water value [$/CMD] from gtopt.
 
-    Duration-weighted average of ``Reservoir/water_value_dual.parquet``
-    (the storage-balance shadow price, $ per cumec-day) over the horizon.
+    Time-weighted mean of ``Reservoir/water_value_dual`` (the
+    storage-balance shadow price, $ per cumec-day) over the horizon, via
+    the generic run reader (:func:`gtopt_compare_runs.element_aggregates`).
     Pairs with PLEXOS Storage ``Shadow Price`` (prop 680).
     """
-
-    import pyarrow.parquet as pq
-
-    bundle = _load_case_bundle(case_dir)
-    durations = {
-        int(b["uid"]): float(b.get("duration", 1.0))
-        for b in bundle["simulation"]["block_array"]
-    }
-    name_by_uid: dict[int, str] = {
-        int(r["uid"]): r["name"] for r in bundle["system"].get("reservoir_array", [])
-    }
-    total_hours = sum(durations.values()) or 1.0
-
-    f = case_dir / "output" / "Reservoir" / "water_value_dual.parquet"
-    if not f.exists():
+    run = _gtopt_run(case_dir)
+    if run is None:
         return {}
-    df = pq.read_table(f).to_pandas()
-    df["duration"] = df["block"].astype(int).map(durations).fillna(0.0)
-    out: dict[str, float] = {}
-    for uid, sub in df.groupby("uid", observed=True):
-        name = name_by_uid.get(int(uid))
-        if name is None:
-            continue
-        weighted = float((sub["value"] * sub["duration"]).sum())
-        out[name] = weighted / total_hours
-    return out
+    return element_aggregates(run, "Reservoir", "water_value_dual", "mean")
 
 
 def _render_reservoir_compare(
@@ -2876,36 +2911,16 @@ def compute_gtopt_battery_operation(
 ) -> dict[str, dict[str, float]]:
     """Per-battery total charge / discharge MWh from gtopt parquets.
 
-    Reads ``Battery/finp_sol.parquet`` (charging MW) and
-    ``Battery/fout_sol.parquet`` (discharging MW), duration-weighted.
+    Time integrals of ``Battery/finp_sol`` (charging MW) and
+    ``Battery/fout_sol`` (discharging MW) via the generic run reader
+    (:func:`gtopt_compare_runs.element_aggregates`).
     Returns ``{name → {charge_mwh, discharge_mwh, net_mwh}}``.
     """
-
-    import pyarrow.parquet as pq
-
-    bundle = _load_case_bundle(case_dir)
-    durations = {
-        int(b["uid"]): float(b.get("duration", 1.0))
-        for b in bundle["simulation"]["block_array"]
-    }
-    name_by_uid: dict[int, str] = {
-        int(b["uid"]): b["name"] for b in bundle["system"].get("battery_array", [])
-    }
-
-    def _sum_mwh(rel: str) -> dict[str, float]:
-        f = case_dir / "output" / "Battery" / rel
-        if not f.exists():
-            return {}
-        df = pq.read_table(f).to_pandas()
-        df["duration"] = df["block"].astype(int).map(durations).fillna(0)
-        df["name"] = df["uid"].astype(int).map(name_by_uid)
-        out: dict[str, float] = {}
-        for name, sub in df.groupby("name", observed=True):
-            out[str(name)] = float((sub["value"] * sub["duration"]).sum())
-        return out
-
-    charge = _sum_mwh("finp_sol.parquet")
-    discharge = _sum_mwh("fout_sol.parquet")
+    run = _gtopt_run(case_dir)
+    if run is None:
+        return {}
+    charge = element_aggregates(run, "Battery", "finp_sol", "sum")
+    discharge = element_aggregates(run, "Battery", "fout_sol", "sum")
 
     out: dict[str, dict[str, float]] = {}
     for name in set(charge) | set(discharge):
@@ -4489,6 +4504,25 @@ def make_parser() -> argparse.ArgumentParser:
         help="number of top-offending user constraints to list (default: 15)",
     )
     parser.add_argument(
+        "--run-diff",
+        action="store_true",
+        help=(
+            "also import the PLEXOS solution into gtopt's output layout "
+            "(plexos2gtopt --results) and print the generic run-vs-run "
+            "comparison of gtopt_compare_runs (every stream, per element)"
+        ),
+    )
+    parser.add_argument(
+        "--run-diff-dir",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help=(
+            "keep the imported PLEXOS output in DIR/plexos and write the "
+            "run-diff CSV tables + report.json to DIR (implies --run-diff)"
+        ),
+    )
+    parser.add_argument(
         "--no-uc-drilldown",
         action="store_true",
         help="skip the Step-2 user-constraint penalty breakdown",
@@ -4732,6 +4766,25 @@ def main(argv: list[str] | None = None) -> int:
                 _render_commitment_compare(plexos_commit, gtopt_commit, console)
         except (FileNotFoundError, RuntimeError, ImportError) as exc:
             console.print(f"[yellow]Step 3-10 skipped: {exc}[/yellow]")
+
+    if (args.run_diff or args.run_diff_dir is not None) and case_dir is not None:
+        if accdb_path is None:
+            console.print(
+                "[yellow]Run diff skipped: needs the PLEXOS solution "
+                "(--date or --plexos-res-zip).[/yellow]"
+            )
+        else:
+            console.print()
+            try:
+                run_generic_diff(
+                    case_dir,
+                    accdb_path,
+                    console,
+                    top=args.top_uc,
+                    out_dir=args.run_diff_dir,
+                )
+            except (FileNotFoundError, ValueError, RuntimeError) as exc:
+                console.print(f"[yellow]Run diff skipped: {exc}[/yellow]")
 
     if case_dir is not None and not args.no_uc_drilldown:
         console.print()

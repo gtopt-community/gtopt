@@ -109,6 +109,66 @@ gtopt --lp-only -s gtopt_demo/gtopt_demo.json
 | `--source-version X`          | detected| SDDP layout generation (`16`, `17`); see [Supported source versions](#supported-source-versions) |
 | `-V, --version`               | —       | Print version and exit                            |
 
+## Importing PSR SDDP results (`--results`)
+
+```bash
+sddp2gtopt -i sddp_case -o gtopt_case --results           # graf CSVs in sddp_case/
+sddp2gtopt -i sddp_case -o gtopt_case --results psr_out --results-only
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--results [PATH]` | off | Import the PSR SDDP results in PATH as a gtopt output directory; without PATH: the input directory |
+| `--results-only` | off | With `--results`: skip the conversion and import against the planning JSON already in the output directory |
+| `--results-output DIR` | `<output dir>/results_sddp` | Where the imported results go (kept apart from `<out>/results`, where a gtopt run of the case writes) |
+
+| PSR file | Unit | gtopt stream |
+|----------|------|--------------|
+| `gerter.csv`, `gergnd.csv`, `gerhid.csv` | GWh | `Generator/generation_sol` [MW] |
+| `gerbat.csv` | GWh | `Battery/fout_sol` [MW] |
+| `cmgbus.csv` | $/MWh | `Bus/balance_dual` |
+| `demxba.csv`, `defbus.csv` | GWh | `Demand/load_sol` (= demand - deficit), `Demand/fail_sol` [MW] |
+| `cirflw.csv` | MW | `Line/flow_sol` |
+| `qturbi.csv` | m3/s | `Turbine/flow_sol` |
+| `qverti.csv` | m3/s | spill waterway `s_<plant>` (else `Junction/drain_sol`) |
+| `volfin.csv` | hm3 | `Reservoir/efin_sol`, `eini_sol`, `energy_sol` |
+| `valagu.csv` | k$/hm3 | `Reservoir/water_value_dual` [$/hm3] |
+
+Each "graf" CSV holds a short header and a `Stag,Seq.,Blck,<agent>...` row:
+`Stag` is the stage, `Seq.` the scenario (series) and `Blck` the block of the
+stage; energies become mean MW over the block hours.  Agents are matched by
+name with the prefixes sddp2gtopt gives hydro elements (`r_`, `tb_`, `j_`,
+`s_`, `d_`) and its `_<code>` line suffix.  PSR volumes are stage values: the
+per-block `Reservoir/energy_sol` is interpolated within each stage.  The graf
+files hold no operating cost, so `solution.csv` reports the cost estimated as
+generation x `gcost` + deficit x fail cost (a warning says so).  Battery state,
+charge and duals are not in these files.  `gtopt2sddp --results` writes the
+same files from a gtopt run.
+
+The imported directory is written exactly as a `gtopt` run of the converted
+case would write it: one hive partition per (scene, phase)
+(`<Class>/<field>.parquet/scene=<S>/phase=<P>/part.parquet`), the long
+schema `scenario, stage, block, uid` (`int32`) `value` (`float32`, rounded
+to `output_round_decimals`), gtopt's uids, Parquet `zstd` (or the case's
+`output_compression`), exact zeros of `_sol` streams dropped and `_dual`
+streams dense, plus `solution.csv` (gtopt's header, one row per
+(scene, phase)), `solver_status.json` (`"method": "imported"`),
+`planning.json` and a `README.md`.  Batteries with a `bus` get the
+`<battery>_gen` / `<battery>_dem` streams gtopt synthesises for them.
+Readers of gtopt output (`gtopt_results_summary`,
+[`gtopt_compare_runs`](gtopt_compare_runs.md), `GtoptResults`) load it
+unchanged, so an external run compares against a gtopt run of the same case
+with
+
+```bash
+gtopt_compare_runs <out>/results_sddp <out>/results   # external vs gtopt
+```
+
+`solution.csv` reports, per (scene, phase), the probability-weighted cost of
+the scene from the phase on (the convention of a phased gtopt run; the whole
+horizon in a single-phase case).  Names that match no element of the case
+are listed as warnings (console, `solver_status.json`, `README.md`).
+
 ---
 
 ## Supported source versions

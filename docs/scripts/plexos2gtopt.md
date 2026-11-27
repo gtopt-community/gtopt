@@ -118,6 +118,65 @@ it next to the input when present and pull two things from it:
    (`<output_dir>/plexos_cache/*.csv.zst`) for downstream
    `compare_with_plexos` (Step-3 cost / energy / SRMC / LMP diffs).
 
+### Importing PLEXOS results (`--results`)
+
+```bash
+plexos2gtopt -i DATOS20260422.zip.xz --results           # RES bundle next to the input
+plexos2gtopt -i bundle -o gtopt_case --results Solution.accdb
+plexos2gtopt -i plexos_ds -o gtopt_case --results plexos_ds/plexos_solution --results-only
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--results [PATH]` | off | Import the PLEXOS results in PATH as a gtopt output directory; without PATH: `--plexos-solution-accdb`, the `RES*.zip[.xz]` next to the input, or `<input>/plexos_solution` |
+| `--results-only` | off | With `--results`: skip the conversion and import against the planning JSON already in the output directory |
+| `--results-output DIR` | `<output dir>/results_plexos` | Where the imported results go (kept apart from `<out>/results`, where a gtopt run of the case writes) |
+
+PATH is a solution `.accdb` (read with `mdb-export`), a `RES*.zip[.xz]`
+bundle or a directory of `t_*.csv` solution tables (what
+`gtopt2plexos --results` writes).
+
+| PLEXOS property | gtopt stream |
+|-----------------|--------------|
+| `Generator.Generation` | `Generator/generation_sol` |
+| `Node.Price` | `Bus/balance_dual` |
+| `Node.Load` - `Node.Unserved Energy`; `Node.Unserved Energy` | `Demand/load_sol`; `Demand/fail_sol` |
+| `Line.Flow`, `Line.Loss` | `Line/flow_sol`, `Line/loss_sol` |
+| `Storage.End Volume` (`Initial Volume`) | `Reservoir/energy_sol`, `efin_sol`, `eini_sol` |
+| `Storage.Shadow Price` | `Reservoir/water_value_dual` |
+| `Battery.Energy`, `Generation`, `Load` | `Battery/energy_sol`, `fout_sol`, `finp_sol` |
+
+plexos2gtopt keeps PLEXOS names and units (reservoir volumes stay in the
+dataset's unit, e.g. CMD), so values are copied as they are.  PLEXOS period
+`p` is the `p`-th block of the case (a different count warns).  A
+multi-scenario case reads sample `s` for scenario `s`, else the sample-0
+mean (with a warning).  No operating cost is read: `solution.csv` reports
+generation x `gcost` + deficit x fail cost (a warning says so).
+
+The imported directory is written exactly as a `gtopt` run of the converted
+case would write it: one hive partition per (scene, phase)
+(`<Class>/<field>.parquet/scene=<S>/phase=<P>/part.parquet`), the long
+schema `scenario, stage, block, uid` (`int32`) `value` (`float32`, rounded
+to `output_round_decimals`), gtopt's uids, Parquet `zstd` (or the case's
+`output_compression`), exact zeros of `_sol` streams dropped and `_dual`
+streams dense, plus `solution.csv` (gtopt's header, one row per
+(scene, phase)), `solver_status.json` (`"method": "imported"`),
+`planning.json` and a `README.md`.  Batteries with a `bus` get the
+`<battery>_gen` / `<battery>_dem` streams gtopt synthesises for them.
+Readers of gtopt output (`gtopt_results_summary`,
+[`gtopt_compare_runs`](gtopt_compare_runs.md), `GtoptResults`) load it
+unchanged, so an external run compares against a gtopt run of the same case
+with
+
+```bash
+gtopt_compare_runs <out>/results_plexos <out>/results   # external vs gtopt
+```
+
+`solution.csv` reports, per (scene, phase), the probability-weighted cost of
+the scene from the phase on (the convention of a phased gtopt run; the whole
+horizon in a single-phase case).  Names that match no element of the case
+are listed as warnings (console, `solver_status.json`, `README.md`).
+
 ---
 
 ## 3. Input file inventory and what they feed
@@ -1110,6 +1169,16 @@ include:
 A typical PCP weekly run prints all of these as Rich tables; the
 single-line summary "PLEXOS objective \$X vs GTOpt \$Y; Δ \$Z (Δ%)"
 is the at-a-glance gate.
+
+The per-stream, per-element part sits on the generic run comparison of
+[`gtopt_compare_runs`](gtopt_compare_runs.md): the battery and reservoir
+water-value tables read the gtopt output through its reader, and
+`--run-diff` imports the PLEXOS solution into gtopt's output layout
+(the same importer as `plexos2gtopt --results`) and prints the full
+`gtopt_compare_runs` report — every stream, top differing elements,
+elements found on one side only.  `--run-diff-dir DIR` keeps the
+imported run in `DIR/plexos` and writes the CSV tables and
+`report.json` to `DIR`.
 
 ---
 

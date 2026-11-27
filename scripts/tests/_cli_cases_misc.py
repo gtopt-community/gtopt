@@ -46,3 +46,31 @@ def case_update_then_check(ctx: CliRun) -> None:
     assert size["rows"] > 0 and size["cols"] > 0, size
     res = ctx.run(common)
     assert "0 with problems" in res.stdout, res.stdout
+
+
+@e2e("gtopt_compare_runs")
+def case_compare_runs_self_and_perturbed(ctx: CliRun) -> None:
+    """Two copies of a synthetic gtopt output: equal (rc 0), then perturbed (rc 1)."""
+    import pandas as pd  # pylint: disable=import-outside-toplevel
+
+    from gtopt_shared.testing.tiny_cases import (  # pylint: disable=import-outside-toplevel
+        write_tiny_case,
+        write_tiny_results,
+    )
+
+    runs = []
+    for name in ("a", "b"):
+        write_tiny_case(ctx.tmp_path / name)
+        runs.append(write_tiny_results(ctx.tmp_path / name / "results"))
+    report = ctx.tmp_path / "report.json"
+    res = ctx.run([*runs, "--json", report])
+    assert "PASS" in res.stdout
+    assert load_json(report)["passed"] is True
+    gen = runs[1] / "Generator" / "generation_sol.parquet"
+    df = pd.read_parquet(gen)
+    df["value"] *= 1.5
+    df.to_parquet(gen, index=False)
+    res = ctx.run([*runs, "--csv", ctx.tmp_path / "csv"], expect_rc=1)
+    assert "FAIL" in res.stdout
+    assert (ctx.tmp_path / "csv" / "elements.csv").stat().st_size > 0
+    ctx.run([runs[0], ctx.tmp_path / "missing"], expect_rc=2)

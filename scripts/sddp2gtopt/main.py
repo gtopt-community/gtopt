@@ -22,11 +22,18 @@ from gtopt_shared.cli_signals import (
     signal_handler as _signal_handler,  # noqa: F401  re-export for back-compat / tests
 )
 from gtopt_shared.operator import add_operator_argument, select_operator
+from gtopt_shared.results_writer import (
+    RESULTS_AUTO,
+    add_results_arguments,
+    load_planning,
+    report_import,
+    results_output_dir,
+)
 from gtopt_shared.sanity_report import add_sanity_report_argument
 from gtopt_shared.source_versions import add_source_version_argument
 
 from .info_display import display_sddp_info
-from .sddp2gtopt import convert_sddp_case, validate_sddp_case
+from .sddp2gtopt import _resolve_output_paths, convert_sddp_case, validate_sddp_case
 from .source_version import SOURCE_FORMAT
 
 
@@ -164,7 +171,33 @@ def make_parser() -> argparse.ArgumentParser:
     add_source_version_argument(parser, SOURCE_FORMAT)
     add_operator_argument(parser)
     add_sanity_report_argument(parser)
+    add_results_arguments(
+        parser,
+        source="SDDP",
+        what="the directory of the PSR graf CSV files gerter.csv, gerhid.csv, "
+        "gergnd.csv, gerbat.csv, cmgbus.csv, demxba.csv, defbus.csv, cirflw.csv, "
+        "qturbi.csv, qverti.csv, volfin.csv, valagu.csv",
+        auto="the input directory",
+    )
     return parser
+
+
+def _import_results(args: argparse.Namespace, input_dir: Path) -> int:
+    """``--results``: import PSR result files next to the converted case."""
+    from .results_import import import_sddp_results  # noqa: PLC0415
+
+    src = input_dir if args.results == RESULTS_AUTO else Path(args.results)
+    out_dir, case_json, _name = _resolve_output_paths(
+        input_dir, args.output_dir, None, None
+    )
+    out = results_output_dir(out_dir, "sddp", args.results_output)
+    try:
+        res = import_sddp_results(src, load_planning(case_json), out, out_dir)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"error: --results: {exc}", file=sys.stderr)
+        return 1
+    report_import(res, out)
+    return 0
 
 
 def _resolve_input_dir(args: argparse.Namespace) -> Path | None:
@@ -217,6 +250,13 @@ def main(argv: list[str] | None = None) -> None:
     if args.validate:
         sys.exit(0 if validate_sddp_case(options) else 1)
 
+    if getattr(args, "results_only", False):
+        if getattr(args, "results", None) is None:
+            parser.error("--results-only needs --results")
+        if _import_results(args, input_dir):
+            sys.exit(1)
+        return
+
     # Default action: convert. v0 raises NotImplementedError loudly;
     # P1 will return a CRITICAL-finding count instead.
     try:
@@ -234,6 +274,9 @@ def main(argv: list[str] | None = None) -> None:
             "finding(s) — fix the underlying issue before using the output.",
             file=sys.stderr,
         )
+        sys.exit(1)
+
+    if getattr(args, "results", None) is not None and _import_results(args, input_dir):
         sys.exit(1)
 
 

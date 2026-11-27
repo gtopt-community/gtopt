@@ -40,6 +40,9 @@ preparing, converting, visualizing, and post-processing data for use with GTOpt.
   - [cvs2parquet](#cvs2parquet) · [full docs](scripts/cvs2parquet.md)
   - [ts2gtopt](#ts2gtopt) · [full docs](scripts/ts2gtopt.md)
   - [gtopt_compare](#gtopt_compare) · [full docs](scripts/gtopt_compare.md)
+  - [gtopt_compare_runs](scripts/gtopt_compare_runs.md) — compare two gtopt
+    output directories (or a PLP / SDDP / PLEXOS solution imported with
+    `--results`)
 - **Running & Monitoring**
   - [run_gtopt](#run_gtopt) — smart solver wrapper with pre/post-flight checks
   - [gtopt_monitor](#gtopt_monitor) — live solver convergence dashboard
@@ -170,6 +173,7 @@ One line per console script installed by `pip install ./scripts`:
 | `gtopt_check_cases` | Check a case collection (`gtopt-cases`) against its catalog | [gtopt_check_cases](#gtopt_check_cases) |
 | `gtopt_compress_lp` | Compress LP debug files | [gtopt_compress_lp](#gtopt_compress_lp) |
 | `gtopt_compare` | Compare gtopt results with pandapower / PLP references | [gtopt_compare](scripts/gtopt_compare.md) |
+| `gtopt_compare_runs` | Compare two gtopt output directories: objective, every stream, top differing elements, elements in one run only; exit 1 beyond tolerance | [gtopt_compare_runs](scripts/gtopt_compare_runs.md) |
 | `gtopt_diagram` | Network topology and planning-structure diagrams | [gtopt_diagram](scripts/gtopt_diagram.md) |
 | `gtopt_results_summary` | Summarise a gtopt output directory | — |
 | `gtopt_pricing_uplift` | Make-whole and lost-opportunity uplift and price statistics of unit-commitment runs (compare `pricing_mode`s) | [Pricing modes](unit-commitment.md#111-pricing-modes) |
