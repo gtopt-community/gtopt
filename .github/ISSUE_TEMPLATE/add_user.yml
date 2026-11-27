@@ -35,9 +35,14 @@ body:
   - type: input
     id: country
     attributes:
-      label: Country or affiliation
+      label: Country
     validations:
       required: true
+  - type: input
+    id: affiliation
+    attributes:
+      label: Affiliation or power system (optional)
+      description: e.g. a university, company or the system you study ("Chilean SEN", "WECC").
   - type: textarea
     id: use
     attributes:
