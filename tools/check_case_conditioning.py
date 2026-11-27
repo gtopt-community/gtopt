@@ -58,12 +58,16 @@ def _skip(output_dir: Path, reason: str) -> int:
 
 
 def _available_solvers(gtopt: str) -> set[str]:
-    proc = subprocess.run(
-        [gtopt, "--solvers"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            [gtopt, "--solvers"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=600,  # admin probe only: gtopt bounds each solver at 60 s
+        )
+    except subprocess.TimeoutExpired:
+        return set()
     solvers: set[str] = set()
     listing = False
     for line in proc.stdout.splitlines():

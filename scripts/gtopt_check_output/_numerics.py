@@ -571,11 +571,24 @@ def format_table(case: str, solver: str, rows: list[Row]) -> str:
 # ---------------------------------------------------------------------------
 
 
+#: Bound on ``gtopt --solvers`` (an administrative probe, never a solve):
+#: gtopt itself gives up on each plugin's validation child after 60 s, so a
+#: listing that takes longer than this means a hung gtopt.
+SOLVERS_PROBE_TIMEOUT_S = 600.0
+
+
 def available_solvers(gtopt: str) -> set[str]:
-    """Solver plugins listed by ``gtopt --solvers``."""
-    proc = subprocess.run(
-        [gtopt, "--solvers"], capture_output=True, text=True, check=False
-    )
+    """Solver plugins listed by ``gtopt --solvers`` (empty if it hangs)."""
+    try:
+        proc = subprocess.run(
+            [gtopt, "--solvers"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=SOLVERS_PROBE_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired:
+        return set()
     solvers: set[str] = set()
     listing = False
     for line in proc.stdout.splitlines():

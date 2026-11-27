@@ -426,3 +426,18 @@ def test_cli_dispatch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(SystemExit) as exc:
         cli.main()
     assert exc.value.code == 0
+
+
+def test_available_solvers_gives_up_on_a_hung_gtopt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ``gtopt --solvers`` that never answers yields no solvers, not a hang."""
+    seen: dict[str, object] = {}
+
+    def fake_run(cmd: list[str], **kwargs: object) -> None:
+        seen.update(kwargs)
+        raise nm.subprocess.TimeoutExpired(cmd, kwargs["timeout"])  # type: ignore[arg-type]
+
+    monkeypatch.setattr(nm.subprocess, "run", fake_run)
+    assert nm.available_solvers("/fake/gtopt") == set()
+    assert seen["timeout"] == nm.SOLVERS_PROBE_TIMEOUT_S

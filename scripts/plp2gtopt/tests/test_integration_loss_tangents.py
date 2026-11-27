@@ -56,9 +56,16 @@ def _core_on() -> None:
 @pytest.fixture(scope="module")
 def highs_bin(gtopt_bin: str) -> str:
     """The gtopt binary, skipping when no HiGHS plugin is loadable."""
-    out = subprocess.run(
-        [gtopt_bin, "--solvers"], capture_output=True, text=True, check=False
-    )
+    try:
+        out = subprocess.run(
+            [gtopt_bin, "--solvers"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=600,  # admin probe only: gtopt bounds each solver at 60 s
+        )
+    except subprocess.TimeoutExpired:
+        pytest.skip("gtopt --solvers did not answer")
     listing = out.stdout.split("Available LP solvers:")[-1]
     if "highs" not in listing:
         pytest.skip("HiGHS solver plugin not available")

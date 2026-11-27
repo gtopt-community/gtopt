@@ -477,12 +477,16 @@ import sienna_reserve_crosscheck as src  # pylint: disable=wrong-import-position
 
 def _mip_solver(gtopt_bin: str) -> str | None:
     """``cplex`` if gtopt lists it, else ``highs``, else ``None``."""
-    proc = subprocess.run(
-        [gtopt_bin, "--solvers"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            [gtopt_bin, "--solvers"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=600,  # admin probe only: gtopt bounds each solver at 60 s
+        )
+    except subprocess.TimeoutExpired:
+        return None
     listing = (proc.stdout + proc.stderr).lower()
     for solver in ("cplex", "highs"):
         if solver in listing:
