@@ -389,6 +389,14 @@ struct Line
   /// `model_options.line_thermal_limit_mode` (default `"flow"`).
   OptName line_thermal_limit_mode {};
 
+  /// Allowed flow direction: `"both"`, `"ab"`, `"ba"` or `"auto"` (see
+  /// `LineFlowDirection`, line_enums.hpp).  `"ab"` / `"ba"` declare a
+  /// one-way line (the opposite direction gets a zero limit, so its flow
+  /// column(s), loss segments and rows are not emitted); `"auto"` applies
+  /// the structural radial-line certificate.  Unset → follows
+  /// `model_options.line_direction_mode` (default `"off"` = both).
+  OptName flow_direction {};
+
   /// Dynamic line rating through critical spans (see `line_dlr.hpp`).
   /// When set, the per-block thermal limit is the DLR rating computed
   /// from each span's weather with IEEE Std 738 (or a precomputed
@@ -475,6 +483,16 @@ struct Line
   {
     if (overload_slack_bound.has_value()) {
       return enum_from_name<LineOverloadSlackBound>(*overload_slack_bound);
+    }
+    return std::nullopt;
+  }
+
+  /// Parse flow_direction (nullopt = follow the global mode).
+  [[nodiscard]] constexpr std::optional<LineFlowDirection> flow_direction_enum()
+      const noexcept
+  {
+    if (flow_direction.has_value()) {
+      return enum_from_name<LineFlowDirection>(*flow_direction);
     }
     return std::nullopt;
   }

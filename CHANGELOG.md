@@ -12,6 +12,19 @@ in [docs/whats-new.md](docs/whats-new.md).
 
 ### Added
 
+- **Radial lines: one-way and dead-end detection
+  (`model_options.line_direction_mode`, `Line.flow_direction`).** The
+  bridges of the transport graph (every line ever active, DC links and
+  candidates included) are classified from the injection signs on each
+  side: one-way `ab` / `ba` (toward a load-only side, away from a
+  generation-only side), dead end (nothing, or the same sign, behind the
+  line) or both. `structural` drops the impossible direction of one-way
+  lines (reverse flow / loss / segment columns; one-sided
+  `tangent_signed_flow`) and does not build dead-end lines; lines in
+  user constraints or line commitments stay untouched. `report` only
+  logs the classification. `Line.flow_direction = ab | ba | both | auto`
+  pins or opts out per line. Default `off`: the LP is unchanged.
+  `gtopt_check_topology --directions` previews the classification.
 - **`dlr2gtopt` / `re2gtopt`: one `--weather-source {explorador,open-meteo}`
   option for `history`**, through a weather layer both tools share
   (`gtopt_shared/weather_source.py`). `explorador` is the Explorador

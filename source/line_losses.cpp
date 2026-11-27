@@ -1948,6 +1948,20 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
   assert(nseg > 0 && "line_losses: nseg must be positive");
 
   const double k_loss = config.resistance / config.V2;
+  // One-way line (``LossConfig::one_way_sign``): the flow keeps the sign
+  // ``s`` (the reverse cap is 0), so ``|f| = s·f`` is linear — no abs
+  // rows, no tangents on the dead side, and no SOS2 breakpoints there.
+  // ``s = 0`` (default) is the two-sided legacy formulation.
+  int one_way_sign = 0;
+  if (config.one_way_sign > 0 && block_tmax_ba <= 0.0 && block_tmax_ab > 0.0) {
+    one_way_sign = +1;
+  } else if (config.one_way_sign < 0 && block_tmax_ab <= 0.0
+             && block_tmax_ba > 0.0)
+  {
+    one_way_sign = -1;
+  }
+  const bool one_sided = one_way_sign != 0 && enforce_capacity;
+  const auto s_dir = static_cast<double>(one_way_sign);
   // Skip the entire model if R/V² is effectively zero — same physical-
   // noise floor used by ``add_segments`` / ``add_tangents``.  Falls
   // through to ``add_none`` semantics: a single bidirectional flow
@@ -2255,6 +2269,10 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
     for (const double b : overflow_bp) {
       bps.push_back(b);
     }
+    if (one_sided) {
+      // One-way: keep the breakpoints on the live side (and 0).
+      std::erase_if(bps, [&](double b) { return s_dir * b < 0.0; });
+    }
     const auto lambda_count = static_cast<int>(bps.size());
     std::vector<ColIndex> lambda_cols;
     lambda_cols.reserve(static_cast<std::size_t>(lambda_count));
@@ -2413,98 +2431,10 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
       return make_block_context(scenario.uid(), stage.uid(), block.uid(), l);
     };
 
-    std::vector<ColIndex> v_cols;
-    v_cols.reserve(static_cast<std::size_t>(L));
-    for (int l = 1; l <= L; ++l) {
-      // Ordered-fill cap (``loss_segment_bound``): |f| ≤ fmax_phys puts at
-      // most ``fmax_phys − b_{l−1}`` on v_l — bites only when a decoupled
-      // envelope spreads the L segments past the flow cap.
-      const double v_uppb = (config.segment_flow_cap && enforce_capacity)
-          ? ordered_fill_cap(
-                seg_width, static_cast<double>(l - 1) * seg_width, fmax_phys)
-          : seg_width;
-      v_cols.push_back(lp.add_col({
-          .lowb = 0.0,
-          .uppb = v_uppb,
-          .cost = v_cost,
-          // Pin the Ruiz column scale (see ``flow_col``): the |f| abs column
-          // sits in the same chord/tangent loss rows that otherwise inflate
-          // its scaled bound far past the physical ``fmax``.
-          .pin_scale = true,
-          .class_name = Line::class_name.full_name(),
-          .variable_name = LineLP::FlowAbsName,
-          .variable_uid = uid,
-          .context = v_ctx_for(l),
-      }));
-    }
-    // FIRST segment col is the public ``f_abs_col`` (back-compat with
-    // legacy L=1 tests; gives downstream code a hook to reach the
-    // segment family on L > 1).
-    result.f_abs_col = v_cols.front();
-
-    // Overflow |f| columns past a decoupled envelope (see the
-    // ``overflow_bp`` block above): ``u_j ∈ [0, b_j − b_{j−1}]``,
-    // context index ``L + j`` (distinct from the inner ``v_l``).  They
-    // join ``v_cols`` so the abs rows and the chord row below pick them
-    // up; their chord slope is set from ``overflow_bp``.
-    {
-      double lo = effective_fmax;
-      for (int j = 1; j <= n_over; ++j) {
-        const double hi = overflow_bp[static_cast<std::size_t>(j - 1)];
-        v_cols.push_back(lp.add_col({
-            .lowb = 0.0,
-            .uppb = hi - lo,
-            // Overflow price (``overflow_unit_cost``): ``u_j`` carries
-            // ``c·(b_{j−1}+b_j)`` MW of chord loss per MW, so burning
-            // through an inflated ``u_j`` costs ``loss_overflow_cost``
-            // per MWh; a genuine overload pays the same on its loss above
-            // ``c·env²``.  Rising prices also fix the bottom-up fill.
-            .cost = v_cost
-                + overflow_unit_cost(
-                        config, scenario, stage, block, k_loss * (lo + hi)),
-            .pin_scale = true,
-            .class_name = Line::class_name.full_name(),
-            .variable_name = LineLP::FlowAbsName,
-            .variable_uid = uid,
-            .context = make_block_context(
-                scenario.uid(), stage.uid(), block.uid(), L + j),
-        }));
-        lo = hi;
-      }
-    }
-
-    // Helper: emit one abs row ``Σ v_l + flow_sign · f ≥ 0``.
-    //   flow_sign = -1  ⇒  Σ v_l ≥ +f  (seg tag 1)
-    //   flow_sign = +1  ⇒  Σ v_l ≥ −f  (seg tag 2)
-    auto emit_abs_row = [&](int seg_tag, double flow_sign)
-    {
-      auto row =
-          SparseRow {
-              .class_name = Line::class_name.full_name(),
-              .constraint_name = flow_abs_constraint_name,
-              .variable_uid = uid,
-              .context = make_block_context(
-                  scenario.uid(), stage.uid(), block.uid(), seg_tag),
-          }
-              .greater_equal(0.0);
-      row.reserve(v_cols.size() + 1);
-      for (const auto vc : v_cols) {
-        row[vc] = +1.0;
-      }
-      row[flow_col] = flow_sign;
-      [[maybe_unused]] auto idx = lp.add_row(std::move(row));
-    };
-    emit_abs_row(1, -1.0);  // Σ v_l ≥ +f
-    emit_abs_row(2, +1.0);  // Σ v_l ≥ −f
-
-    // Chord row: ℓ ≤ Σ chord_slope_l · v_l ⇔ Σ chord_slope_l · v_l − ℓ ≥ 0.
-    // L = 1 reduces to the legacy ``ℓ ≤ (R·fmax/V²) · v`` chord
-    // (chord_slope_1 = k_loss · fmax · 1 = k_loss · effective_fmax).
-    // L > 1 emits the per-segment chord slopes
-    //   chord_slope_l = k_loss · seg_width · (2l − 1)
-    // matching the secant of the convex quadratic on
-    // ``[(l−1)w, l·w]``.
-    {
+    // One-way with a single secant and no overflow tier: ``v = s·f``
+    // exactly, so the |f| column is substituted out and the chord
+    // ``ℓ ≤ c·fmax·s·f`` sits on the flow column (1 col + 2 rows saved).
+    if (one_sided && L == 1 && n_over == 0) {
       auto ubrow =
           SparseRow {
               .class_name = Line::class_name.full_name(),
@@ -2514,24 +2444,149 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
                   scenario.uid(), stage.uid(), block.uid(), nseg + 1),
           }
               .greater_equal(0.0);
-      ubrow.reserve(v_cols.size() + 1);
-      for (int l = 1; l <= L; ++l) {
-        const double chord_slope =
-            k_loss * seg_width * static_cast<double>((2 * l) - 1);
-        ubrow[v_cols[static_cast<std::size_t>(l - 1)]] =
-            +chord_slope * config.loss_row_scale;
-      }
-      // Overflow columns: secant slope ``c·(b_{j−1} + b_j)``.
-      double lo = effective_fmax;
-      for (int j = 1; j <= n_over; ++j) {
-        const double hi = overflow_bp[static_cast<std::size_t>(j - 1)];
-        ubrow[v_cols[static_cast<std::size_t>(L + j - 1)]] =
-            +k_loss * (lo + hi) * config.loss_row_scale;
-        lo = hi;
-      }
+      ubrow[flow_col] = s_dir * k_loss * seg_width * config.loss_row_scale;
       ubrow[loss_col] = -config.loss_row_scale;
       [[maybe_unused]] auto idx = lp.add_row(std::move(ubrow));
-    }
+    } else {
+      std::vector<ColIndex> v_cols;
+      v_cols.reserve(static_cast<std::size_t>(L));
+      for (int l = 1; l <= L; ++l) {
+        // Ordered-fill cap (``loss_segment_bound``): |f| ≤ fmax_phys puts at
+        // most ``fmax_phys − b_{l−1}`` on v_l — bites only when a decoupled
+        // envelope spreads the L segments past the flow cap.
+        const double v_uppb = (config.segment_flow_cap && enforce_capacity)
+            ? ordered_fill_cap(
+                  seg_width, static_cast<double>(l - 1) * seg_width, fmax_phys)
+            : seg_width;
+        v_cols.push_back(lp.add_col({
+            .lowb = 0.0,
+            .uppb = v_uppb,
+            .cost = v_cost,
+            // Pin the Ruiz column scale (see ``flow_col``): the |f| abs column
+            // sits in the same chord/tangent loss rows that otherwise inflate
+            // its scaled bound far past the physical ``fmax``.
+            .pin_scale = true,
+            .class_name = Line::class_name.full_name(),
+            .variable_name = LineLP::FlowAbsName,
+            .variable_uid = uid,
+            .context = v_ctx_for(l),
+        }));
+      }
+      // FIRST segment col is the public ``f_abs_col`` (back-compat with
+      // legacy L=1 tests; gives downstream code a hook to reach the
+      // segment family on L > 1).
+      result.f_abs_col = v_cols.front();
+
+      // Overflow |f| columns past a decoupled envelope (see the
+      // ``overflow_bp`` block above): ``u_j ∈ [0, b_j − b_{j−1}]``,
+      // context index ``L + j`` (distinct from the inner ``v_l``).  They
+      // join ``v_cols`` so the abs rows and the chord row below pick them
+      // up; their chord slope is set from ``overflow_bp``.
+      {
+        double lo = effective_fmax;
+        for (int j = 1; j <= n_over; ++j) {
+          const double hi = overflow_bp[static_cast<std::size_t>(j - 1)];
+          v_cols.push_back(lp.add_col({
+              .lowb = 0.0,
+              .uppb = hi - lo,
+              // Overflow price (``overflow_unit_cost``): ``u_j`` carries
+              // ``c·(b_{j−1}+b_j)`` MW of chord loss per MW, so burning
+              // through an inflated ``u_j`` costs ``loss_overflow_cost``
+              // per MWh; a genuine overload pays the same on its loss above
+              // ``c·env²``.  Rising prices also fix the bottom-up fill.
+              .cost = v_cost
+                  + overflow_unit_cost(
+                          config, scenario, stage, block, k_loss * (lo + hi)),
+              .pin_scale = true,
+              .class_name = Line::class_name.full_name(),
+              .variable_name = LineLP::FlowAbsName,
+              .variable_uid = uid,
+              .context = make_block_context(
+                  scenario.uid(), stage.uid(), block.uid(), L + j),
+          }));
+          lo = hi;
+        }
+      }
+
+      // Helper: emit one abs row ``Σ v_l + flow_sign · f ≥ 0``.
+      //   flow_sign = -1  ⇒  Σ v_l ≥ +f  (seg tag 1)
+      //   flow_sign = +1  ⇒  Σ v_l ≥ −f  (seg tag 2)
+      auto emit_abs_row = [&](int seg_tag, double flow_sign)
+      {
+        auto row =
+            SparseRow {
+                .class_name = Line::class_name.full_name(),
+                .constraint_name = flow_abs_constraint_name,
+                .variable_uid = uid,
+                .context = make_block_context(
+                    scenario.uid(), stage.uid(), block.uid(), seg_tag),
+            }
+                .greater_equal(0.0);
+        row.reserve(v_cols.size() + 1);
+        for (const auto vc : v_cols) {
+          row[vc] = +1.0;
+        }
+        row[flow_col] = flow_sign;
+        [[maybe_unused]] auto idx = lp.add_row(std::move(row));
+      };
+      if (one_sided) {
+        // One-way: ``Σ v_l = s·f`` (exact |f|; no inflation of v past |f|).
+        auto row =
+            SparseRow {
+                .class_name = Line::class_name.full_name(),
+                .constraint_name = flow_abs_constraint_name,
+                .variable_uid = uid,
+                .context = make_block_context(
+                    scenario.uid(), stage.uid(), block.uid(), 1),
+            }
+                .equal(0.0);
+        row.reserve(v_cols.size() + 1);
+        for (const auto vc : v_cols) {
+          row[vc] = +1.0;
+        }
+        row[flow_col] = -s_dir;
+        [[maybe_unused]] auto idx = lp.add_row(std::move(row));
+      } else {
+        emit_abs_row(1, -1.0);  // Σ v_l ≥ +f
+        emit_abs_row(2, +1.0);  // Σ v_l ≥ −f
+      }
+
+      // Chord row: ℓ ≤ Σ chord_slope_l · v_l ⇔ Σ chord_slope_l · v_l − ℓ ≥ 0.
+      // L = 1 reduces to the legacy ``ℓ ≤ (R·fmax/V²) · v`` chord
+      // (chord_slope_1 = k_loss · fmax · 1 = k_loss · effective_fmax).
+      // L > 1 emits the per-segment chord slopes
+      //   chord_slope_l = k_loss · seg_width · (2l − 1)
+      // matching the secant of the convex quadratic on
+      // ``[(l−1)w, l·w]``.
+      {
+        auto ubrow =
+            SparseRow {
+                .class_name = Line::class_name.full_name(),
+                .constraint_name = loss_link_constraint_name,
+                .variable_uid = uid,
+                .context = make_block_context(
+                    scenario.uid(), stage.uid(), block.uid(), nseg + 1),
+            }
+                .greater_equal(0.0);
+        ubrow.reserve(v_cols.size() + 1);
+        for (int l = 1; l <= L; ++l) {
+          const double chord_slope =
+              k_loss * seg_width * static_cast<double>((2 * l) - 1);
+          ubrow[v_cols[static_cast<std::size_t>(l - 1)]] =
+              +chord_slope * config.loss_row_scale;
+        }
+        // Overflow columns: secant slope ``c·(b_{j−1} + b_j)``.
+        double lo = effective_fmax;
+        for (int j = 1; j <= n_over; ++j) {
+          const double hi = overflow_bp[static_cast<std::size_t>(j - 1)];
+          ubrow[v_cols[static_cast<std::size_t>(L + j - 1)]] =
+              +k_loss * (lo + hi) * config.loss_row_scale;
+          lo = hi;
+        }
+        ubrow[loss_col] = -config.loss_row_scale;
+        [[maybe_unused]] auto idx = lp.add_row(std::move(ubrow));
+      }
+    }  // !(one_sided && L == 1 && n_over == 0)
   }
 
   // ── K tangent inequalities ──────────────────────────────────────────
@@ -2576,6 +2631,11 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
     // Context index: inner tangents keep ``k = 1..K``; overflow ones
     // skip ``K + 1`` (the chord row).
     const int ctx_k = (k <= nseg) ? k : k + 1;
+    // One-way: a tangent on the dead side is dominated by ``ℓ ≥ 0``
+    // (its RHS ``2c·f_k·f − c·f_k²`` is negative for ``s·f ≥ 0``).
+    if (one_sided && s_dir * f_k <= 0.0) {
+      continue;
+    }
     const double slope_coef = 2.0 * k_loss * f_k;
     const double scaled_slope = slope_coef * config.loss_row_scale;
     if (std::abs(slope_coef) < kLossCoeffTolerance

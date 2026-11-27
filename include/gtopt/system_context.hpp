@@ -46,6 +46,7 @@
 #include <gtopt/element_traits.hpp>
 #include <gtopt/flat_helper.hpp>
 #include <gtopt/index_holder.hpp>
+#include <gtopt/line_direction.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/lp_element_types.hpp>
 #include <gtopt/overload.hpp>
@@ -820,6 +821,27 @@ public:
   [[nodiscard]] const AmplElementMetadata* find_ampl_element_metadata(
       std::string_view class_name, Uid element_uid) const noexcept;
 
+  /// Structural line-direction decisions (`line_direction_mode` /
+  /// `Line.flow_direction = "auto"`), computed once by `SystemLP` before
+  /// the first flatten.  Lines without an entry get the default
+  /// (`both`, KVL kept) — i.e. today's LP.
+  void set_line_decisions(
+      flat_map<Uid, line_direction::LineDecision> decisions) noexcept
+  {
+    m_line_decisions_ = std::move(decisions);
+  }
+
+  [[nodiscard]] line_direction::LineDecision line_decision(
+      Uid line_uid) const noexcept
+  {
+    if (const auto it = m_line_decisions_.find(line_uid);
+        it != m_line_decisions_.end())
+    {
+      return it->second;
+    }
+    return {};
+  }
+
 private:
   std::reference_wrapper<SimulationLP> m_simulation_;
   std::reference_wrapper<SystemLP> m_system_;
@@ -847,6 +869,9 @@ private:
   /// registry that the production path released after the initial pass
   /// (see `set_replay_ampl_registry`).
   bool m_replay_ampl_registry_ {false};
+
+  /// See `set_line_decisions`.
+  flat_map<Uid, line_direction::LineDecision> m_line_decisions_ {};
 };
 
 }  // namespace gtopt

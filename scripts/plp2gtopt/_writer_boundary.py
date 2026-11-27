@@ -125,7 +125,7 @@ class BoundaryMixin:
         #
         # PLP applies its α-column with objective coefficient
         # `1/NVarPhi`, where `NVarPhi` is the **original PLP hydrology
-        # count** (28 on CEN-IPLP).  gtopt's α-column under those modes
+        # count** (28 on the full CEN PLP case).  gtopt's α-column under those modes
         # uses coefficient 1.0 and aggregates per-scene contributions
         # via `prob_s × α_s`.  For the gtopt expected α to match PLP,
         # the cut gradients/RHS must be pre-divided by NVarPhi, so that:
@@ -136,7 +136,7 @@ class BoundaryMixin:
         # Up to 2026-05-13 this code divided by `len(scenario_array)`
         # (= the gtopt-side scene count, often a wet-subset of size 16)
         # which under-divided whenever the user filtered hydrologies
-        # via `--hydrologies` — observed on CEN-IPLP as a
+        # via `--hydrologies` — observed on the full CEN PLP case as a
         # +75 % LB overshoot vs UB (LB ≈ 4.6 G vs UB ≈ 2.9 G).
         #
         # `max(scene)` over the parsed cuts recovers PLP's NVarPhi

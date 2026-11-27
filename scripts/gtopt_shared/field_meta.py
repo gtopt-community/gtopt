@@ -644,6 +644,17 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         (
+            "flow_direction",
+            _J_STR,
+            False,
+            (
+                "Allowed flow direction: 'both' (default), 'ab' / 'ba' "
+                "(one-way, reverse direction removed) or 'auto' (apply the "
+                "radial certificate of model_options.line_direction_mode)."
+            ),
+            None,
+        ),
+        (
             "dlr",
             "JSON object",
             False,

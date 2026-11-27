@@ -982,7 +982,7 @@ class JunctionWriter(BaseWriter):
         # via the generator's ``PotMax`` (MW) and ``Rendi`` (MW per
         # m³/s).  The same physical cap must apply to the equivalent
         # gtopt waterway, otherwise the LP can drain the upstream
-        # reservoir at any rate.  Symptom on CEN-IPLP: LMAULE
+        # reservoir at any rate.  Symptom on the full CEN PLP case: LMAULE
         # (``PotMax=100``, ``Rendi=1.0``, ``Genera=2`` → no electrical
         # turbine on the gtopt side, so the cap previously fell out
         # of the cenpmax-based emission path) drained from 657 Hm³
@@ -1486,7 +1486,7 @@ class JunctionWriter(BaseWriter):
                 # central), so the synthetic ``<central>_ocean`` junction
                 # becomes the gen-waterway target.  Without this cap the
                 # waterway is unbounded and the LP can drain the upstream
-                # source at any rate.  Symptom on CEN-IPLP:
+                # source at any rate.  Symptom on the full CEN PLP case:
                 # LA_HIGUERA (``ser_hid = 0``, ``ser_ver = 0``,
                 # ``PotMax = 155``, ``Rendi = 3.12``) had a free gen
                 # waterway, so the cascade-fix that removed the
@@ -1604,7 +1604,7 @@ class JunctionWriter(BaseWriter):
         # ``drain = True`` for any embalse with ``ser_ver = 0``)
         # silently created a free water-escape valve on every embalse
         # whose spillway target is the sea.  Symptom on
-        # CEN-IPLP: LMAULE (gen_waterway → LOS_CONDORES,
+        # the full CEN PLP case: LMAULE (gen_waterway → LOS_CONDORES,
         # ``ser_ver = 0``) was drained from 657 Hm³ to 0 in p1 by
         # sending all the storage out the LMAULE-junction drain at
         # zero cost, while PLP (no such drain) had to keep LMAULE
@@ -2010,7 +2010,7 @@ class JunctionWriter(BaseWriter):
             # A previous translation mapped ``hid_indep=T`` →
             # ``daily_cycle = True`` (or ``use_state_variable = False``
             # under ``--plp-legacy``) to work around a p1 infeasibility
-            # on CEN-IPLP (CANUTILLAR: Afluen=126.3 exceeding
+            # on the full CEN PLP case (CANUTILLAR: Afluen=126.3 exceeding
             # PotMax/Rendi=85.1 with VertMax=0 → no escape path).  That
             # zeroed the reservoirs' net stage storage change, removing
             # ~1,065 hm³ (CANUTILLAR) + ~290 hm³ (PILMAIQUEN) of

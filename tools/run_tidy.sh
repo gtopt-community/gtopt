@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 #
 # tools/run_tidy.sh — the pre-commit clang-tidy step (CONTRIBUTING.md), with an
 # optional result cache.  Also used by the CI clang-tidy job.

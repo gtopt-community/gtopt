@@ -269,6 +269,24 @@ struct LimitParts
 
 }  // namespace
 
+line_direction::Verdict LineLP::effective_flow_direction(
+    const SystemContext& sc) const
+{
+  if (const auto dir = line().flow_direction_enum()) {
+    switch (*dir) {
+      case LineFlowDirection::ab:
+        return line_direction::Verdict::ab;
+      case LineFlowDirection::ba:
+        return line_direction::Verdict::ba;
+      case LineFlowDirection::both:
+        return line_direction::Verdict::both;
+      case LineFlowDirection::automatic:
+        break;
+    }
+  }
+  return sc.line_decision(uid()).verdict;
+}
+
 // ── add_to_lp ───────────────────────────────────────────────────────
 
 bool LineLP::add_to_lp(SystemContext& sc,
@@ -377,7 +395,20 @@ bool LineLP::add_to_lp(SystemContext& sc,
   const bool replace_conductor = dlr_replace && m_has_conductor_;
   const bool replace_rating = dlr_replace && !m_has_conductor_;
 
-  const auto loss_config =
+  // ── Flow direction (Line.flow_direction / line_direction_mode) ──
+  // ``ab`` / ``ba``: one-way line — the opposite direction gets a zero
+  // limit below (as ``tmax_ba = 0`` / ``tmax_ab = 0``), so its flow
+  // column(s), loss segments and rows are not emitted.  ``dead_end``:
+  // structurally zero flow — nothing is emitted (like an inactive line).
+  // Unset field + ``line_direction_mode = off`` keeps today's LP.
+  const auto direction = effective_flow_direction(sc);
+  if (direction == line_direction::Verdict::dead_end) {
+    return true;
+  }
+  const bool oneway_ab = direction == line_direction::Verdict::ab;
+  const bool oneway_ba = direction == line_direction::Verdict::ba;
+
+  auto loss_config =
       resolve_loss_config(*this,
                           line(),
                           sc,
@@ -387,6 +418,11 @@ bool LineLP::add_to_lp(SystemContext& sc,
                           /*has_expansion=*/capacity_col.has_value(),
                           /*dlr_fmax_fallback=*/dlr_env,
                           dlr_replace);
+  if (oneway_ab) {
+    loss_config.one_way_sign = +1;
+  } else if (oneway_ba) {
+    loss_config.one_way_sign = -1;
+  }
 
   // Per-block flow / capacity / loss / segment col maps assembled
   // here; moved into the persistent `STBIndexHolder` members at the
@@ -574,6 +610,12 @@ bool LineLP::add_to_lp(SystemContext& sc,
         block_tmax_ba = dlr_env;
       }
     }
+    // One-way line: the reverse direction carries no flow.
+    if (oneway_ab) {
+      block_tmax_ba = 0.0;
+    } else if (oneway_ba) {
+      block_tmax_ab = 0.0;
+    }
     // ``tcost`` is per-(stage, block); read its block-specific value
     // and let CostHelper apply the per-block duration scaling.
     const auto block_tcost_phys =
@@ -620,19 +662,20 @@ bool LineLP::add_to_lp(SystemContext& sc,
           ? rating_env
           : hard;
     };
-    auto result = line_losses::add_block(loss_config,
-                                         scenario,
-                                         stage,
-                                         block,
-                                         lp,
-                                         brow_a,
-                                         brow_b,
-                                         build_cap(block_tmax_ab),
-                                         build_cap(block_tmax_ba),
-                                         block_tcost,
-                                         capacity_col,
-                                         uid(),
-                                         /*enforce_capacity=*/true);
+    auto result =
+        line_losses::add_block(loss_config,
+                               scenario,
+                               stage,
+                               block,
+                               lp,
+                               brow_a,
+                               brow_b,
+                               oneway_ba ? 0.0 : build_cap(block_tmax_ab),
+                               oneway_ab ? 0.0 : build_cap(block_tmax_ba),
+                               block_tcost,
+                               capacity_col,
+                               uid(),
+                               /*enforce_capacity=*/true);
 
     // ── Dynamic line rating: per-block span limits ────────────────
     // ``hard_*`` is the effective hard cap of each direction (the static
@@ -701,10 +744,10 @@ bool LineLP::add_to_lp(SystemContext& sc,
       trow = lp.add_row(std::move(row));
       return LimitRef {.index = static_cast<Index>(*trow)};
     };
-    if (build_cap(block_tmax_ab) != block_tmax_ab) {
+    if (!oneway_ba && build_cap(block_tmax_ab) != block_tmax_ab) {
       std::ignore = tighten_cap(/*forward=*/true, block_tmax_ab);
     }
-    if (build_cap(block_tmax_ba) != block_tmax_ba) {
+    if (!oneway_ab && build_cap(block_tmax_ba) != block_tmax_ba) {
       std::ignore = tighten_cap(/*forward=*/false, block_tmax_ba);
     }
     double hard_ab = block_tmax_ab;

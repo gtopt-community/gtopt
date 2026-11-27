@@ -581,6 +581,14 @@ struct ModelOptions
   /// Per-line `Line.line_thermal_limit_mode` overrides this default.
   OptName line_thermal_limit_mode {};
 
+  /// Radial-line detection: `"off"` (default; no detection, LP
+  /// unchanged), `"report"` (detect radial lines and their structural
+  /// flow direction and log them; LP unchanged) or `"structural"`
+  /// (also apply the certified one-way and dead-end lines).  See
+  /// `LineDirectionMode` (line_enums.hpp) and `line_direction.hpp`.
+  /// Per-line `Line.flow_direction` overrides it.
+  OptName line_direction_mode {};
+
   /// What a user-constraint `<attr>_prev` term reads at the first block
   /// of a stage whose predecessor is in the same phase.  See
   /// `PrevStageLink` (planning_enums.hpp):
@@ -657,6 +665,7 @@ struct ModelOptions
     merge_opt(transition_status_rows, opts.transition_status_rows);
     merge_opt(startup_tier_integrality, opts.startup_tier_integrality);
     merge_opt(line_thermal_limit_mode, opts.line_thermal_limit_mode);
+    merge_opt(line_direction_mode, opts.line_direction_mode);
     merge_opt(prev_stage_link, opts.prev_stage_link);
     merge_opt(use_line_dlr, opts.use_line_dlr);
     merge_opt(dlr_limit_mode, opts.dlr_limit_mode);
@@ -702,10 +711,11 @@ struct ModelOptions
         || transition_status_rows.has_value()
         || startup_tier_integrality.has_value()
         || line_thermal_limit_mode.has_value() || prev_stage_link.has_value()
-        || use_line_dlr.has_value() || dlr_limit_mode.has_value()
-        || overload_slack_bound.has_value() || max_overload_ratio.has_value()
-        || ramp_formula.has_value() || ramp_wrap.has_value()
-        || uc_formulation.has_value() || storage_integration.has_value()
+        || line_direction_mode.has_value() || use_line_dlr.has_value()
+        || dlr_limit_mode.has_value() || overload_slack_bound.has_value()
+        || max_overload_ratio.has_value() || ramp_formula.has_value()
+        || ramp_wrap.has_value() || uc_formulation.has_value()
+        || storage_integration.has_value()
         || reservoir_storage_integration.has_value()
         || battery_storage_integration.has_value()
         || long_transition.has_value();
@@ -766,6 +776,7 @@ struct ModelOptions
         && covers_opt(transition_status_rows, other.transition_status_rows)
         && covers_opt(startup_tier_integrality, other.startup_tier_integrality)
         && covers_opt(line_thermal_limit_mode, other.line_thermal_limit_mode)
+        && covers_opt(line_direction_mode, other.line_direction_mode)
         && covers_opt(prev_stage_link, other.prev_stage_link)
         && covers_opt(use_line_dlr, other.use_line_dlr)
         && covers_opt(dlr_limit_mode, other.dlr_limit_mode)

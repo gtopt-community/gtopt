@@ -1223,6 +1223,96 @@ IEEE 738 heat balance [[38]](#ref38) against the Annex B worked examples
 and the NREL static ratings (OEDI 6231, DOI
 [10.2172/2476805](https://doi.org/10.2172/2476805)).
 
+#### Radial Lines and One-Way Flow (`line_direction_mode`, `Line.flow_direction`)
+
+**Transport graph.** Let $\mathcal{G} = (\mathcal{N}, \mathcal{L}^{\cup})$
+be the multigraph of buses and every line active in *some* stage of the
+LP being built (AC, DC links, zero-impedance ties and expansion
+candidates; self-loops dropped).  Parallel circuits between the same bus
+pair form a *corridor*.  A corridor is **radial** when removing all its
+circuits disconnects $\mathcal{G}$ (a bridge of the collapsed simple
+graph), splitting the island into two sides $`S_a \ni a`$ and $`S_b \ni b`$.
+A bridge of $\mathcal{G}$ stays a bridge of every per-stage sub-graph,
+and its sides only lose elements there, so everything below holds for
+every scenario, stage and block of the LP.
+
+**Injection-sign classes.** Every element in the bus balance is
+classified by the sign its injection can take:
+*withdraw* (served load $`\ell_d \ge 0`$, electric gas-compressor drive),
+*inject* (generator with $`\underline{P}_g \ge 0`$; a generator whose
+$`\overline{P}_g`$ is known to be 0 and that is not expandable is ignored)
+or *both* (generator with $`\underline{P}_g < 0`$, the charge/discharge
+pair of a standalone battery on one bus, an electric node of a carrier
+converter).  A side is `empty`, `load` (withdraw only), `gen` (inject
+only) or `mixed`.
+
+**Certificate.** Summing the bus balances over $`S_b`$ gives, for every
+feasible point without circulation on the corridor,
+
+```math
+f^{ab}_{l} - f^{ba}_{l}
+\;=\; \sum_{n\in S_b} \Big(\sum_{d} \ell_d - \sum_{g} p_g\Big)
+      + \text{losses}(S_b) \qquad (\text{single circuit } l).
+```
+
+* $`S_b`$ `load` $\Rightarrow$ the net flow is $\ge 0$: the line is
+  **one-way** $a\to b$ ($`S_a`$ `gen` gives the same verdict); symmetric for
+  $b\to a$.
+* $`S_a`$ or $`S_b`$ `empty`, or both sides `load` (or both `gen`)
+  $\Rightarrow$ the only non-circulating flow is 0: the line is a
+  **dead end**.
+* otherwise (a `mixed` side) the corridor keeps both directions.
+
+A multi-circuit corridor is certified only when every circuit is AC with
+$`x_l > 0`$ under an active Kirchhoff formulation: the KVL rows of the
+2-cycles force one sign on all circuits.  With an HVDC link or a tie in
+parallel a circulation between the circuits is feasible, so the corridor
+stays `both` (it is still reported as radial).
+
+**What `structural` changes.** For a one-way line $a\to b$ the reverse
+direction is not built: $`\overline{F}^{ba}_l := 0`$, so the `fn`, reverse
+loss and reverse segment columns and their rows disappear
+(`bidirectional` / `piecewise` / `linear`).  Under `tangent_signed_flow`
+the signed flow gets $f \ge 0$, the tangent cuts at $`f_k < 0`$ are
+dropped, and with one secant segment and no overflow tier the abs-flow
+proxy is replaced by the chord on $f$ itself,
+$`\lambda \le k_\text{loss} w f`$ (no $v$ column, no abs rows); with
+$L > 1$ segments the two abs rows become one equality
+$`\sum_j v_j = f`$, and the SOS2 ladder keeps only the breakpoints with
+$f \ge 0$.  A dead-end line is not built at all (no columns, no KVL
+participation).  The KVL rows of radial lines are kept: under
+`kirchhoff_mode = node_angle` the row $`f_l = (\theta_a - \theta_b)/x_l`$
+of a bridge closes no cycle, but with the angle bounds
+$`|\theta| \le \theta_{\max}`$ it still caps the flow, so dropping it
+would change the model (`cycle_basis` writes no rows for bridges and so
+never had that cap).
+
+**Exactness.** The one-way restriction only removes simultaneous
+two-way flow ($f^{ab} > 0 \wedge f^{ba} > 0$).  With non-negative losses
+and transfer costs such a circulation is never strictly profitable
+unless the LP values disposing of energy (negative bus prices,
+must-run surplus without spill): then the two-way flow is the
+fictitious loss sink discussed in "Loss Pricing $\varepsilon$" above,
+and removing it is the physical answer.  So `structural` keeps the
+optimum of every case without such a sink and can only *raise* the
+objective of a case that was using one.  The rise can be large: in the
+unit test with a 300 MW must-run unit (100 \$/MWh shortfall price)
+feeding 140 MW of load over lossy radial lines, `off` burns the surplus
+as two-way loss on the stubs (objective ≈ 32) while `structural` pays
+the shortfall (≈ 3520.6).  A case whose cost drops with `off` relative
+to `structural` was relying on that sink; check the must-run / spill
+modelling rather than reverting the option.
+
+**Guard rails.** Lines referenced by a user constraint or user model
+(`line("…")`, `line(all)`, filters), or by a line commitment, are left
+untouched.
+`off` (default) builds today's LP; `report` only logs the
+classification.  `Line.flow_direction = ab | ba` forces a one-way line
+(a modelling decision, applied as given even on meshed lines), `both`
+opts a line out, `auto` applies the certificate to that line under any
+global mode.  `gtopt_check_topology --directions` previews the
+classification.
+
 #### Dynamic Line Rating through Critical Spans (`Line.dlr`)
 
 A line with a `dlr` object carries a set $\mathcal{K}_l$ of **critical

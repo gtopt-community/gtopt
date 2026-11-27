@@ -254,7 +254,7 @@ class TestGTOptWriterProcessMethods:
         # ``stationary_gap_ceiling`` NOT emitted on any level (the gtopt
         # default 2 % applies; the former flat 85 % let large cascade
         # levels stop with a gap of several percent).
-        # Rationale: the realised Δgap on production CEN IPLP runs plateaus once
+        # Rationale: the realised Δgap on production full-CEN PLP runs plateaus once
         # cuts saturate, and heterogeneous-aperture transitions
         # re-tighten the bound regardless of the within-level exit
         # criterion — so any sub-1 % per-iter floor only burned

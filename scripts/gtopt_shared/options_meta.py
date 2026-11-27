@@ -261,6 +261,7 @@ MODEL_OPTION_KEYS: frozenset[str] = frozenset(
         "loss_use_sos2",
         "loss_segment_bound",
         "line_thermal_limit_mode",
+        "line_direction_mode",
         "prev_stage_link",
         "use_line_dlr",
         "dlr_limit_mode",
@@ -1049,6 +1050,13 @@ OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         "line_thermal_limit_mode",
         "[model] How the line thermal limit treats losses: `flow` (flow variable only, no extra "
         "row), `sending` (sending-end power `f + a·ℓ ≤ tmax`, `a` = sending-bus loss share)",
+        None,
+    ),
+    (
+        "line_direction_mode",
+        "[model] Radial-line flow-direction certificate: `off` (default, today's LP), "
+        "`report` (log the classification only), `structural` (one-way and dead-end "
+        "radial lines lose their impossible direction / are dropped)",
         None,
     ),
     (

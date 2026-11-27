@@ -508,7 +508,7 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         metavar="METHOD",
         # Default `cascade` since 2026-05-15: the 4-level multi-fidelity
         # ladder (warmup/uninodal/transport/full_network) is the
-        # production-grade path on CEN-IPLP-scale problems — plain
+        # production-grade path on full-CEN-PLP-scale problems — plain
         # `sddp` is retained as a CLI choice for diagnostic / one-level
         # runs but no longer the default.  `--plp-legacy` still pins
         # `sddp` to match the legacy PLP equivalence shim.
@@ -1253,7 +1253,7 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
     # PILMAIQUEN / ABANICO / ANTUCO / PALMUCHO routed as FlowRight
     # discharge obligations to keep ``reservoir_efin >= eini`` rows
     # feasible at iter-0 of the SDDP cascade (same root cause as the
-    # plp_case_2y aperture regression and the CEN-IPLP (uninodal)
+    # plp_case_2y aperture regression and the the full CEN PLP case (uninodal)
     # investigation).  Pass ``--no-soft-min-flows`` to opt out.
     #
     # The flag covers BOTH conversions:

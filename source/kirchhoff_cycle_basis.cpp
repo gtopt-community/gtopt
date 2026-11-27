@@ -274,7 +274,14 @@ std::size_t add_kvl_rows(const SystemContext& sc,
         .active = false,
     };
 
-    if (!line.is_active(stage) || line.is_loop()) {
+    // A structural dead-end line (``line_direction_mode``) emits no
+    // flow column at all: drop it from the KVL graph up front (it is a
+    // bridge, so it is in no cycle) instead of re-deriving the basis
+    // in every block.
+    if (!line.is_active(stage) || line.is_loop()
+        || line.effective_flow_direction(sc)
+            == line_direction::Verdict::dead_end)
+    {
       resolved.push_back(rl);
       continue;
     }

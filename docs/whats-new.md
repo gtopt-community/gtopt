@@ -80,6 +80,13 @@ behaviour changes and fixes, is the [Changelog](../CHANGELOG.md).
   [Input Data §3.4](input-data.md#dynamic-line-rating-dlr) and
   [dlr2gtopt](scripts/dlr2gtopt.md).
 - **Optimal transmission switching** with `LineCommitment`.
+- **Radial-line flow direction**: `model_options.line_direction_mode`
+  (`off`, `report`, `structural`) and `Line.flow_direction` (`both`,
+  `ab`, `ba`, `auto`) drop the impossible direction of one-way radial
+  lines and the dead-end lines, which also removes the phantom
+  two-way loss sink on them.  Preview with
+  `gtopt_check_topology --directions`.  See
+  [Planning Options](planning-options.md#modeloptions-fields).
 
 ## Energy carriers and hydro
 

@@ -36,6 +36,7 @@
 #include <gtopt/constraint_names.hpp>
 #include <gtopt/gtopt_main.hpp>
 #include <gtopt/kirchhoff_cycle_basis.hpp>
+#include <gtopt/line_direction.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/lp_build_error.hpp>
 #include <gtopt/lp_fingerprint.hpp>
@@ -1224,6 +1225,242 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
   }
 }
 
+/// Radial-line detection behind ``model_options.line_direction_mode`` and
+/// ``Line.flow_direction = "auto"`` (see ``line_direction.hpp``).  Runs
+/// once per SystemLP over the union of the phase's stages and returns
+/// the per-line decisions for ``SystemContext``.  Empty (no detection,
+/// today's LP) when the mode is ``off`` and no line asks for ``auto``.
+[[nodiscard]] flat_map<Uid, line_direction::LineDecision>
+compute_line_decisions(const auto& collections,
+                       const System& system,
+                       const PhaseLP& phase,
+                       const PlanningOptionsLP& opts)
+{
+  using line_direction::Verdict;
+  flat_map<Uid, line_direction::LineDecision> decisions;
+
+  const auto mode = opts.line_direction_mode();
+  const auto& lines = std::get<Collection<LineLP>>(collections);
+  const bool any_auto = std::ranges::any_of(
+      lines.elements(),
+      [](const LineLP& l)
+      {
+        return l.line().flow_direction_enum() == LineFlowDirection::automatic;
+      });
+  if (mode == LineDirectionMode::off && !any_auto) {
+    return decisions;
+  }
+
+  const auto& buses = std::get<Collection<BusLP>>(collections);
+  const auto n_buses = buses.elements().size();
+  const auto bus_index = [&](const SingleId& sid) -> std::optional<std::size_t>
+  {
+    try {
+      return static_cast<std::size_t>(buses.element_index(BusLPSId {sid}));
+    } catch (const std::out_of_range&) {
+      return std::nullopt;
+    }
+  };
+  const auto& stages = phase.stages();
+
+  // ── Injection-sign classes per bus ─────────────────────────────────
+  std::vector<line_direction::BusInjection> inj(n_buses);
+  for (const auto& gen :
+       std::get<Collection<GeneratorLP>>(collections).elements())
+  {
+    const auto b = bus_index(gen.generator().bus);
+    if (!b) {
+      continue;
+    }
+    bool active = false;
+    bool can_inject = gen.generator().expcap.has_value()
+        || gen.generator().expmod.has_value();
+    bool negative = false;
+    for (const auto& stage : stages) {
+      if (!gen.is_active(stage)) {
+        continue;
+      }
+      active = true;
+      for (const auto& block : stage.blocks()) {
+        const auto pmax = gen.param_pmax(stage.uid(), block.uid());
+        const auto pmin = gen.param_pmin(stage.uid(), block.uid());
+        if (!pmax || *pmax > 0.0) {
+          can_inject = true;
+        }
+        if (pmin && *pmin < 0.0) {
+          negative = true;
+        }
+      }
+    }
+    if (!active) {
+      continue;
+    }
+    if (negative) {
+      inj[*b].both = true;
+    } else if (can_inject) {
+      inj[*b].inject = true;
+    }
+  }
+  for (const auto& dem : std::get<Collection<DemandLP>>(collections).elements())
+  {
+    const auto b = bus_index(dem.demand().bus);
+    if (b
+        && std::ranges::any_of(
+            stages, [&](const StageLP& st) { return dem.is_active(st); }))
+    {
+      inj[*b].withdraw = true;  // served load is always >= 0
+    }
+  }
+  for (const auto& comp : system.gas_compressor_array) {
+    if (comp.bus) {
+      if (const auto b = bus_index(*comp.bus)) {
+        inj[*b].withdraw = true;  // electric compressor drive
+      }
+    }
+  }
+  for (const auto& conv : system.carrier_converter_array) {
+    const auto mark = [&](Carrier carrier, const OptSingleId& node)
+    {
+      if (carrier == Carrier::Electric && node) {
+        if (const auto b = bus_index(*node)) {
+          inj[*b].both = true;  // either side of the balance
+        }
+      }
+    };
+    mark(conv.from_carrier, conv.from_node);
+    mark(conv.to_carrier, conv.to_node);
+  }
+
+  // ── Transport multigraph: every line active in some phase stage ───
+  const bool kvl_active = !opts.use_single_bus() && opts.use_kirchhoff();
+  std::vector<line_direction::Edge> edges;
+  std::vector<std::size_t> edge_line;  // edge → index in `lines`
+  for (const auto& [li, line] : enumerate(lines.elements())) {
+    if (line.is_loop()) {
+      continue;
+    }
+    bool active = false;
+    bool coupled = kvl_active;
+    for (const auto& stage : stages) {
+      if (!line.is_active(stage)) {
+        continue;
+      }
+      active = true;
+      const auto x = line.param_reactance(stage.uid());
+      const double v = line.param_voltage(stage.uid()).value_or(1.0);
+      if (opts.classify_line_reactance(x, v) != LineKvlKind::ac
+          || x.value_or(0.0) <= 0.0)
+      {
+        coupled = false;
+      }
+    }
+    const auto a = bus_index(line.line().bus_a);
+    const auto b = bus_index(line.line().bus_b);
+    if (!active || !a || !b) {
+      continue;
+    }
+    edges.push_back({.bus_a = *a, .bus_b = *b, .kvl_coupled = coupled});
+    edge_line.push_back(static_cast<std::size_t>(li));
+  }
+  const auto classes = line_direction::classify(inj, edges);
+
+  // ── Protected lines: user-constraint refs and switchable lines ────
+  line_direction::ElementRefs line_refs;
+  const auto scan = [&](const auto& ucs)
+  {
+    for (const auto& uc : ucs) {
+      line_direction::collect_element_refs(uc.expression, "line", line_refs);
+    }
+  };
+  scan(system.user_constraint_array);
+  for (const auto& um : system.user_model_array) {
+    scan(um.constraint_array);
+  }
+  const std::unordered_set<std::string> ref_ids(line_refs.ids.begin(),
+                                                line_refs.ids.end());
+  const auto referenced = [](const auto& ids, const auto& elem)
+  {
+    return ids.contains(elem.name)
+        || ids.contains(std::format("uid:{}", elem.uid))
+        || ids.contains(std::format("{}", elem.uid));
+  };
+  std::unordered_set<Uid> switchable;
+  for (const auto& lc : system.line_commitment_array) {
+    if (const auto* uid = std::get_if<Uid>(&lc.line)) {
+      switchable.insert(*uid);
+    } else if (const auto* name = std::get_if<Name>(&lc.line)) {
+      for (const auto& line : lines.elements()) {
+        if (line.line().name == *name) {
+          switchable.insert(line.uid());
+        }
+      }
+    }
+  }
+
+  std::size_t n_applied = 0;
+  std::size_t n_protected = 0;
+  for (const auto& [ei, lc] : enumerate(classes)) {
+    const auto& line = lines.elements()[edge_line[ei]];
+    const auto& raw = line.line();
+    const auto field = raw.flow_direction_enum();
+    const bool wants = field == LineFlowDirection::automatic
+        || (!field && mode == LineDirectionMode::structural);
+    const bool is_protected = line_refs.all || referenced(ref_ids, raw)
+        || switchable.contains(raw.uid);
+    if (lc.radial) {
+      SPDLOG_DEBUG(
+          "line_direction: line '{}' (uid {}) radial: {} (side_a={}, "
+          "side_b={}){}",
+          raw.name,
+          raw.uid,
+          line_direction::verdict_name(lc.verdict),
+          static_cast<int>(lc.side_a),
+          static_cast<int>(lc.side_b),
+          is_protected ? " [protected]" : "");
+    }
+    if (!wants || !lc.radial) {
+      continue;
+    }
+    if (is_protected) {
+      ++n_protected;
+      continue;
+    }
+    if (lc.verdict != Verdict::both) {
+      ++n_applied;
+      decisions.emplace(raw.uid,
+                        line_direction::LineDecision {.verdict = lc.verdict});
+    }
+  }
+
+  // One INFO summary per phase (SystemLPs of other scenes repeat it).
+  static std::mutex logged_mutex;
+  static std::unordered_set<Uid> logged_phases;
+  bool first = false;
+  {
+    const std::scoped_lock lock(logged_mutex);
+    first = logged_phases.insert(phase.uid()).second;
+  }
+  const auto sum = line_direction::summarize(classes);
+  const auto msg = std::format(
+      "line_direction ({}): phase {}: {} lines, {} radial ({} one-way, {} "
+      "dead-end, {} mixed); applied {} line(s), {} protected",
+      enum_name(mode),
+      phase.uid(),
+      sum.lines,
+      sum.radial,
+      sum.one_way,
+      sum.dead_end,
+      sum.mixed,
+      n_applied,
+      n_protected);
+  if (first) {
+    spdlog::info("{}", msg);
+  } else {
+    SPDLOG_DEBUG("{}", msg);
+  }
+  return decisions;
+}
+
 }  // namespace
 
 namespace gtopt
@@ -1620,6 +1857,10 @@ SystemLP::SystemLP(const System& system,
   create_collections(m_system_context_, system, m_collections_);
   m_collections_built_ = true;
   m_disposable_collections_built_ = true;
+  // Structural line directions (``line_direction_mode``) — computed once
+  // here, read by LineLP / KVL on every (re)flatten.
+  m_system_context_.set_line_decisions(compute_line_decisions(
+      m_collections_, system, m_phase_, m_system_context_.options()));
   create_lp(m_flat_opts_);
   if (m_flat_opts_.low_memory_mode == LowMemoryMode::compress
       || (m_flat_opts_.low_memory_mode == LowMemoryMode::off

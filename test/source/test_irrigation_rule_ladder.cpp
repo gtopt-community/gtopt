@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_irrigation_rule_ladder.cpp
  * @brief     L0 of the irrigation test ladder: the agreement zone rules

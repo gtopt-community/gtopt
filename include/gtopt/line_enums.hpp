@@ -106,6 +106,78 @@ inline constexpr auto line_thermal_limit_mode_entries =
   return std::span {line_thermal_limit_mode_entries};
 }
 
+// ─── LineFlowDirection ───────────────────────────────────────────────
+
+/**
+ * @brief Allowed flow direction of a line (`Line.flow_direction`).
+ *
+ * - `both` (default when unset and the global mode is off): the line
+ *   carries flow in both directions — today's LP.
+ * - `ab` / `ba`: user-asserted one-way line.  The opposite direction is
+ *   given a zero limit (exactly as `tmax_ba = 0` / `tmax_ab = 0`), so the
+ *   reverse flow column(s), loss segments and rows are not emitted and
+ *   `tangent_signed_flow` builds its one-sided form.
+ * - `auto`: use the structural certificate of `line_direction.hpp`
+ *   (radial line whose cut-off side can only withdraw or only inject),
+ *   even when `model_options.line_direction_mode` is `off`.
+ *
+ * Unset → follows `model_options.line_direction_mode` (`structural`
+ * behaves as `auto`, `off` / `report` as `both`).
+ */
+enum class LineFlowDirection : uint8_t
+{
+  both = 0,  ///< flow in both directions (default)
+  ab = 1,  ///< one-way bus_a → bus_b
+  ba = 2,  ///< one-way bus_b → bus_a
+  automatic = 3,  ///< structural detection (JSON name "auto")
+};
+
+inline constexpr auto line_flow_direction_entries =
+    std::to_array<EnumEntry<LineFlowDirection>>({
+        {.name = "both", .value = LineFlowDirection::both},
+        {.name = "ab", .value = LineFlowDirection::ab},
+        {.name = "ba", .value = LineFlowDirection::ba},
+        {.name = "auto", .value = LineFlowDirection::automatic},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(LineFlowDirection /*tag*/) noexcept
+{
+  return std::span {line_flow_direction_entries};
+}
+
+// ─── LineDirectionMode ───────────────────────────────────────────────
+
+/**
+ * @brief Global radial-line detection (`model_options.line_direction_mode`).
+ *
+ * - `off` (default): no detection; the LP is unchanged.
+ * - `report`: detect radial (bridge) lines and their structural flow
+ *   direction and log the classification; the LP is unchanged.
+ * - `structural`: as `report`, and apply the certified one-way and
+ *   dead-end lines (lines without an explicit `flow_direction`).  KVL
+ *   rows of radial lines are kept (with angle bounds they still cap the
+ *   flow under `node_angle`).  Lines referenced by user constraints and
+ *   switchable (line-commitment) lines are excluded.
+ */
+enum class LineDirectionMode : uint8_t
+{
+  off = 0,  ///< no detection (default)
+  report = 1,  ///< detect and log only
+  structural = 2,  ///< detect and apply the certified directions
+};
+
+inline constexpr auto line_direction_mode_entries =
+    std::to_array<EnumEntry<LineDirectionMode>>({
+        {.name = "off", .value = LineDirectionMode::off},
+        {.name = "report", .value = LineDirectionMode::report},
+        {.name = "structural", .value = LineDirectionMode::structural},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(LineDirectionMode /*tag*/) noexcept
+{
+  return std::span {line_direction_mode_entries};
+}
+
 // ─── LineDlrSpanMode ─────────────────────────────────────────────────
 
 /**

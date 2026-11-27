@@ -28,6 +28,7 @@
 #include <gtopt/capacity_object_lp.hpp>
 #include <gtopt/generator.hpp>
 #include <gtopt/line.hpp>
+#include <gtopt/line_direction.hpp>
 #include <gtopt/line_dlr_lp.hpp>
 #include <gtopt/system_context.hpp>
 
@@ -221,6 +222,13 @@ public:
   {
     return line().bus_a == line().bus_b;
   }
+
+  /// Effective flow direction of this line: an explicit
+  /// `flow_direction = "ab" | "ba" | "both"` wins; otherwise (unset or
+  /// `"auto"`) the structural decision computed by `SystemLP` from
+  /// `model_options.line_direction_mode` (`both` when detection is off).
+  [[nodiscard]] line_direction::Verdict effective_flow_direction(
+      const SystemContext& sc) const;
 
   explicit LineLP(const Line& pline, const InputContext& ic);
 

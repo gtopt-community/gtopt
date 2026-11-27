@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 #
 # Unit tests for install.sh: option parsing, solver selection and the
 # commercial-solver / GPU detection, run against fake directory trees and

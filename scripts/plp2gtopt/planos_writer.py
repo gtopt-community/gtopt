@@ -42,7 +42,7 @@ LP:
 
 If we wrote ``LDPhiPrv`` and ``GradX_i`` verbatim, every per-scene LP would
 load the *total* expected future cost as its α floor — inflating the LB by
-``NVarPhi×`` (observed 16× on CEN-IPLP, 2026-05-13).
+``NVarPhi×`` (observed 16× on the full CEN PLP case, 2026-05-13).
 
 **Fix**: at write time, divide both ``rhs`` and every gradient coefficient
 by ``num_scenarios``.  Pass ``num_scenarios`` = ``len(scenario_array)`` from

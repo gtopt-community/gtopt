@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 #
 # tools/install_ctcache.sh — install ctcache, the clang-tidy result cache
 # used by tools/run_tidy.sh (https://github.com/matus-chochlik/ctcache).

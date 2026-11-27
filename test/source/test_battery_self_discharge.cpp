@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Battery self-discharge default (model_options.battery_annual_standing_loss,
 // 0.48 p.u./year = 4 %/month) and the battery power-envelope valid

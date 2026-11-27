@@ -205,6 +205,16 @@ struct LossConfig
   /// Ordered-fill cap on the PWL segment columns
   /// (`model_options.loss_segment_bound`, default `true`).
   bool segment_flow_cap {true};
+  /// One-way line (`Line.flow_direction` / `line_direction_mode`):
+  /// `+1` = only A→B, `-1` = only B→A, `0` = both directions (default,
+  /// today's LP).  The two-column modes need nothing extra (the reverse
+  /// direction gets a zero limit and emits no column); it switches
+  /// `tangent_signed_flow` to its ONE-SIDED form: only the tangents on
+  /// the live side, `Σ v_l = ±f` as one equality instead of the two abs
+  /// rows (with `L = 1` and no overflow tier the `v` column is
+  /// substituted out and the chord sits on `f`), and the SOS2 ladder
+  /// keeps only the live-side breakpoints.
+  int one_way_sign {0};
 };
 
 // ─── PWL geometry (exposed for unit testing) ────────────────────────

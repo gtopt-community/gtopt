@@ -575,7 +575,7 @@ class GTOptWriter(
         # ``stationary_tol`` ladder — 0.005 % (L0 warmup) →
         # 0.01 % (L1 uninodal) → 0.25 % (L2 transport) →
         # 1 % (L3 full_network).  The ladder is calibrated to the
-        # empirical Δgap noise floor at each level (CEN-IPLP):
+        # empirical Δgap noise floor at each level (the full CEN PLP case):
         #   * L0 deterministic head aperture → solver-tolerance
         #     floor ~0.02-0.06 %, so 0.025 % is meaningful.
         #   * L1 4-aperture Monte-Carlo → 2× L0's floor.
@@ -628,7 +628,7 @@ class GTOptWriter(
             "min_iterations": 2,
             # stationary_window=2 across every cascade level (2026-06-02
             # ladder).  Two consecutive sub-tol iters are enough to
-            # call ΔUB stationary on the realised CEN-IPLP noise
+            # call ΔUB stationary on the realised the full CEN PLP case noise
             # regime; the previous window=3 only delayed exits without
             # changing the converged policy.  L3 already used 2 (last
             # level optimisation); flattening the rest matches.
@@ -774,7 +774,7 @@ class GTOptWriter(
                         # strict-floor on `reservoir_sini` and last-block
                         # `efin`) kicks in and breaks SDDP convergence on
                         # cases with hard `efin >= eini` rows like
-                        # plp_case_2y / CEN-IPLP (uninodal).
+                        # plp_case_2y / the full CEN PLP case (uninodal).
                         "strict_storage_emin",
                     )
                 },
@@ -1027,7 +1027,7 @@ class GTOptWriter(
         #   - "single_cut" (gtopt C++ default): one aggregated π-weighted
         #     Benders cut touching every relaxed state variable.  Tight LP
         #     but any numeric drift at the box edge makes the cut
-        #     hard-infeasible (observed on CEN-IPLP p2).
+        #     hard-infeasible (observed on the full CEN PLP case p2).
         #   - "multi_cut" (PLP convention, plp2gtopt default): one per-link
         #     Birge-Louveaux cut per relaxed state, each clamped to its own
         #     box — matches PLP's `plp-agrespd.f::AgrElastici` +

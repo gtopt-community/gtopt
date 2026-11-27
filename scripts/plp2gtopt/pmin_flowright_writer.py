@@ -344,7 +344,7 @@ class PminFlowRightWriter(BaseWriter):
               ``FO(qaf) = CCaudFalla_scaled × BloDur / FPhi``
            where ``CCaudFalla_scaled = CCauFal × FactTiempoH`` (set in
            ``leemat.f:118``).  Returned as ``CCauFal × 3.6``.  E.g.
-           CEN-IPLP's ``CCauFal = 7000 $/Hm³`` →
+           the full CEN PLP case's ``CCauFal = 7000 $/Hm³`` →
            ``25,200 $/(m³/s·h)``.
         2. ``2 × max(rebalse_cost)`` over plpvrebemb.dat entries (also
            PLP-native $/Hm³) — same ``× 3.6`` conversion.  Used when

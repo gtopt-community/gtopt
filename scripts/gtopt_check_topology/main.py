@@ -10,6 +10,7 @@ Usage
     python -m gtopt_check_topology PLEXOS20260407.json \\
         --strict-direction-lines /tmp/sd.json
     python -m gtopt_check_topology PLEXOS20260407.json --quiet
+    python -m gtopt_check_topology case.json --directions
 
 Exit codes
 ----------
@@ -40,6 +41,10 @@ from gtopt_check_topology._analyzer import (
     DEFAULT_DETAIL_MAX_BUSES,
     DEFAULT_MAX_CYCLE_SIZE,
     analyse_planning,
+)
+from gtopt_check_topology._directions import (
+    directions_for_planning,
+    render_directions,
 )
 from gtopt_check_topology._render import (
     render_console_report,
@@ -99,6 +104,24 @@ def _build_parser() -> argparse.ArgumentParser:
             "[DEPRECATED] Legacy alias of --strict-direction-lines.  "
             "Will be removed in a future release."
         ),
+    )
+    parser.add_argument(
+        "--directions",
+        action="store_true",
+        help=(
+            "Classify radial lines (bridges of the transport graph) as "
+            "one-way ab / ba, dead-end or both from the injection signs on "
+            "each side -- what model_options.line_direction_mode = "
+            "structural would apply.  Suggestions only."
+        ),
+    )
+    parser.add_argument(
+        "--directions-out",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Write the --directions classification as JSON at PATH "
+        "(implies --directions).",
     )
     parser.add_argument(
         "--danger-threshold",
@@ -225,6 +248,17 @@ def main(argv: list[str] | None = None) -> int:
         quiet=args.quiet,
         include_benign_loops=args.include_benign_loops,
     )
+
+    if args.directions or args.directions_out is not None:
+        directions = directions_for_planning(
+            planning,
+            args.case_dir if args.case_dir is not None else planning_path.parent,
+        )
+        render_directions(directions, console, args.quiet)
+        if args.directions_out is not None:
+            write_json(directions.to_json(), str(args.directions_out))
+            if not args.quiet:
+                console.print(f"Wrote line directions -> {args.directions_out}")
 
     if args.json_out is not None:
         write_json(report_to_json(report), str(args.json_out))

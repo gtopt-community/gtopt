@@ -365,7 +365,7 @@ class PlanosParser(BaseParser):
                 FEscala mis-reading the CSV writer dropped on 2026-07-12;
                 it left ``efin_cost`` off by ``10^(9 - FEscala)`` from the
                 cuts gtopt loads (×10 low for FEscala=8, ×10 high for
-                FEscala=10 on CEN-IPLP).
+                FEscala=10 on the full CEN PLP case).
 
         Returns:
             Mapping from reservoir name to its cut lower-bound water value

@@ -87,6 +87,10 @@ public:
    * variable only (``flow``, no extra constraint). */
   static constexpr LineThermalLimitMode default_line_thermal_limit_mode =
       LineThermalLimitMode::flow;
+  /** @brief Default radial-line detection mode (``off``: no detection,
+   * the LP is unchanged). */
+  static constexpr LineDirectionMode default_line_direction_mode =
+      LineDirectionMode::off;
   /** @brief Default ``<attr>_prev`` stage-boundary link: the previous
    * stage's last block when it is in the same phase (``stage``). */
   static constexpr PrevStageLink default_prev_stage_link = PrevStageLink::stage;
@@ -812,6 +816,21 @@ public:
     }
     return default_line_thermal_limit_mode;
   }
+
+  /// @brief Radial-line detection mode (``LineDirectionMode``).
+  ///
+  /// Priority: ``model_options.line_direction_mode`` (string) →
+  /// ``default_line_direction_mode`` (``off``).  An unknown name falls
+  /// back to the default.  Per-line ``Line.flow_direction`` overrides it.
+  [[nodiscard]] constexpr LineDirectionMode line_direction_mode() const
+  {
+    if (const auto& m = m_options_.model_options.line_direction_mode) {
+      return enum_from_name<LineDirectionMode>(*m).value_or(
+          default_line_direction_mode);
+    }
+    return default_line_direction_mode;
+  }
+
   /// ``model_options.use_line_dlr`` (default ``true``): when ``false``
   /// every ``Line.dlr`` block is ignored and the static ``tmax`` applies.
   [[nodiscard]] constexpr bool use_line_dlr() const noexcept
