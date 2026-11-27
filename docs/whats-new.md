@@ -139,5 +139,8 @@ New or extended converters: `plexos2gtopt` (PLEXOS 8.1–10.0, AEMO ISP
 expansion), `sddp2gtopt` (PSR SDDP), `psse2gtopt`, `sienna2gtopt`,
 `cucdata2gtopt` (clustered UC benchmark, power-based option),
 `tcheby2gtopt`, `dlr2gtopt`, `gasnet2gtopt`, `rts_gmlc_to_gtopt`, and
-the `run_gtopt` dashboard with plain mode and `--attach`.  See the
-[Scripts Guide](scripts-guide.md).
+the `run_gtopt` dashboard with plain mode and `--attach`.  The
+exporters `gtopt2plp`, `gtopt2sddp` and `gtopt2plexos` write a gtopt
+case and its results in PLP, PSR SDDP and PLEXOS formats, reporting
+whatever the target cannot hold.  See
+the [Scripts Guide](scripts-guide.md).

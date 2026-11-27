@@ -19,6 +19,9 @@ preparing, converting, visualizing, and post-processing data for use with GTOpt.
   - [plexos2gtopt](scripts/plexos2gtopt.md) — PLEXOS XML / CEN PCP bundles,
     typical weeks / days
   - [sddp2gtopt](#sddp2gtopt) · [full docs](scripts/sddp2gtopt.md)
+  - [gtopt2plp](scripts/gtopt2plp.md) / [gtopt2sddp](scripts/gtopt2sddp.md) /
+    [gtopt2plexos](scripts/gtopt2plexos.md) — export a gtopt case to PLP /
+    PSR SDDP `.dat` files / a PLEXOS dataset (+ PLEXOS solution tables)
   - [psse2gtopt](#psse2gtopt) · [full docs](scripts/psse2gtopt.md)
   - [pp2gtopt](#pp2gtopt) · [full docs](scripts/pp2gtopt.md)
   - [nrel118_to_gtopt](#nrel118_to_gtopt) · [full docs](scripts/nrel118_to_gtopt.md)
@@ -137,6 +140,9 @@ One line per console script installed by `pip install ./scripts`:
 | `plexos2gtopt` | PLEXOS XML / CEN PCP bundle → gtopt JSON | [plexos2gtopt](scripts/plexos2gtopt.md) |
 | `plexos2gtopt-line-lifts` | Rank binding lines of a solved PLEXOS-derived case to choose `--lift-line-caps` | [plexos2gtopt](scripts/plexos2gtopt.md) |
 | `sddp2gtopt` | PSR SDDP/NCP case → gtopt JSON | [sddp2gtopt](scripts/sddp2gtopt.md) |
+| `gtopt2plp` | gtopt JSON → PLP `plp*.dat` case (read back by `plp2gtopt`) | [gtopt2plp](scripts/gtopt2plp.md) |
+| `gtopt2sddp` | gtopt JSON → PSR SDDP `.dat` block study (read back by `sddp2gtopt`) | [gtopt2sddp](scripts/gtopt2sddp.md) |
+| `gtopt2plexos` | gtopt JSON → PLEXOS MasterDataSet XML + Data Files (read back by `plexos2gtopt`); gtopt results → PLEXOS solution tables | [gtopt2plexos](scripts/gtopt2plexos.md) |
 | `psse2gtopt` | PSS®E RAW → gtopt DC OPF case | [psse2gtopt](scripts/psse2gtopt.md) |
 | `gasnet2gtopt` | `*.gasnet.json` gas network + power system → gtopt JSON with native gas elements | [gasnet2gtopt](scripts/gasnet2gtopt.md) |
 | `pp2gtopt` | pandapower network → gtopt JSON | [pp2gtopt](scripts/pp2gtopt.md) |

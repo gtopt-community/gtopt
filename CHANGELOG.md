@@ -25,6 +25,24 @@ in [docs/whats-new.md](docs/whats-new.md).
   logs the classification. `Line.flow_direction = ab | ba | both | auto`
   pins or opts out per line. Default `off`: the LP is unchanged.
   `gtopt_check_topology --directions` previews the classification.
+- **`gtopt2plp`, `gtopt2sddp`, `gtopt2plexos`: export a gtopt case and
+  its results to PLP, PSR SDDP and PLEXOS formats.** Inputs are written in
+  the layouts `plp2gtopt`, `sddp2gtopt` and `plexos2gtopt` read back;
+  `--results DIR` also writes a solved run as the tool's own outputs
+  (PLP `plpcen`/`plpbar`/`plplin`/`plpemb`/`plpess` CSVs, PSR graf CSVs,
+  PLEXOS solution tables read by `plexos_solution`). Whatever the target format cannot hold (merged demands per bus,
+  intra-stage variation, turbine flow capacity, battery `eini`, user
+  constraints, ...) is reported as a warning and in
+  `gtopt2plp.json` / `gtopt2sddp.json`; `--strict` turns warnings into
+  exit code 2. `gtopt2plp` prints the `plp2gtopt` flags (`-y`, `-p`,
+  `-d`) and the `gtopt --set` overrides that make the read-back case
+  solve like the original. New shared helpers:
+  `gtopt_shared.case_reader` (field values at full scenario x block
+  resolution, inline or from tables), `gtopt_shared.results_reader` and `gtopt_shared.case_compare`
+  (name-independent comparison of two plannings). See
+  [docs/scripts/gtopt2plp.md](docs/scripts/gtopt2plp.md),
+  [docs/scripts/gtopt2sddp.md](docs/scripts/gtopt2sddp.md) and
+  [docs/scripts/gtopt2plexos.md](docs/scripts/gtopt2plexos.md).
 - **`dlr2gtopt` / `re2gtopt`: one `--weather-source {explorador,open-meteo}`
   option for `history`**, through a weather layer both tools share
   (`gtopt_shared/weather_source.py`). `explorador` is the Explorador
