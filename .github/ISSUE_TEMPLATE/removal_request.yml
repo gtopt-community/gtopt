@@ -1,0 +1,56 @@
+name: Removal request (data, mentions or cases)
+description: Ask us to remove or correct third-party data, a mention of a person or organization, or a specific case
+title: "Removal request: <what>"
+labels: ["removal-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form to ask for the removal or correction of content in
+        this repository: data published by a third party, a mention of a
+        person or organization, or a specific case.  We answer every
+        request and act quickly on rights or personal-data concerns.
+
+        **If the request itself is confidential** (personal data,
+        contractual or legal matters), do not open a public issue: write
+        to <contacto@blackbeareng.cl> instead.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What should be removed or corrected?
+      options:
+        - Third-party data (input data, results, files)
+        - Mention of a person or organization
+        - A specific case or study
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: location
+    attributes:
+      label: Where is it?
+      description: File paths, links to lines on GitHub, or the case name.
+      placeholder: cases/<case>/..., https://github.com/gtopt-community/gtopt/blob/master/...
+    validations:
+      required: true
+  - type: dropdown
+    id: reason
+    attributes:
+      label: Reason
+      options:
+        - Copyright or licence terms
+        - Personal data / privacy
+        - Confidential or commercially sensitive information
+        - Inaccurate or outdated information
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: >-
+        What should change (remove, anonymize, correct) and why.  If you
+        act for the rights holder or the person concerned, say so.
+    validations:
+      required: true
