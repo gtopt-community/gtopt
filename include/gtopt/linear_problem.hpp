@@ -30,6 +30,7 @@
 #include <gtopt/lp_matrix_enums.hpp>
 #include <gtopt/lp_matrix_options.hpp>
 #include <gtopt/sparse_row.hpp>
+#include <gtopt/stable_vector.hpp>
 #include <gtopt/strong_index_vector.hpp>
 #include <gtopt/variable_scale.hpp>
 
@@ -313,8 +314,10 @@ public:
   using index_t = FlatLinearProblem::index_t;
   using SparseVector = flat_map<ColIndex, double>;
   using SparseMatrix = std::vector<SparseVector>;
-  using cols_t = std::vector<SparseCol>;
-  using rows_t = std::vector<SparseRow>;
+  // Stable storage: `row_at` / `col_at` references survive `add_row` /
+  // `add_col` (see stable_vector.hpp).
+  using cols_t = StableVector<SparseCol>;
+  using rows_t = StableVector<SparseRow>;
 
   /**
    * Constructs a new linear problem

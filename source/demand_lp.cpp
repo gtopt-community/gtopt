@@ -17,6 +17,7 @@
 #include <gtopt/converter_lp.hpp>
 #include <gtopt/demand_lp.hpp>
 #include <gtopt/input_context.hpp>
+#include <gtopt/lindistflow.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/pump_lp.hpp>
@@ -198,6 +199,9 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
   const auto& bus_balance_rows = bus_lp.balance_rows_at(scenario, stage);
   const auto& blocks = stage.blocks();
+  // LinDistFlow: reactive load `ratio · served` (empty under DC).
+  const auto& bus_qbalance_rows = bus_lp.qbalance_rows_at(scenario, stage);
+  const double q_ratio = reactive_ratio(demand().power_factor.value_or(1.0));
 
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   const bool is_forced = demand().forced.value_or(false);
@@ -584,6 +588,21 @@ bool DemandLP::add_to_lp(SystemContext& sc,
         bus_brow.lowb += bus_rhs_shift;
         if (bus_brow.uppb < LinearProblem::DblMax) {
           bus_brow.uppb += bus_rhs_shift;
+        }
+      }
+
+      // ── LinDistFlow reactive load: −ratio · served in the Q row ───
+      // served = Σ col_k (+ lmax under Option C, moved to the RHS).
+      if (const auto qit = bus_qbalance_rows.find(buid);
+          q_ratio != 0.0 && qit != bus_qbalance_rows.end())
+      {
+        auto& qrow = lp.row_at(qit->second);
+        for (const auto tcol : tcols) {
+          qrow[tcol] = -q_ratio;
+        }
+        if (use_option_c) {
+          qrow.lowb += q_ratio * block_lmax;
+          qrow.uppb += q_ratio * block_lmax;
         }
       }
 

@@ -74,3 +74,28 @@ def case_compare_runs_self_and_perturbed(ctx: CliRun) -> None:
     assert "FAIL" in res.stdout
     assert (ctx.tmp_path / "csv" / "elements.csv").stat().st_size > 0
     ctx.run([runs[0], ctx.tmp_path / "missing"], expect_rc=2)
+
+
+@e2e("gtopt_usage")
+def case_usage_theta_per_direction(ctx: CliRun) -> None:
+    """θ per technology, service and direction from two synthetic runs."""
+    import pandas as pd  # pylint: disable=import-outside-toplevel
+
+    from gtopt_usage.tests.test_gtopt_usage import (  # pylint: disable=import-outside-toplevel
+        UPDN_PARAMS,
+        _base_run,
+        _sscc_run_updn,
+    )
+
+    base = _base_run(ctx.tmp_path / "a")
+    sscc = _sscc_run_updn(ctx.tmp_path / "b")
+    params = ctx.tmp_path / "wear.json"
+    params.write_text(json.dumps(UPDN_PARAMS), encoding="utf-8")
+    out = ctx.tmp_path / "theta"
+    ctx.run(["theta", base, sscc, "--params", params, "--csv", out])
+    theta = pd.read_csv(out / "theta.csv")
+    gt = theta[theta["technology"] == "gas_turbine"].set_index(
+        ["service", "direction"]
+    )["theta_maintenance"]
+    assert gt[("cpf", "up")] > gt[("cpf", "dn")] > 0, gt
+    ctx.run(["usage", ctx.tmp_path / "missing"], expect_rc=2)

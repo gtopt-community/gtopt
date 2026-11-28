@@ -129,7 +129,9 @@ struct json_data_contract<Line>
                         jvtl_TBRealFieldSched>,
       json_variant_null<"security_limit_ba",
                         OptTBRealFieldSched,
-                        jvtl_TBRealFieldSched>>;
+                        jvtl_TBRealFieldSched>,
+      json_number_null<"tap_ratio_min", OptReal>,
+      json_number_null<"tap_ratio_max", OptReal>>;
 
   constexpr static auto to_json_data(Line const& line)
   {
@@ -196,7 +198,9 @@ struct json_data_contract<Line>
                                  line.equipment_rating_ab,
                                  line.equipment_rating_ba,
                                  line.security_limit_ab,
-                                 line.security_limit_ba);
+                                 line.security_limit_ba,
+                                 line.tap_ratio_min,
+                                 line.tap_ratio_max);
   }
 };
 }  // namespace daw::json

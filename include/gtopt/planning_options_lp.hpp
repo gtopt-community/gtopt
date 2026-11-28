@@ -24,11 +24,13 @@
 #include <gtopt/bus.hpp>
 #include <gtopt/constraint_names.hpp>
 #include <gtopt/enum_option.hpp>
+#include <gtopt/generator_enums.hpp>
 #include <gtopt/kappa_mode.hpp>
 #include <gtopt/line_enums.hpp>
 #include <gtopt/phase_range_set.hpp>
 #include <gtopt/planning_options.hpp>
 #include <gtopt/pricing_mode.hpp>
+#include <gtopt/risk_measure.hpp>
 #include <gtopt/storage_integration.hpp>
 #include <gtopt/transition_integrality.hpp>
 #include <gtopt/variable_scale.hpp>
@@ -448,10 +450,36 @@ public:
   }
 
   /// @brief Gets the Kirchhoff constraints flag.
+  /// The DC Kirchhoff (B–θ / cycle-basis) rows.  Off under
+  /// `network_model = "lindistflow"`, whose voltage-drop rows replace
+  /// them.
   [[nodiscard]] constexpr auto use_kirchhoff() const
   {
     return m_options_.model_options.use_kirchhoff.value_or(
-        default_use_kirchhoff);
+               default_use_kirchhoff)
+        && network_model() != NetworkModel::lindistflow;
+  }
+
+  /// @brief Network power-flow model (`model_options.network_model`).
+  ///
+  /// Unset or unknown → `dc` (today's LP).
+  [[nodiscard]] constexpr NetworkModel network_model() const
+  {
+    if (const auto& m = m_options_.model_options.network_model) {
+      return enum_from_name<NetworkModel>(*m).value_or(NetworkModel::dc);
+    }
+    return NetworkModel::dc;
+  }
+
+  static constexpr int default_mva_polygon_sides = 8;
+
+  /// Sides of the line MVA polygon under LinDistFlow (0 = none).
+  [[nodiscard]] constexpr int mva_polygon_sides() const
+  {
+    return std::max(
+        0,
+        static_cast<int>(m_options_.model_options.mva_polygon_sides.value_or(
+            default_mva_polygon_sides)));
   }
 
   /// @brief Gets the Kirchhoff Voltage Law formulation.
@@ -474,6 +502,11 @@ public:
   {
     return m_options_.model_options.use_single_bus.value_or(
         default_use_single_bus);
+  }
+  /// True under `network_model = "lindistflow"` on a multi-bus network.
+  [[nodiscard]] constexpr bool use_lindistflow() const
+  {
+    return network_model() == NetworkModel::lindistflow && !use_single_bus();
   }
 
   /// @brief Whether to enforce the per-stage `emin` floor as a HARD lower
@@ -572,6 +605,14 @@ public:
       return StorageIntegration::parse(*mo.storage_integration);
     }
     return StorageIntegration::parse(reservoir ? "lg4_pos" : "block");
+  }
+
+  /// @brief Planning default of `Commitment.commitment_breaks` (the
+  ///        daily commitment grid; unset: none)
+  [[nodiscard]] const std::optional<std::vector<Real>>& commitment_breaks()
+      const noexcept
+  {
+    return m_options_.model_options.commitment_breaks;
   }
 
   /// @brief Planning default of `Commitment.long_transition` (unset:
@@ -681,6 +722,18 @@ public:
   /// Post-MIP pricing method (`model_options.pricing_mode`).  Unset or an
   /// unrecognised name resolves to `PricingMode::fixed` (validation
   /// rejects unknown names up front).
+  /// Reserve reaction to `Generator.outage_fraction`
+  /// (`model_options.outage_reserve_mode`); unset / unknown = `none`.
+  [[nodiscard]] constexpr OutageReserveMode outage_reserve_mode() const
+  {
+    const auto& m = m_options_.model_options.outage_reserve_mode;
+    if (!m) {
+      return OutageReserveMode::none;
+    }
+    return enum_from_name<OutageReserveMode>(*m).value_or(
+        OutageReserveMode::none);
+  }
+
   [[nodiscard]] constexpr PricingMode pricing_mode() const
   {
     const auto& m = m_options_.model_options.pricing_mode;
@@ -688,6 +741,48 @@ public:
       return PricingMode::fixed;
     }
     return enum_from_name<PricingMode>(*m).value_or(PricingMode::fixed);
+  }
+
+  /// Risk measure of the scenario costs (`model_options.risk_measure`).
+  /// Unset or unknown → `RiskMeasure::expected` (validation rejects
+  /// unknown names up front).
+  [[nodiscard]] constexpr RiskMeasure risk_measure() const
+  {
+    const auto& m = m_options_.model_options.risk_measure;
+    if (!m.has_value()) {
+      return RiskMeasure::expected;
+    }
+    return enum_from_name<RiskMeasure>(*m).value_or(RiskMeasure::expected);
+  }
+
+  /// CVaR tail level α (`model_options.cvar_alpha`, default 0.95).
+  [[nodiscard]] constexpr double cvar_alpha() const
+  {
+    return m_options_.model_options.cvar_alpha.value_or(default_cvar_alpha);
+  }
+
+  /// Tail ranking of the risk measure (`model_options.risk_rank_by`,
+  /// default `cost`).
+  [[nodiscard]] constexpr RiskRankBy risk_rank_by() const
+  {
+    const auto& m = m_options_.model_options.risk_rank_by;
+    return m ? enum_from_name<RiskRankBy>(*m).value_or(RiskRankBy::cost)
+             : RiskRankBy::cost;
+  }
+
+  /// Tail side of the risk measure (`model_options.risk_tail`, default
+  /// `upper`).
+  [[nodiscard]] constexpr RiskTail risk_tail() const
+  {
+    const auto& m = m_options_.model_options.risk_tail;
+    return m ? enum_from_name<RiskTail>(*m).value_or(RiskTail::upper)
+             : RiskTail::upper;
+  }
+
+  /// CVaR weight λ (`model_options.cvar_weight`, default 0.5).
+  [[nodiscard]] constexpr double cvar_weight() const
+  {
+    return m_options_.model_options.cvar_weight.value_or(default_cvar_weight);
   }
 
   /// Auto-rule threshold [h] for fast-start commitments
@@ -883,6 +978,16 @@ public:
         default_max_overload_ratio);
   }
 
+  static constexpr Bool default_periodic_storage = false;
+
+  /// ``model_options.periodic_storage`` (default false): storages wrap /
+  /// run one real cycle on periodic stages (see ModelOptions).
+  [[nodiscard]] constexpr bool periodic_storage() const noexcept
+  {
+    return m_options_.model_options.periodic_storage.value_or(
+        default_periodic_storage);
+  }
+
   /// @brief Gets the price ($/MWh) on the loss carried by the overflow
   /// tier of a decoupled ``loss_envelope``.
   ///
@@ -1025,6 +1130,15 @@ public:
   /// Bound to JSON `output_round_decimals` and CLI
   /// `--output-round-decimals`.
   static constexpr int default_output_round_decimals = 7;
+
+  /// ``options.output_usage_metrics`` (default false): emit the per-block
+  /// usage-accounting streams (``Generator/usage_on``,
+  /// ``Generator/usage_ramp``, ``Commitment/usage_pmin``,
+  /// ``Commitment/usage_at_pmin``).  Output only; the LP is unchanged.
+  [[nodiscard]] constexpr auto output_usage_metrics() const noexcept -> bool
+  {
+    return m_options_.output_usage_metrics.value_or(false);
+  }
   [[nodiscard]] constexpr auto output_round_decimals() const noexcept -> int
   {
     return m_options_.output_round_decimals.value_or(

@@ -11,6 +11,7 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <format>
 #include <functional>
@@ -35,6 +36,7 @@
 #include <gtopt/generator_enums.hpp>
 #include <gtopt/line_enums.hpp>
 #include <gtopt/pricing_mode.hpp>
+#include <gtopt/risk_measure.hpp>
 #include <gtopt/storage_integration.hpp>
 #include <gtopt/storage_state_defaults.hpp>
 #include <gtopt/transition_integrality.hpp>
@@ -842,13 +844,91 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
 ///  - `requirement_sense: "eq"` with planes: R absorbs any excess, so a
 ///    surplus cost has no effect (the column is not built) — warning;
 ///  - dispatch coupling (`model_options.reserve_coupling`).
+/// Contradictory storage flags: `daily_cycle` (the level closes within
+/// each stage / typical period, not a state) and `use_state_variable`
+/// (the level is carried across stages / phases) cannot both hold; the
+/// LP applies `daily_cycle` (StorageLP: `daily_cycle ? false :
+/// use_state_variable`), so the state request is silently void.  Warn,
+/// with the resolved default named, so a Battery meant as a state
+/// storage (pumped hydro, long-duration BESS) sets daily_cycle = false.
+void check_storage_cycle_flags(ValidationResult& result,
+                               const Planning& planning)
+{
+  const auto check =
+      [&](std::string_view cls, const auto& arr, StorageStateDefaults dflt)
+  {
+    for (const auto& st : arr) {
+      if (st.daily_cycle.value_or(dflt.daily_cycle)
+          && st.use_state_variable.value_or(dflt.use_state_variable))
+      {
+        result.warnings.push_back(std::format(
+            "{} '{}': daily_cycle = true{} and use_state_variable = true "
+            "contradict — the storage is cyclic (closes its level per "
+            "stage / period, not a state) and use_state_variable has no "
+            "effect; set daily_cycle = false for a state storage",
+            cls,
+            st.name,
+            st.daily_cycle ? "" : " (default)"));
+      }
+    }
+  };
+  const auto& sys = planning.system;
+  check("Battery", sys.battery_array, storage_state_defaults::battery);
+  check("Reservoir", sys.reservoir_array, storage_state_defaults::reservoir);
+  check("ThermalStorage",
+        sys.thermal_storage_array,
+        storage_state_defaults::thermal_storage);
+  check("HydrogenStorage",
+        sys.hydrogen_storage_array,
+        storage_state_defaults::hydrogen_storage);
+  check("AmmoniaStorage",
+        sys.ammonia_storage_array,
+        storage_state_defaults::ammonia_storage);
+  check("AllowancePool",
+        sys.allowance_pool_array,
+        storage_state_defaults::allowance_pool);
+}
+
+/// `model_options.periodic_storage`: guard rails for the periodic-stage
+/// storage rules (see ModelOptions::periodic_storage).
+void check_periodic_storage(ValidationResult& result, const Planning& planning)
+{
+  if (!planning.options.model_options.periodic_storage.value_or(false)) {
+    return;
+  }
+  const auto& stages = planning.simulation.stage_array;
+  if (std::ranges::none_of(stages,
+                           [](const Stage& st) { return st.is_periodic(); }))
+  {
+    result.warnings.emplace_back(
+        "model_options.periodic_storage = true has no effect: no stage is "
+        "periodic (set Stage.period_hours, sampling = \"point\" or "
+        "periodic = true)");
+    return;
+  }
+  // daily_cycle batteries on periodic stages: the start level of every
+  // periodic stage is free (the period wraps), so `eini` / `efin` do not
+  // apply there.
+  for (const auto& bat : planning.system.battery_array) {
+    if (bat.daily_cycle.value_or(true) && (bat.eini || bat.efin)) {
+      result.warnings.push_back(std::format(
+          "Battery '{}': daily_cycle on periodic stages with "
+          "periodic_storage — the start level of each typical period is "
+          "free, eini / efin are ignored there",
+          bat.name));
+    }
+  }
+}
+
 /// `model_options.prev_stage_link` must name a `PrevStageLink` value.
 void check_prev_stage_link(ValidationResult& result, const Planning& planning)
 {
   const auto& link = planning.options.model_options.prev_stage_link;
   if (link && !enum_from_name<PrevStageLink>(*link)) {
     result.errors.push_back(std::format(
-        "model_options.prev_stage_link '{}' must be 'stage' or 'none'", *link));
+        "model_options.prev_stage_link '{}' must be 'stage', 'none' or "
+        "'period'",
+        *link));
   }
 }
 
@@ -1236,6 +1316,8 @@ enum class Positivity : std::uint8_t
   limit_non_negative,
   /// PLEXOS signed ``Min *`` limits: NaN allowed, else <= 0.
   limit_non_positive,
+  /// Fractions / per-unit factors: value must be in [0, 1].
+  unit_interval,
 };
 
 [[nodiscard]] constexpr bool violates(double v, Positivity p) noexcept
@@ -1247,6 +1329,8 @@ enum class Positivity : std::uint8_t
       return v < 0.0;
     case Positivity::limit_non_positive:
       return v > 0.0;
+    case Positivity::unit_interval:
+      return std::isnan(v) || v < 0.0 || v > 1.0;
     case Positivity::non_negative:
     default:
       return !(v >= 0.0);
@@ -1260,6 +1344,8 @@ enum class Positivity : std::uint8_t
       return "> 0";
     case Positivity::limit_non_positive:
       return "<= 0 (PLEXOS signed Min value)";
+    case Positivity::unit_interval:
+      return "in [0, 1]";
     case Positivity::non_negative:
     case Positivity::limit_non_negative:
     default:
@@ -1499,6 +1585,16 @@ void check_positivity(ValidationResult& result, const System& sys)
     }
   }
 
+  // Generator maintenance outage fraction: a share of the unit, [0, 1].
+  for (const auto& gen : sys.generator_array) {
+    check_opt_field_positive(result,
+                             gen.outage_fraction,
+                             Positivity::unit_interval,
+                             "Generator",
+                             gen.name,
+                             "outage_fraction");
+  }
+
   // VolumeRight: storage and demand magnitudes must be >= 0.
   for (const auto& vr : sys.volume_right_array) {
     check_opt_field_positive(result,
@@ -1631,6 +1727,76 @@ void check_positivity(ValidationResult& result, const System& sys)
         result, ww.fmin, Positivity::non_negative, "Waterway", ww.name, "fmin");
     check_opt_field_positive(
         result, ww.fmax, Positivity::non_negative, "Waterway", ww.name, "fmax");
+  }
+
+  // Commitment operation wear adders: start wear and the hourly wear
+  // `a` are costs (>= 0); `wear_load_cost` (b) may be negative and is
+  // checked against Pmax in the LP builder.
+  for (const auto& cm : sys.commitment_array) {
+    check_opt_field_positive(result,
+                             cm.startup_wear_cost,
+                             Positivity::non_negative,
+                             "Commitment",
+                             cm.name,
+                             "startup_wear_cost");
+    check_opt_field_positive(result,
+                             cm.wear_hour_cost,
+                             Positivity::non_negative,
+                             "Commitment",
+                             cm.name,
+                             "wear_hour_cost");
+  }
+
+  // ReserveProvision: `urcost` / `drcost` are the DIRECT provision
+  // cost (wear, regulation VOM) of holding 1 MW of reserve for 1 h.  A
+  // negative value would pay the LP to hold reserve (it then fills
+  // `urmax` for free and leaks a credit into the energy price through
+  // the shared headroom row).  Per-service pricing of one unit uses one
+  // provision per service, each with its own non-negative cost.
+  for (const auto& rp : sys.reserve_provision_array) {
+    check_opt_field_positive(result,
+                             rp.urcost,
+                             Positivity::non_negative,
+                             "ReserveProvision",
+                             rp.name,
+                             "urcost");
+    check_opt_field_positive(result,
+                             rp.drcost,
+                             Positivity::non_negative,
+                             "ReserveProvision",
+                             rp.name,
+                             "drcost");
+    // SSCC known variable-cost adders: costs >= 0, activation factor
+    // γ (MWh deployed per MW·h held) in [0, 1].
+    const std::array<std::pair<const OptTBRealFieldSched*, std::string_view>, 6>
+        sscc_costs {{
+            {&rp.ur_partload_cost, "ur_partload_cost"},
+            {&rp.dr_partload_cost, "dr_partload_cost"},
+            {&rp.ur_activation_cost, "ur_activation_cost"},
+            {&rp.dr_activation_cost, "dr_activation_cost"},
+            {&rp.ur_degradation_cost, "ur_degradation_cost"},
+            {&rp.dr_degradation_cost, "dr_degradation_cost"},
+        }};
+    for (const auto& [field, fname] : sscc_costs) {
+      check_opt_field_positive(result,
+                               *field,
+                               Positivity::non_negative,
+                               "ReserveProvision",
+                               rp.name,
+                               fname);
+    }
+    check_opt_field_positive(result,
+                             rp.ur_activation_factor,
+                             Positivity::unit_interval,
+                             "ReserveProvision",
+                             rp.name,
+                             "ur_activation_factor");
+    check_opt_field_positive(result,
+                             rp.dr_activation_factor,
+                             Positivity::unit_interval,
+                             "ReserveProvision",
+                             rp.name,
+                             "dr_activation_factor");
   }
 }
 
@@ -2559,6 +2725,10 @@ void check_ranges(ValidationResult& result, const Planning& planning)
       }
     }
     constexpr double tol = 1e-9;
+    // `periodic_storage`: the start level of a periodic stage is free
+    // (no chain), so those stages are not checked.
+    const bool periodic_storage =
+        planning.options.model_options.periodic_storage.value_or(false);
     for (const auto& bat : planning.system.battery_array) {
       if (any_group || !bat.daily_cycle.value_or(true) || !bat.eini
           || !bat.emax)
@@ -2571,6 +2741,9 @@ void check_ranges(ValidationResult& result, const Planning& planning)
       const auto* rows = std::get_if<std::vector<std::vector<double>>>(&emax);
       const auto* scalar = std::get_if<double>(&emax);
       for (std::size_t i = 0; i < chain_end; ++i) {
+        if (periodic_storage && sim.stage_array[i].is_periodic()) {
+          continue;
+        }
         double cap = 0.0;
         if (scalar != nullptr) {
           cap = *scalar;
@@ -2988,10 +3161,75 @@ void check_model_option_names(ValidationResult& result,
   {
     bad("objective_mode", *om, "cost, emissions");
   }
+  if (mo.outage_reserve_mode
+      && !enum_from_name<OutageReserveMode>(*mo.outage_reserve_mode))
+  {
+    bad("outage_reserve_mode",
+        *mo.outage_reserve_mode,
+        names(std::type_identity<OutageReserveMode> {}));
+  }
   if (mo.pricing_mode && !enum_from_name<PricingMode>(*mo.pricing_mode)) {
     bad("pricing_mode",
         *mo.pricing_mode,
         names(std::type_identity<PricingMode> {}));
+  }
+  if (mo.risk_measure && !enum_from_name<RiskMeasure>(*mo.risk_measure)) {
+    bad("risk_measure",
+        *mo.risk_measure,
+        names(std::type_identity<RiskMeasure> {}));
+  }
+  if (mo.risk_rank_by && !enum_from_name<RiskRankBy>(*mo.risk_rank_by)) {
+    bad("risk_rank_by",
+        *mo.risk_rank_by,
+        names(std::type_identity<RiskRankBy> {}));
+  }
+  if (mo.risk_tail && !enum_from_name<RiskTail>(*mo.risk_tail)) {
+    bad("risk_tail", *mo.risk_tail, names(std::type_identity<RiskTail> {}));
+  }
+  {
+    const auto measure = mo.risk_measure
+        ? enum_from_name<RiskMeasure>(*mo.risk_measure)
+              .value_or(RiskMeasure::expected)
+        : RiskMeasure::expected;
+    const auto rank = mo.risk_rank_by
+        ? enum_from_name<RiskRankBy>(*mo.risk_rank_by)
+              .value_or(RiskRankBy::cost)
+        : RiskRankBy::cost;
+    const auto side = mo.risk_tail
+        ? enum_from_name<RiskTail>(*mo.risk_tail).value_or(RiskTail::upper)
+        : RiskTail::upper;
+    if (measure != RiskMeasure::expected && rank == RiskRankBy::cost
+        && (measure == RiskMeasure::trim || side == RiskTail::lower))
+    {
+      // Ranked by the endogenous cost, only the upper-tail CVaR is convex:
+      // trimming the costliest scenarios, or weighting up the cheapest,
+      // rewards cost and turns the LP into a non-convex program.
+      result.errors.push_back(std::format(
+          "{}: risk_rank_by = 'cost' supports only risk_measure = 'cvar' "
+          "with risk_tail = 'upper' (trimming or a lower tail of the "
+          "endogenous cost is not convex); use risk_rank_by = 'index' with "
+          "Scenario.risk_index for an exogenous tail",
+          where));
+    }
+    if (measure == RiskMeasure::trim && mo.cvar_alpha && *mo.cvar_alpha <= 0.0)
+    {
+      result.errors.push_back(std::format(
+          "{}.cvar_alpha: trim needs alpha > 0 (alpha = 0 trims every "
+          "scenario)",
+          where));
+    }
+  }
+  if (const auto& a = mo.cvar_alpha;
+      a && (!std::isfinite(*a) || *a < 0.0 || *a >= 1.0))
+  {
+    result.errors.push_back(
+        std::format("{}.cvar_alpha: {} must be in [0, 1)", where, *a));
+  }
+  if (const auto& w = mo.cvar_weight;
+      w && (!std::isfinite(*w) || *w < 0.0 || *w > 1.0))
+  {
+    result.errors.push_back(
+        std::format("{}.cvar_weight: {} must be in [0, 1]", where, *w));
   }
   if (mo.transition_integrality
       && !enum_from_name<TransitionIntegrality>(*mo.transition_integrality))
@@ -3030,6 +3268,59 @@ void check_model_options(ValidationResult& result, const Planning& planning)
           result,
           *level.model_options,
           std::format("cascade_options.level_array[{}].model_options", i));
+    }
+  }
+  // Risk-averse objective (`risk_measure = cvar`): the end-of-horizon
+  // CVaR couples the scenarios of a scene in one LP row set.  SDDP and
+  // cascade decompose by (scene, phase) and average the backward-pass
+  // cuts with the scenario probabilities, so they would silently plan
+  // risk-neutrally — reject them (see the formulation doc, "Risk-averse
+  // objective", for the nested-CVaR design).  A multi-phase monolithic
+  // run solves its phases one after the other, so the cost of a scenario
+  // is never in one LP either.
+  {
+    const auto is_cvar = [](const ModelOptions& m)
+    {
+      return m.risk_measure.has_value()
+          && enum_from_name<RiskMeasure>(*m.risk_measure)
+                 .value_or(RiskMeasure::expected)
+          != RiskMeasure::expected;
+    };
+    bool cascade_cvar = is_cvar(opts.cascade_options.model_options);
+    for (const auto& level : opts.cascade_options.level_array) {
+      cascade_cvar = cascade_cvar
+          || (level.model_options && is_cvar(*level.model_options));
+    }
+    const auto method = opts.method.value_or(MethodType::monolithic);
+    if (cascade_cvar
+        || (is_cvar(opts.model_options) && method != MethodType::monolithic))
+    {
+      result.errors.push_back(std::format(
+          "model_options.risk_measure (cvar / trim) is only supported by the "
+          "monolithic method (got method '{}'): the risk measure of the "
+          "total cost couples the scenarios, which the SDDP / cascade "
+          "decomposition does not represent (nested CVaR is future work)",
+          enum_name(method)));
+    }
+    if (is_cvar(opts.model_options)
+        && opts.model_options.risk_rank_by.value_or("cost") == "index")
+    {
+      for (const auto& sc : planning.simulation.scenario_array) {
+        if (sc.is_active() && !sc.risk_index.has_value()) {
+          result.errors.push_back(std::format(
+              "risk_rank_by = 'index': scenario uid {} has no risk_index",
+              sc.uid));
+        }
+      }
+    }
+    if (is_cvar(opts.model_options) && method == MethodType::monolithic
+        && planning.simulation.phase_array.size() > 1)
+    {
+      result.errors.push_back(std::format(
+          "model_options.risk_measure (cvar / trim) needs a single phase (got "
+          "{}): each phase is solved as its own LP, so no LP holds a "
+          "scenario's total cost",
+          planning.simulation.phase_array.size()));
     }
   }
   // `transition_status_rows` was removed on 2026-11-26: still parsed so
@@ -4294,6 +4585,8 @@ void check_uc_formulation(ValidationResult& result, const Planning& planning)
   check_heat_rate(result, planning.system);
   check_reserve_planes(result, planning);
   check_prev_stage_link(result, planning);
+  check_periodic_storage(result, planning);
+  check_storage_cycle_flags(result, planning);
   check_offline_provisions(result, planning);
   check_storage_activation(result, planning);
   check_battery_exclusive_modes(result, planning);
@@ -4307,8 +4600,83 @@ void check_uc_formulation(ValidationResult& result, const Planning& planning)
   check_model_sanity(result, planning);
   check_uc_formulation(result, planning);
 
+  // Daily commitment grid (`commitment_breaks`): hours of the day in
+  // [0, 24), strictly increasing, at least one.
+  const auto check_breaks =
+      [&](std::string_view where, std::span<const Real> breaks)
+  {
+    if (breaks.empty()) {
+      result.errors.push_back(std::format(
+          "{}: commitment_breaks needs at least one boundary", where));
+      return;
+    }
+    for (size_t i = 0; i < breaks.size(); ++i) {
+      const double b = breaks[i];
+      if (!std::isfinite(b) || b < 0.0 || b >= 24.0) {
+        result.errors.push_back(
+            std::format("{}: commitment_breaks entry {} must be an hour of "
+                        "the day in [0, 24)",
+                        where,
+                        b));
+        return;
+      }
+      if (i > 0 && b <= breaks[i - 1]) {
+        result.errors.push_back(
+            std::format("{}: commitment_breaks must be strictly increasing "
+                        "({} after {})",
+                        where,
+                        b,
+                        breaks[i - 1]));
+        return;
+      }
+    }
+  };
+  const auto& dflt_breaks = planning.options.model_options.commitment_breaks;
+  if (dflt_breaks) {
+    check_breaks("model_options", *dflt_breaks);
+  }
+  for (const auto& stg : planning.simulation.stage_array) {
+    if (stg.start_hour
+        && (!std::isfinite(*stg.start_hour) || *stg.start_hour < 0.0))
+    {
+      result.errors.push_back(
+          std::format("Stage uid={}: start_hour {} must be >= 0 (clock "
+                      "hours after midnight)",
+                      stg.uid,
+                      *stg.start_hour));
+    }
+    if (!stg.commitment_breaks.empty()) {
+      check_breaks(std::format("Stage uid={}", stg.uid), stg.commitment_breaks);
+    }
+  }
+
   // Commitment grid / cycle options
   for (const auto& cm : planning.system.commitment_array) {
+    if (!cm.commitment_breaks.empty()) {
+      check_breaks(std::format("Commitment '{}'", cm.name),
+                   cm.commitment_breaks);
+      if (cm.commitment_period) {
+        result.errors.push_back(std::format(
+            "Commitment '{}': commitment_breaks (daily grid) and "
+            "commitment_period (uniform grid) are mutually exclusive; "
+            "drop one",
+            cm.name));
+      }
+      if (cm.uses_legacy_point_grid()) {
+        result.errors.push_back(std::format(
+            "Commitment '{}': commitment_grid '{}' conflicts with "
+            "commitment_breaks; use 'overlay' or drop commitment_grid",
+            cm.name,
+            cm.commitment_grid.value_or("")));
+      }
+    }
+    const bool has_daily_grid = !cm.commitment_breaks.empty()
+        || (!cm.commitment_period && !cm.uses_legacy_point_grid()
+            && (dflt_breaks
+                || std::ranges::any_of(
+                    planning.simulation.stage_array,
+                    [](const auto& st)
+                    { return !st.commitment_breaks.empty(); })));
     if (cm.commitment_grid && *cm.commitment_grid != "block"
         && *cm.commitment_grid != "overlay" && *cm.commitment_grid != "cells")
     {
@@ -4325,11 +4693,12 @@ void check_uc_formulation(ValidationResult& result, const Planning& planning)
                       cm.name));
     } else if ((cm.commitment_grid == "overlay"
                 || cm.commitment_grid == "cells")
-               && !cm.commitment_period)
+               && !cm.commitment_period && !has_daily_grid)
     {
       result.errors.push_back(
           std::format("Commitment '{}': commitment_grid '{}' needs "
-                      "commitment_period (hours or \"auto\")",
+                      "commitment_period (hours or \"auto\") or "
+                      "commitment_breaks",
                       cm.name,
                       *cm.commitment_grid));
     }
@@ -4524,6 +4893,20 @@ void check_uc_formulation(ValidationResult& result, const Planning& planning)
         && std::get<Int>(*lc.active) == 0;
     if (!is_inactive) {
       ++active_lc_count;
+    }
+  }
+  for (const auto& lc : planning.system.line_commitment_array) {
+    if (lc.cycle && *lc.cycle != "none" && *lc.cycle != "stage") {
+      result.errors.push_back(std::format(
+          "LineCommitment '{}': cycle '{}' must be 'none' or 'stage'",
+          lc.name,
+          *lc.cycle));
+    }
+    if (lc.is_cyclic() && (lc.initial_status || lc.initial_hours)) {
+      result.warnings.push_back(std::format(
+          "LineCommitment '{}': cycle = 'stage' wraps the breaker state "
+          "around each stage; initial_status / initial_hours are ignored",
+          lc.name));
     }
   }
 

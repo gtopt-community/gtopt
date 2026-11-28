@@ -17,15 +17,21 @@
  */
 
 #include <algorithm>
+#include <cmath>
+#include <format>
+#include <optional>
 #include <set>
 #include <utility>
 #include <vector>
 
 #include <gtopt/fuel_lp.hpp>
 #include <gtopt/generator_lp.hpp>
+#include <gtopt/lindistflow.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_build_error.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
+#include <gtopt/system_lp.hpp>
 #include <gtopt/warn_once.hpp>
 #include <spdlog/spdlog.h>
 
@@ -50,6 +56,8 @@ GeneratorLP::GeneratorLP(const Generator& generator, const InputContext& ic)
     , heat_rate(ic, Element::class_name, id(), std::move(object().heat_rate))
     , emission_rate(
           ic, Element::class_name, id(), std::move(object().emission_rate))
+    , outage_fraction(
+          ic, Element::class_name, id(), std::move(object().outage_fraction))
     , fuel_per_block_(
           ic, Element::class_name, id(), std::move(object().fuel_per_block))
 {
@@ -257,6 +265,9 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   };
 
   const auto& balance_rows = bus.balance_rows_at(scenario, stage);
+  // LinDistFlow reactive balance (empty under the DC model).
+  const auto& qbalance_rows = bus.qbalance_rows_at(scenario, stage);
+  BIndexHolder<ColIndex> qcols;
   const auto& blocks = stage.blocks();
 
   BIndexHolder<ColIndex> gcols;
@@ -283,8 +294,31 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   for (auto&& block : blocks) {
     const auto buid = block.uid();
 
-    const auto [block_pmax, block_pmin] =
+    auto [block_pmax, block_pmin] =
         sc.block_maxmin_at(stage, block, pmax, pmin, stage_capacity);
+
+    // Maintenance outage (`outage_fraction` f, default unset = none):
+    // only `1 − f` of the unit is available — both bounds scale, and
+    // the expansion capacity row below becomes `gen ≤ (1 − f)·capacity`.
+    double block_avail = 1.0;
+    if (const auto f = outage_fraction.optval(stage.uid(), buid)) {
+      if (!std::isfinite(*f) || *f < 0.0 || *f > 1.0) {
+        fail_lp(*this,
+                scenario,
+                stage,
+                {
+                    .field = "outage_fraction",
+                    .detail = std::format(
+                        "block {}: outage_fraction = {} must be in [0, 1]",
+                        buid,
+                        *f),
+                });
+      }
+      block_avail = 1.0 - *f;
+      block_pmax *= block_avail;
+      block_pmin *= block_avail;
+      available_fraction_[st_key][buid] = block_avail;
+    }
 
     // P1 LP-size: when both bounds are zero generation is fixed at
     // zero — the LP column, the bus-balance coefficient, and the
@@ -398,6 +432,28 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     auto& brow = lp.row_at(balance_row);
     brow[gcol] = 1 - block_lossfactor;
 
+    // ── LinDistFlow reactive injection ───────────────────────────────
+    if (const auto qit = qbalance_rows.find(buid); qit != qbalance_rows.end()) {
+      const auto& g = generator();
+      if (g.qmin.has_value() || g.qmax.has_value()) {
+        const auto qcol = lp.add_col({
+            .lowb = g.qmin.value_or(-LinearProblem::DblMax),
+            .uppb = g.qmax.value_or(LinearProblem::DblMax),
+            .class_name = Element::class_name.full_name(),
+            .variable_name = QgenName,
+            .variable_uid = guid,
+            .context = block_ctx,
+        });
+        lp.row_at(qit->second)[qcol] = 1.0;
+        qcols[buid] = qcol;
+      } else if (g.power_factor.has_value()) {
+        const double ratio = reactive_ratio(*g.power_factor);
+        if (ratio != 0.0) {
+          lp.row_at(qit->second)[gcol] = ratio;
+        }
+      }
+    }
+
     // Add capacity constraint if capacity expansion is modeled
     // Ensures generation <= installed capacity
     if (capacity_col) {
@@ -409,7 +465,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
               .context = block_ctx,
           }
               .greater_equal(0);
-      crow[*capacity_col] = 1;
+      crow[*capacity_col] = block_avail;
       crow[gcol] = -1;
 
       crows[buid] = lp.add_row(std::move(crow));
@@ -535,6 +591,9 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   if (!crows.empty()) {
     capacity_rows[st_key] = std::move(crows);
   }
+  if (!qcols.empty()) {
+    qgen_cols[st_key] = std::move(qcols);
+  }
   if (!ucols.empty()) {
     unserved_cols[st_key] = std::move(ucols);
     // `unserved` is the soft-pmin shortfall slack — an internal LP column
@@ -567,6 +626,9 @@ bool GeneratorLP::add_to_output(OutputContext& out) const
   // (gtopt_marginal_units, gtopt_check_output, gtopt_compare,
   // gtopt_results_summary) reads at least one of these.
   out.add_col_sol(cname, GenerationName, pid, generation_cols);
+  if (!qgen_cols.empty()) {
+    out.add_col_sol(cname, QgenName, pid, qgen_cols);
+  }
   out.add_col_cost(cname, GenerationName, pid, generation_cols);
 
   // ── Extras (opt-in via `--write-out ...,extras:Generator`) ─────────
@@ -606,6 +668,17 @@ bool GeneratorLP::add_to_output(OutputContext& out) const
   // wants the accounting split opts in via `--write-out
   // ...,extras:Generator`.  SRMC stays on the default `solution` gate.
   out.add_col_sol_values(cname, "srmc", pid, srmc_values_);
+  if (!available_fraction_.empty()) {
+    // Applied maintenance outage fraction f = 1 − available, per block.
+    STBIndexHolder<double> outage;
+    for (const auto& [st_key, bvals] : available_fraction_) {
+      auto& ost = outage[st_key];
+      for (const auto& [buid, avail] : bvals) {
+        ost[buid] = 1.0 - avail;
+      }
+    }
+    out.add_col_sol_values(cname, OutageFractionName, pid, outage);
+  }
   out.add_col_sol_values_extras(cname, "vom_cost", pid, vom_cost_values_);
   out.add_col_sol_values_extras(cname, "fuel_cost", pid, fuel_cost_values_);
 
@@ -621,7 +694,58 @@ bool GeneratorLP::add_to_output(OutputContext& out) const
     out.add_col_sol_values(cname, "fuel", pid, fuel_uid_values_);
   }
 
+  // ── Usage accounting (`options.output_usage_metrics`) ─────────────
+  //
+  //   Generator/usage_on_sol   — 1 when the unit generates (p > ε) in the
+  //                              block, else 0 (× block hours = operating
+  //                              hours).
+  //   Generator/usage_ramp_sol — |p_b − p_{b−1}| [MW] on chronological
+  //                              stages (ramp mileage); the first block
+  //                              of a stage has no predecessor in the
+  //                              cell and reads 0.
+  //
+  // Both are nonlinear in the solution (indicator, absolute value), so
+  // they cannot be rebuilt from `generation_sol` aggregates downstream.
+  if (out.options().output_usage_metrics()) {
+    add_usage_to_output(out);
+  }
+
   return CapacityBase::add_to_output(out);
+}
+
+void GeneratorLP::add_usage_to_output(OutputContext& out) const
+{
+  static constexpr std::string_view cname = Element::class_name.full_name();
+  const auto& sys = out.system_context().system();
+
+  STBIndexHolder<double> on_values;
+  STBIndexHolder<double> ramp_values;
+  for (const auto& scenario : sys.scene().scenarios()) {
+    for (const auto& stage : sys.phase().stages()) {
+      const auto& cols = lookup_generation_cols(scenario, stage);
+      if (cols.empty()) {
+        continue;
+      }
+      const auto st_key = std::tuple {scenario.uid(), stage.uid()};
+      auto& on_st = on_values[st_key];
+      auto& ramp_st = ramp_values[st_key];
+      const bool chrono = stage.is_chronological();
+      std::optional<double> prev;
+      for (const auto& block : stage.blocks()) {
+        const auto buid = block.uid();
+        // An elided column (zero-pmax block) is a unit at 0 MW.
+        const auto it = cols.find(buid);
+        const double p = it != cols.end() ? out.primal(it->second) : 0.0;
+        on_st[buid] = p > usage_on_threshold ? 1.0 : 0.0;
+        if (chrono) {
+          ramp_st[buid] = prev ? std::abs(p - *prev) : 0.0;
+          prev = p;
+        }
+      }
+    }
+  }
+  out.add_col_sol_values(cname, UsageOnName, id(), on_values);
+  out.add_col_sol_values(cname, UsageRampName, id(), ramp_values);
 }
 
 auto GeneratorLP::fuel_burn_legs(const ScenarioLP& scenario,

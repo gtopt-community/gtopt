@@ -638,6 +638,36 @@ inline constexpr auto kirchhoff_mode_entries =
   return std::span {kirchhoff_mode_entries};
 }
 
+// ─── NetworkModel ────────────────────────────────────────────────────
+
+/**
+ * @brief Power-flow model of the network (`model_options.network_model`).
+ *
+ * - `dc` (default): the transmission model -- transport, or the DC
+ *   power flow (B–θ / cycle basis) when `use_kirchhoff` is on.  Today's
+ *   LP, byte-identical.
+ * - `lindistflow`: the linearised DistFlow model of radial distribution
+ *   feeders (Baran & Wu 1989): squared bus voltage `w = |V|²`, reactive
+ *   power balance, `w_b = w_a/t² − 2(r·P + x·Q)/V²` per branch, MVA
+ *   polygon limits.  Replaces the DC angle rows (no θ columns).
+ */
+enum class NetworkModel : uint8_t
+{
+  dc = 0,
+  lindistflow = 1,
+};
+
+inline constexpr auto network_model_entries =
+    std::to_array<EnumEntry<NetworkModel>>({
+        {.name = "dc", .value = NetworkModel::dc},
+        {.name = "lindistflow", .value = NetworkModel::lindistflow},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(NetworkModel /*tag*/) noexcept
+{
+  return std::span {network_model_entries};
+}
+
 // ─── TinyReactanceMode ───────────────────────────────────────────────
 
 /**

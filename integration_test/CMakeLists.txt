@@ -156,6 +156,10 @@ if(NOT EXISTS "${VALIDATE_SOLUTION_PY}")
   message(FATAL_ERROR
     "tools/validate_solution.py not found at: ${VALIDATE_SOLUTION_PY}")
 endif()
+# The validators import pandas / pyarrow / numpy: pick an interpreter that
+# has them (venv first) instead of whichever python3 is first on PATH.
+include(${CMAKE_SCRIPTS_DIR}/SelectTestPython.cmake)
+gtopt_select_test_python()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 include(${CMAKE_SCRIPTS_DIR}/add_e2e_case.cmake)
@@ -343,9 +347,31 @@ add_e2e_case(exp_bat_4b_24 exp_bat_4b_24.json)
 # Per-candidate private rate (overnight_capcost + wacc): the 7 % large
 # block beats the 9 % small modules.  See cases/invest_wacc_2c/README.md.
 add_e2e_case(invest_wacc_2c invest_wacc_2c.json)
+# LinDistFlow distribution feeder (squared voltages, reactive flows).
+add_e2e_case(ldf_tiny ldf_tiny.json)
 # Fixed O&M of an expansion candidate charged with its annuity: the
 # price pays annuity + fixed O&M.  See cases/invest_fom_1c/README.md.
 add_e2e_case(invest_fom_1c invest_fom_1c.json)
+# Social CVaR planner (model_options.risk_measure = cvar): three load
+# scenarios; risk aversion buys more peaker capacity.  LP and MIP.  See
+# cases/invest_cvar_1b/README.md.
+# LNG tank with contracted + integer spot cargoes and an annual cap (a
+# MIP: HiGHS / CPLEX); hand solution in cases/lng_spot_1b/README.md.
+# The split of the gas burn between stages 2 and 3 is degenerate, so only
+# the prices, duals, cargoes and vent are compared.
+add_e2e_case(lng_spot_1b lng_spot_1b.json)
+# Gas-backed up reserve of an LNG-fed unit (reserve_sustain_hours): the
+# reserve price rises to the peaker bid once the tank is empty.  See
+# cases/lng_reserve_1b/README.md.
+add_e2e_case(lng_reserve_1b lng_reserve_1b.json)
+# Two LNG-fed units on their own heat-rate curves (no-load fuel +
+# segments, use_generator_fuel_curve): the less efficient unit is
+# part-loaded to hold the reserve (a MIP).  See
+# cases/lng_heat_curve_2u/README.md.
+add_e2e_case(lng_heat_curve_2u lng_heat_curve_2u.json)
+add_e2e_case(invest_cvar_1b invest_cvar_lp.json)
+add_e2e_case(invest_cvar_1b_mip invest_cvar_mip.json
+  CASE_DIR "${CASES_DIR}/invest_cvar_1b/mip")
 
 # Decoupled ``Line.loss_envelope`` (rating 100 MW, tmax 1000 MW) with
 # demand forcing flow to 0.5x / 3x / 8x the envelope on a
@@ -404,6 +430,9 @@ add_e2e_case(reserve_sscc_full reserve_sscc_full.json)
 # offline offer), an InertiaZone with a commitment credit and a BESS
 # with capped CPF and CSF provisions.
 add_e2e_case(reserve_sscc_multiday reserve_sscc_multiday.json)
+# The same case with the Commitment operation wear adders
+# (startup_wear_cost, wear_hour_cost, wear_load_cost < 0 on coal).
+add_e2e_case(reserve_sscc_wear reserve_sscc_wear.json)
 # The extended reserve model under SDDP (3 phases; reservoir + BESS SoC
 # states) and a 2-level cascade with per-level reserve_shortage_cost.
 # Goldens pin the converged objective / bounds and the reserve prices.
@@ -471,6 +500,13 @@ add_e2e_case(psri_case3_via_sddp2gtopt system_psri_case3_via_sddp2gtopt.json)
 # See cases/generation_prev_initial/README.md.
 add_e2e_case(generation_prev_initial generation_prev_initial.json)
 
+# Periodic typical days (model_options.periodic_storage,
+# prev_stage_link = "period", LineCommitment.cycle = "stage"): two typical
+# days standing for 30 / 31 days; state storages move by n x the daily
+# change, the 2 h battery closes per day, the line state and the coal
+# ramp rows wrap around the day.  See cases/periodic_typical_days/README.md.
+add_e2e_case(periodic_typical_days periodic_typical_days.json)
+
 # Post-MIP pricing modes (model_options.pricing_mode) on one 2-bus UC toy:
 # a slow unit (min up/down 4 h, no-load 300 $/h) and a fast-start peaker
 # (pmin 40, start-up 1000 $).  Same MIP dispatch (100/80 + 40/0, obj 5400)
@@ -513,6 +549,10 @@ add_e2e_case(uc_power_based uc_power_based.json)
 # Published power-based reference: Philipsen et al., Applied Energy 2019,
 # Scenario 2 (Tables 3, 4, 8, 9; optimum 12 570); see the case README.
 add_e2e_case(uc_power_based_philipsen2019 uc_power_based_philipsen2019.json)
+# Daily (non-uniform) commitment grid `commitment_breaks` on a periodic
+# Chebyshev typical week from Wednesday 12:00; see
+# cases/uc_daily_breaks/README.md.
+add_e2e_case(uc_daily_breaks uc_daily_breaks.json)
 
 # IEEE 24-bus Reliability Test System converted from pandapower's
 # `case24_ieee_rts` via `pp2gtopt`.  Exercises gtopt's demand-fail

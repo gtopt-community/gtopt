@@ -78,8 +78,11 @@ auto hash_template(const std::vector<FingerprintEntry>& entries) -> std::string
 // ── Fingerprint computation
 // ───────────────────────────────────────────────────
 
-auto compute_lp_fingerprint(const std::vector<SparseCol>& cols,
-                            const std::vector<SparseRow>& rows) -> LpFingerprint
+namespace
+{
+
+template<typename Cols, typename Rows>
+auto fingerprint_of(const Cols& cols, const Rows& rows) -> LpFingerprint
 {
   LpFingerprint fingerprint;
 
@@ -130,6 +133,21 @@ auto compute_lp_fingerprint(const std::vector<SparseCol>& cols,
       sha256_hex(fingerprint.col_hash + fingerprint.row_hash);
 
   return fingerprint;
+}
+
+}  // namespace
+
+auto compute_lp_fingerprint(const std::vector<SparseCol>& cols,
+                            const std::vector<SparseRow>& rows) -> LpFingerprint
+{
+  return fingerprint_of(cols, rows);
+}
+
+auto compute_lp_fingerprint(const StableVector<SparseCol>& cols,
+                            const StableVector<SparseRow>& rows)
+    -> LpFingerprint
+{
+  return fingerprint_of(cols, rows);
 }
 
 // ── JSON output

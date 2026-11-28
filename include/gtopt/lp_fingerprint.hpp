@@ -28,6 +28,7 @@
 #include <gtopt/sha256.hpp>
 #include <gtopt/sparse_col.hpp>
 #include <gtopt/sparse_row.hpp>
+#include <gtopt/stable_vector.hpp>
 
 namespace gtopt
 {
@@ -83,6 +84,11 @@ struct LpFingerprint
 /// @param rows  Vector of SparseRow (from LinearProblem)
 [[nodiscard]] auto compute_lp_fingerprint(const std::vector<SparseCol>& cols,
                                           const std::vector<SparseRow>& rows)
+    -> LpFingerprint;
+
+/// Same, from `LinearProblem`'s stable row / column storage.
+[[nodiscard]] auto compute_lp_fingerprint(const StableVector<SparseCol>& cols,
+                                          const StableVector<SparseRow>& rows)
     -> LpFingerprint;
 
 /// Write an LP fingerprint to a JSON file.

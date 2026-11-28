@@ -7,10 +7,13 @@
  *            see LICENSING.md
  *
  * Invariant under test: on a periodic stage (`Stage.periodic`, default
- * `period_hours` set or point sampling) every intra-period coupling wraps
- * (block N−1 → block 0) and only the inter-stage state variables are not
- * periodic; a state storage moves by n·Δ_cycle across a stage standing
- * for n = duration / period_hours repetitions of its typical period.
+ * `period_hours` set or point sampling) the intra-period couplings that
+ * opt in (`periodic_storage`, `prev_stage_link = "period"`,
+ * `LineCommitment.cycle`) wrap (block N−1 → block 0) and only the
+ * inter-stage state variables are not periodic; a state storage moves by
+ * n·Δ_cycle across a stage standing for n = duration / period_hours
+ * repetitions of its typical period.  Without the options the LP is the
+ * legacy one.
  */
 
 #pragma once

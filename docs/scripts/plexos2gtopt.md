@@ -1944,6 +1944,8 @@ python -m plexos2gtopt.aemo_isp_expansion "2026 ISP Step Change Model.xml" \
 | `--week-sampler SPEC` | unset (representative days) | One typical week per month: `uniform:H[:point]`, `peak_ramp:K`, `chebyshev:N[:gauss\|lobatto][:key=value]`, `chrono:D` |
 | `--day-sampler SPEC` | unset (24 hourly blocks) | Chebyshev nodes on each representative day: `chebyshev:N[:key=value]` or `chebyshev:auto[:tol=T][:metric=rms\|ramp]` (provisional) |
 | `--week-start DAY:HOUR` | `wed:12` | Start of the typical-week window (not used by `chrono:D`) |
+| `--commitment-breaks H1,H2,...` | — | Daily commitment grid (cell boundaries in hours of the day; `study` = `3.5,7.5,10.5,14.5,17.5,23.5`) → `model_options.commitment_breaks`, every stage gets `start_hour` = its window's clock hour (the `--week-start` hour; days: 0). See [typical-week-sampling §4c](../methods/typical-week-sampling.md) |
+| `--commitment-breaks-file CSV` | — | Per-month daily grids (rows `month,breaks`) → `Stage.commitment_breaks` per month; months missing from the file use `--commitment-breaks` |
 | `--week-rule {peak,energy}` | `peak` | Which real week is the typical week |
 | `--ramp-refine {off,on,30m,15m}` | `off` | Sunrise / sunset refinement (below) |
 | `--ramp-refine-width H` | 1 | Half width [h] of each refinement window |
@@ -1952,6 +1954,9 @@ python -m plexos2gtopt.aemo_isp_expansion "2026 ISP Step Change Model.xml" \
 | `--capacity-year-fleet {mean,end,tightest}` | `mean` | Yearly value of the existing fleet in the capacity constraints |
 | `--capacity-penalty F` | unset (hard) | Slack cost of the yearly capacity constraints (recommended with `--phases month\|year`) |
 | `--candidate-prefix P` | all candidates | Keep candidates whose category starts with P (repeatable) |
+| `--battery-state-hours H` | `inf` (all cyclic) | Batteries with energy / discharge power ≥ H hours (PHES, long-duration BESS) are state storages (`daily_cycle: false`, `use_state_variable: true`, raw `eini`) carried across stages and phases; shorter ones keep `daily_cycle`. `0` = all state |
+| `--periodic-storage` | OFF | Write `model_options.periodic_storage`: on periodic stages (typical weeks, `--rep-day-periodic` days) state storages run one real cycle and move by n × the cycle change, cyclic ones start each period free (experimental) |
+| `--rep-day-periodic` | OFF | Hourly representative days get `period_hours = 24` (periodic typical days: real 1 h steps for ramps, min up / down and storages; blocks unchanged; experimental) |
 | `--no-hydro` / `--no-batteries` / `--no-isp-constraints` | OFF | Drop hydro balance / batteries / PLEXOS Constraint objects |
 | `--demand-fail-cost F` | dispatch converter default | Unserved-energy cost |
 

@@ -31,6 +31,7 @@
 #include <gtopt/commitment_power_based.hpp>
 #include <gtopt/fuel_lp.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_build_error.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/pricing_mode.hpp>
 #include <gtopt/reserve_provision_lp.hpp>
@@ -58,6 +59,12 @@ CommitmentLP::CommitmentLP(const Commitment& commitment, const InputContext& ic)
           ic, Element::class_name, id(), std::move(object().startup_ramp))
     , shutdown_ramp_(
           ic, Element::class_name, id(), std::move(object().shutdown_ramp))
+    , startup_wear_cost_(
+          ic, Element::class_name, id(), std::move(object().startup_wear_cost))
+    , wear_hour_cost_(
+          ic, Element::class_name, id(), std::move(object().wear_hour_cost))
+    , wear_load_cost_(
+          ic, Element::class_name, id(), std::move(object().wear_load_cost))
 {
 }
 
@@ -65,12 +72,13 @@ bool CommitmentLP::has_chronological_data() const noexcept
 {
   const auto& c = commitment();
   return startup_cost_.has_value() || shutdown_cost_.has_value()
-      || ramp_up_.has_value() || ramp_down_.has_value()
-      || startup_ramp_.has_value() || shutdown_ramp_.has_value()
-      || c.min_up_time.has_value() || c.min_down_time.has_value()
-      || c.hot_start_cost.has_value() || c.warm_start_cost.has_value()
-      || c.cold_start_cost.has_value() || c.max_starts.has_value()
-      || c.min_starts.has_value() || c.commitment_period.has_value();
+      || startup_wear_cost_.has_value() || ramp_up_.has_value()
+      || ramp_down_.has_value() || startup_ramp_.has_value()
+      || shutdown_ramp_.has_value() || c.min_up_time.has_value()
+      || c.min_down_time.has_value() || c.hot_start_cost.has_value()
+      || c.warm_start_cost.has_value() || c.cold_start_cost.has_value()
+      || c.max_starts.has_value() || c.min_starts.has_value()
+      || c.commitment_period.has_value();
 }
 
 namespace
@@ -173,6 +181,21 @@ struct PeriodLayout
   std::vector<std::vector<BlockUid>> block_uids;
   std::vector<double> real;
   bool explicit_cells {false};
+  /// cyclic daily grid: the first and the last period are the two
+  /// pieces of the cell straddling the period start (one status)
+  bool wrap_merged {false};
+};
+
+/// Node-time commitment grid of one stage: the cell boundaries in stage
+/// time (cells [0, τ_1), [τ_1, τ_2), ..., [τ_K, T]) and the tolerance of
+/// the half-open node → cell rule.  Empty `bounds` with `active` = one
+/// cell for the whole stage.
+struct NodeGrid
+{
+  bool active {false};
+  std::vector<double> bounds;
+  double tol {1e-9};
+  bool wraps {false};  ///< first and last cell are one daily cell
 };
 
 template<typename Blocks>
@@ -180,7 +203,7 @@ template<typename Blocks>
     const Blocks& blocks,
     size_t ncyc,
     bool point,
-    bool node_time,
+    const NodeGrid& grid,
     double period_hours,
     std::span<const double> node_t,
     std::span<const double> step,
@@ -196,28 +219,24 @@ template<typename Blocks>
   // Explicit binary grid on block stages: blocks labelled with
   // `commitment_cell` share the status of their cell (refined samplers
   // add continuous blocks only).  A unit's own `commitment_period`
-  // (its uniform overlay grid) takes precedence.
-  out.explicit_cells = !point && period_hours <= 0.0
+  // (its uniform overlay grid) or a daily grid takes precedence.
+  out.explicit_cells = !point && period_hours <= 0.0 && !grid.active
       && std::ranges::any_of(std::span(blocks).first(ncyc),
                              [](const auto& b)
                              { return b.commitment_cell().has_value(); });
-  // Point stages: node k → uniform cell ⌊t_k / P⌋.  A node exactly on a
-  // cell boundary belongs to the LATER cell (its status is the one that
-  // starts there); a node at the period end t = T joins the last cell.
-  // Cells holding no node carry no status of their own: the previous
-  // cell's status continues over them (starts / stops only happen at a
-  // boundary of a cell that holds a node).
-  const auto ncells = (node_time && period_hours > 0.0)
-      ? std::max<long>(
-            1, static_cast<long>(std::ceil((cycle_len / period_hours) - 1e-9)))
-      : 0L;
+  // Node-time grids (point stages: the uniform grid ⌊t_k / P⌋; any
+  // stage: the daily `commitment_breaks` grid): node k → the cell
+  // holding t_k.  A node exactly on a cell boundary belongs to the
+  // LATER cell (its status is the one that starts there); a node at the
+  // period end t = T joins the last cell.  Cells holding no node carry
+  // no status of their own: the previous cell's status continues over
+  // them (starts / stops only happen at a boundary of a cell that holds
+  // a node).
   const auto node_cell = [&](size_t i)
-  {
-    const auto c =
-        static_cast<long>(std::floor((node_t[i] / period_hours) + 1e-9));
-    return std::clamp(c, 0L, ncells - 1);
-  };
-  if (node_time && period_hours > 0.0) {
+  { return cell_of_time(grid.bounds, node_t[i], grid.tol); };
+  const auto cell_start = [&](size_t c)
+  { return c == 0 ? 0.0 : grid.bounds[c - 1]; };
+  if (grid.active) {
     for (size_t i = 1; i < ncyc; ++i) {
       if (node_cell(i) != node_cell(i - 1)) {
         period_starts.push_back(i);
@@ -266,23 +285,87 @@ template<typename Blocks>
   // by min up/down, start tiers and start windows.
   auto& period_real = out.real;
   period_real.assign(nperiods, 0.0);
-  if (node_time && period_hours > 0.0) {
-    // the uniform cells of the period (up to the next cell with a node)
+  if (grid.active) {
+    // the cells of the period (up to the next cell with a node)
     for (size_t p = 0; p < nperiods; ++p) {
-      const double t0 = (p == 0)
-          ? 0.0
-          : static_cast<double>(node_cell(period_starts[p])) * period_hours;
+      const double t0 =
+          (p == 0) ? 0.0 : cell_start(node_cell(period_starts[p]));
       const double t1 = (p + 1 < nperiods)
-          ? static_cast<double>(node_cell(period_starts[p + 1])) * period_hours
+          ? cell_start(node_cell(period_starts[p + 1]))
           : cycle_len;
       period_real[p] = t1 - t0;
     }
+    // The cell straddling the start of a cyclic daily period: its two
+    // pieces (first and last period) are one cell when both hold a node.
+    out.wrap_merged = grid.wraps && nperiods >= 2 && ncyc >= 2
+        && node_cell(0) == 0 && node_cell(ncyc - 1) == grid.bounds.size();
   } else {
     for (size_t i = 0; i < blocks.size(); ++i) {
       period_real[block_period[i]] += step[i];
     }
   }
   return out;
+}
+
+/// Bounds of the status column u of one period.  Precedence (highest →
+/// lowest):
+///   0. a declared long-transition status (@p long_mode "on" / "off")
+///      pins u to 1 / 0 — it wins over the schedule and must_run.
+///   1. ``fixed_status`` schedule entry (@p pin) for this (stage, block) —
+///      if set to a value in ``[0, 1]``, pins ``u`` to that value
+///      (rounded at 0.5 to 0 or 1).  Values *outside* ``[0, 1]`` are
+///      reserved as the "no-pin" sentinel so the schedule can pin some
+///      blocks and leave others free without juggling a proper nullable
+///      cell type (UC.jl's ``Commitment status`` arrays can contain
+///      ``null`` for un-pinned blocks; the converter emits ``-1.0``
+///      there).
+///   2. ``must_run`` flag — forces ``u >= 1`` for the whole stage.
+///   3. Default — ``u`` in ``[0, 1]``.
+[[nodiscard]] std::pair<double, double> status_bounds(
+    std::optional<double> pin, bool must_run, std::string_view long_mode)
+{
+  if (long_mode == "on") {
+    return {1.0, 1.0};
+  }
+  if (long_mode == "off") {
+    return {0.0, 0.0};
+  }
+  if (pin && *pin >= 0.0 && *pin <= 1.0) {
+    const auto pinned = (*pin >= 0.5) ? 1.0 : 0.0;
+    return {pinned, pinned};
+  }
+  return {must_run ? 1.0 : 0.0, 1.0};
+}
+
+/// Node-time grid of one stage: the daily `commitment_breaks` grid
+/// (@p daily_breaks non-empty; @p start_hour = clock time of the stage
+/// start), else — on point stages with the default grid
+/// (@p uniform_point) — the uniform grid of @p period_hours cells.
+/// Inactive otherwise.
+[[nodiscard]] NodeGrid make_node_grid(std::span<const Real> daily_breaks,
+                                      double start_hour,
+                                      double cycle_len,
+                                      bool cyclic,
+                                      bool uniform_point,
+                                      double period_hours)
+{
+  NodeGrid grid;
+  if (!daily_breaks.empty()) {
+    grid.active = true;
+    grid.bounds = daily_cell_bounds(daily_breaks, start_hour, cycle_len);
+    grid.wraps =
+        cyclic && daily_cells_wrap(daily_breaks, start_hour, cycle_len);
+  } else if (uniform_point && period_hours > 0.0) {
+    const auto ncells = std::max<long>(
+        1, static_cast<long>(std::ceil((cycle_len / period_hours) - 1e-9)));
+    grid.active = true;
+    grid.tol = 1e-9 * period_hours;
+    grid.bounds.reserve(static_cast<size_t>(ncells - 1));
+    for (long c = 1; c < ncells; ++c) {
+      grid.bounds.push_back(static_cast<double>(c) * period_hours);
+    }
+  }
+  return grid;
 }
 
 /// Length of the unit's commitment periods on one stage [h]; 0 = one
@@ -331,6 +414,91 @@ template<typename Blocks>
 }
 
 }  // namespace
+
+double CommitmentLP::resolve_start_wear(const ScenarioLP& scenario,
+                                        const StageLP& stage,
+                                        BlockUid rep_buid,
+                                        BIndexHolder<double>& coefs) const
+{
+  // Wear part of a start (`startup_wear_cost`, default off): a separate
+  // $/start adder on v, kept apart from the fuel / energy start cost (and
+  // from the hot / warm / cold tiers, which carry their own columns) so
+  // the outputs can split it.
+  const auto start_wear =
+      startup_wear_cost_.optval(stage.uid(), rep_buid).value_or(0.0);
+  if (!std::isfinite(start_wear) || start_wear < 0.0) {
+    fail_lp(*this,
+            scenario,
+            stage,
+            {
+                .field = "startup_wear_cost",
+                .detail = std::format(
+                    "block {}: startup_wear_cost = {} must be finite and >= 0",
+                    rep_buid,
+                    start_wear),
+            });
+  }
+  if (start_wear != 0.0) {
+    coefs[rep_buid] = start_wear;
+  }
+  return start_wear;
+}
+
+void CommitmentLP::add_operation_wear(LinearProblem& lp,
+                                      const ScenarioLP& scenario,
+                                      const StageLP& stage,
+                                      const BlockLP& block,
+                                      const WearBlock& wb,
+                                      BIndexHolder<double>& wear_a,
+                                      BIndexHolder<double>& wear_b,
+                                      BIndexHolder<double>& wear_pmin) const
+{
+  // Operation wear (`wear_hour_cost` a, `wear_load_cost` b): cost
+  // a·u + b·(p − Pmin·u) per hour, i.e. coefficient (a − b·Pmin) on u
+  // and b on p.  Linear, so it holds for a relaxed u and with an
+  // expanded capacity.  b may be negative (low-load penalty); the hourly
+  // wear must stay >= 0 on [Pmin, Pmax]: a >= 0 and a + b·(Pmax − Pmin)
+  // >= 0.
+  const auto buid = block.uid();
+  const auto wa = wear_hour_cost_.optval(stage.uid(), buid);
+  const auto wbv = wear_load_cost_.optval(stage.uid(), buid);
+  if (!wa && !wbv) {
+    return;
+  }
+  const double a = wa.value_or(0.0);
+  const double b = wbv.value_or(0.0);
+  const double span = wb.pmax - wb.pmin;
+  const bool bad_a = !std::isfinite(a) || a < 0.0;
+  const bool bad_b = !std::isfinite(b)
+      || (b < 0.0 && (!std::isfinite(span) || a + (b * span) < 0.0));
+  if (bad_a || bad_b) {
+    fail_lp(*this,
+            scenario,
+            stage,
+            {
+                .field = bad_a ? "wear_hour_cost" : "wear_load_cost",
+                .detail = std::format(
+                    "block {}: operation wear a = {}, b = {} must give "
+                    "a >= 0 and a + b·(Pmax − Pmin) = {} >= 0 "
+                    "(Pmin = {}, Pmax = {})",
+                    buid,
+                    a,
+                    b,
+                    a + (b * span),
+                    wb.pmin,
+                    wb.pmax),
+            });
+  }
+  if (a == 0.0 && b == 0.0) {
+    return;
+  }
+  lp.col_at(wb.ucol).cost +=
+      CostHelper::block_ecost(scenario, stage, block, a - (b * wb.pmin));
+  lp.col_at(wb.gcol).cost += CostHelper::block_ecost(scenario, stage, block, b);
+  wear_a[buid] = a;
+  wear_b[buid] = b;
+  wear_pmin[buid] = wb.pmin;
+}
 
 bool CommitmentLP::add_to_lp(SystemContext& sc,
                              const ScenarioLP& scenario,
@@ -637,6 +805,11 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   }
 
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
+  // Operation wear coefficients (outputs only; empty when off).
+  BIndexHolder<double> startup_wear;
+  BIndexHolder<double> wear_a;
+  BIndexHolder<double> wear_b;
+  BIndexHolder<double> wear_pmin;
 
   // ── Compute commitment periods ──
   // When commitment_period is set, binary variables (u/v/w) are created at
@@ -644,17 +817,32 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   // cumulative duration fits within commitment_period hours.
   // Default: one period per block (commitment_period not set).
   const auto cyc_step = std::span<const double>(step).first(ncyc);
-  const double period_hours = resolve_period_hours(
-      commitment(), blocks, cyc_step, chronological, point, power_based);
-  // the uniform node-time grid of point stages (default)
-  const bool node_time = point && !commitment().uses_legacy_point_grid();
+  // The daily `commitment_breaks` grid (any chronological stage; the
+  // unit's own list, else the planning default) replaces the period grid.
+  const auto daily_breaks = chronological
+      ? commitment().effective_commitment_breaks(
+            stage.commitment_breaks(), sc.options().commitment_breaks())
+      : std::span<const Real> {};
+  const double period_hours = !daily_breaks.empty()
+      ? 0.0
+      : resolve_period_hours(
+            commitment(), blocks, cyc_step, chronological, point, power_based);
+  // Node-time grids: the daily grid, else the uniform grid of point
+  // stages (default).
+  const auto node_grid =
+      make_node_grid(daily_breaks,
+                     stage.start_hour(),
+                     cycle_len,
+                     cyclic,
+                     point && !commitment().uses_legacy_point_grid(),
+                     period_hours);
 
   // Period grouping (see commitment_period_layout): period_starts[k] =
   // index into blocks[] where period k begins.
   auto layout = commitment_period_layout(blocks,
                                          ncyc,
                                          point,
-                                         node_time,
+                                         node_grid,
                                          period_hours,
                                          node_t,
                                          step,
@@ -667,7 +855,9 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   const auto& period_real = layout.real;
   const bool explicit_cells = layout.explicit_cells;
   const bool boundary_allowance = commitment().ramp_allowance_at_boundary();
-  const auto period_scope = (period_hours > 0.0 || explicit_cells)
+  const bool wrap_merged = layout.wrap_merged;
+  const auto period_scope =
+      (period_hours > 0.0 || explicit_cells || node_grid.active)
       ? IntegerScope::Group
       : IntegerScope::Block;
   const auto period_domain =
@@ -735,35 +925,10 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
         CostHelper::block_ecost(scenario, stage, rep_block, noload)
         * (period_duration / rep_block.duration());
 
-    // Resolve commitment bounds.  Precedence (highest → lowest):
-    //   1. ``fixed_status`` schedule entry for this (stage, block) — if
-    //      set to a value in ``[0, 1]``, pins ``u`` to that value
-    //      (rounded at 0.5 to 0 or 1).  Values *outside* ``[0, 1]``
-    //      are reserved as the "no-pin" sentinel so the schedule can
-    //      pin some blocks and leave others free without juggling a
-    //      proper nullable cell type (UC.jl's ``Commitment status``
-    //      arrays can contain ``null`` for un-pinned blocks; the
-    //      converter emits ``-1.0`` there).
-    //   2. ``must_run`` flag — forces ``u >= 1`` for the whole stage.
-    //   3. Default — ``u`` in ``[0, 1]``.
-    auto u_lowb = is_must_run ? 1.0 : 0.0;
-    auto u_uppb = 1.0;
-    if (const auto pin = fixed_status_.optval(stage.uid(), rep_buid)) {
-      const auto val = pin.value();
-      if (val >= 0.0 && val <= 1.0) {
-        const auto pinned = (val >= 0.5) ? 1.0 : 0.0;
-        u_lowb = pinned;
-        u_uppb = pinned;
-      }
-    }
-    // declared long-transition status wins over the schedule / must_run
-    if (long_mode == "on") {
-      u_lowb = 1.0;
-      u_uppb = 1.0;
-    } else if (long_mode == "off") {
-      u_lowb = 0.0;
-      u_uppb = 0.0;
-    }
+    // Resolve commitment bounds (fixed_status > must_run > default; a
+    // declared long-transition status wins over both).
+    const auto [u_lowb, u_uppb] = status_bounds(
+        fixed_status_.optval(stage.uid(), rep_buid), is_must_run, long_mode);
 
     auto ucol =
         sc.add_integer_col(lp,
@@ -839,10 +1004,13 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
             .value_or(tier_fallback_cost.value_or(0.0));
     const auto block_shutdown_cost =
         shutdown_cost_.optval(stage.uid(), rep_buid).value_or(0.0);
-    const auto v_cost = has_startup_tiers ? 0.0
-                                          : block_startup_cost * cycle_weight
-            * CostHelper::cost_factor(scenario.probability_factor(),
-                                      stage.discount_factor());
+    const auto start_wear =
+        resolve_start_wear(scenario, stage, rep_buid, startup_wear);
+    const auto v_cost =
+        ((has_startup_tiers ? 0.0 : block_startup_cost) + start_wear)
+        * cycle_weight
+        * CostHelper::cost_factor(scenario.probability_factor(),
+                                  stage.discount_factor());
     // Binary with ramp rows, continuous otherwise (see above).  Pin
     // ``scale = 1.0`` either way so the C1 coefficient invariants survive
     // Ruiz / VariableScaleMap — task #50.
@@ -963,6 +1131,13 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     row[cyc_first.vcol] = -1.0;
     row[cyc_first.wcol] = 1.0;
     lrows[cyc_first.buid] = lp.add_row(std::move(row));
+    // Daily grid: the first and last periods are the two pieces of the
+    // cell straddling the period start — one cell, one status, so no
+    // start / stop at the wrap (u[0] = u[P−1]).
+    if (wrap_merged) {
+      lp.set_col_uppb(cyc_first.vcol, 0.0);
+      lp.set_col_uppb(cyc_first.wcol, 0.0);
+    }
   }
 
   // ── Phase B: Per-block constraints (C2, ramp, emission, segments) ──
@@ -1078,6 +1253,20 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       row[ucol] = -gen_pmax;
       gurows[buid] = lp.add_row(std::move(row));
     }
+
+    add_operation_wear(lp,
+                       scenario,
+                       stage,
+                       block,
+                       {
+                           .ucol = ucol,
+                           .gcol = gcol,
+                           .pmin = gen_pmin,
+                           .pmax = gen_pmax,
+                       },
+                       wear_a,
+                       wear_b,
+                       wear_pmin);
 
     // ── C2: Generation lower bound: p - Pmin*u >= 0 ──
     // (power_based: PB1–PB4 bound the boundary powers instead)
@@ -1978,6 +2167,14 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   }
 
   // Store index holders
+  if (!startup_wear.empty()) {
+    startup_wear_coefs_[st_key] = std::move(startup_wear);
+  }
+  if (!wear_a.empty()) {
+    wear_a_[st_key] = std::move(wear_a);
+    wear_b_[st_key] = std::move(wear_b);
+    wear_pmin_[st_key] = std::move(wear_pmin);
+  }
   if (!ucols.empty()) {
     status_cols_[st_key] = std::move(ucols);
   }
@@ -2258,7 +2455,112 @@ bool CommitmentLP::add_to_output(OutputContext& out) const
   out.add_row_dual(cname, HotStartName, pid, hot_start_rows_);
   out.add_row_dual(cname, WarmStartName, pid, warm_start_rows_);
 
+  // ── Usage accounting (`options.output_usage_metrics`) ─────────────
+  //   Commitment/usage_pmin_sol    — committed floor [MW] while ON
+  //                                  (`committed_pmin`), so a
+  //                                  post-processor can apply any
+  //                                  "near pmin" band;
+  //   Commitment/usage_at_pmin_sol — u when the unit sits at its floor
+  //                                  (p ≤ Pmin·u + tolerance), else 0;
+  //                                  × block hours = hours at pmin.
+  if (out.options().output_usage_metrics()) {
+    add_usage_to_output(out);
+  }
+  if (!startup_wear_coefs_.empty() || !wear_a_.empty()) {
+    add_wear_to_output(out);
+  }
+
   return true;
+}
+
+void CommitmentLP::add_wear_to_output(OutputContext& out) const
+{
+  // Operation wear costs, split from the other commitment costs:
+  //   Commitment/startup_wear_cost_sol   — wear × v  [$ per start event]
+  //                                        at the period's first block;
+  //   Commitment/operation_wear_cost_sol — a·u + b·(p − Pmin·u)  [$/h].
+  static constexpr std::string_view cname = Element::class_name.full_name();
+  const auto& sc = out.system_context();
+  const auto& gen = sc.element(generator_index_);
+
+  STBIndexHolder<double> start_values;
+  for (const auto& [st_key, coefs] : startup_wear_coefs_) {
+    const auto cit = startup_cols_.find(st_key);
+    if (cit == startup_cols_.end()) {
+      continue;
+    }
+    for (const auto& [buid, coef] : coefs) {
+      if (const auto vit = cit->second.find(buid); vit != cit->second.end()) {
+        start_values[st_key][buid] = coef * out.primal(vit->second);
+      }
+    }
+  }
+  STBIndexHolder<double> op_values;
+  const auto& sys = sc.system();
+  for (const auto& scenario : sys.scene().scenarios()) {
+    for (const auto& stage : sys.phase().stages()) {
+      const auto st_key = std::tuple {scenario.uid(), stage.uid()};
+      const auto ait = wear_a_.find(st_key);
+      if (ait == wear_a_.end()) {
+        continue;
+      }
+      const auto& bvals = wear_b_.at(st_key);
+      const auto& pvals = wear_pmin_.at(st_key);
+      for (const auto& [buid, a] : ait->second) {
+        const auto ucol = lookup_status_col(scenario, stage, buid);
+        const auto gcol = gen.lookup_generation_col(scenario, stage, buid);
+        if (!ucol || !gcol) {
+          continue;
+        }
+        const double u = out.primal(*ucol);
+        const double p = out.primal(*gcol);
+        op_values[st_key][buid] =
+            (a * u) + (bvals.at(buid) * (p - (pvals.at(buid) * u)));
+      }
+    }
+  }
+  out.add_col_sol_values(cname, StartupWearCostName, id(), start_values);
+  out.add_col_sol_values(cname, OperationWearCostName, id(), op_values);
+}
+
+void CommitmentLP::add_usage_to_output(OutputContext& out) const
+{
+  static constexpr std::string_view cname = Element::class_name.full_name();
+  const auto& sc = out.system_context();
+  const auto& sys = sc.system();
+  const auto& gen = sc.element(generator_index_);
+
+  STBIndexHolder<double> pmin_values;
+  STBIndexHolder<double> at_pmin_values;
+  for (const auto& scenario : sys.scene().scenarios()) {
+    for (const auto& stage : sys.phase().stages()) {
+      const auto st_key = std::tuple {scenario.uid(), stage.uid()};
+      for (const auto& block : stage.blocks()) {
+        const auto buid = block.uid();
+        const auto ucol = lookup_status_col(scenario, stage, buid);
+        if (!ucol) {
+          continue;
+        }
+        const double u = out.primal(*ucol);
+        // Floor of a committed unit: the larger of the generator pmin
+        // (scaled by a scheduled maintenance outage) and the
+        // commitment's own pmin.
+        const double pmin =
+            std::max(gen.param_pmin(stage.uid(), buid).value_or(0.0)
+                         * gen.available_fraction_at(scenario, stage, buid),
+                     committed_pmin(stage.uid(), buid).value_or(0.0));
+        const auto gcol = gen.lookup_generation_col(scenario, stage, buid);
+        const double p = gcol ? out.primal(*gcol) : 0.0;
+        pmin_values[st_key][buid] = pmin;
+        const double tol =
+            usage_at_pmin_abs_tol + (usage_at_pmin_rel_tol * pmin);
+        const bool at_floor = u > usage_on_status && p <= (pmin * u) + tol;
+        at_pmin_values[st_key][buid] = at_floor ? u : 0.0;
+      }
+    }
+  }
+  out.add_col_sol_values(cname, UsagePminName, id(), pmin_values);
+  out.add_col_sol_values(cname, UsageAtPminName, id(), at_pmin_values);
 }
 
 auto find_unit_commitment(const SystemContext& sc,

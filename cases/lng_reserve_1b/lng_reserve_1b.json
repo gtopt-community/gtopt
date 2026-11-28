@@ -1,0 +1,74 @@
+{
+  "options": {
+    "annual_discount_rate": 0.0,
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "method": "monolithic",
+    "model_options": {
+      "use_single_bus": true,
+      "scale_objective": 1,
+      "demand_fail_cost": 1000
+    }
+  },
+  "simulation": {
+    "block_array": [
+      {"uid": 1, "duration": 720},
+      {"uid": 2, "duration": 720},
+      {"uid": 3, "duration": 720}
+    ],
+    "stage_array": [
+      {"uid": 1, "first_block": 0, "count_block": 1, "active": 1},
+      {"uid": 2, "first_block": 1, "count_block": 1, "active": 1},
+      {"uid": 3, "first_block": 2, "count_block": 1, "active": 1}
+    ],
+    "scenario_array": [
+      {"uid": 1, "probability_factor": 1}
+    ]
+  },
+  "system": {
+    "name": "lng_reserve_1b",
+    "bus_array": [
+      {"uid": 1, "name": "b1"}
+    ],
+    "generator_array": [
+      {"uid": 1, "name": "gas", "bus": "b1", "pmax": 150, "gcost": 5,
+       "capacity": 150},
+      {"uid": 2, "name": "backup", "bus": "b1", "pmax": 200, "gcost": 200,
+       "capacity": 200},
+      {"uid": 3, "name": "peaker", "bus": "b1", "pmax": 50, "gcost": 300,
+       "capacity": 50}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "d1", "bus": "b1", "lmax": 100, "capacity": 100}
+    ],
+    "lng_terminal_array": [
+      {
+        "uid": 1,
+        "name": "tank",
+        "emin": 0,
+        "emax": 40000,
+        "eini": 0,
+        "annual_standing_loss": 0,
+        "delivery": [30000, 0, 0],
+        "delivery_cost": 30,
+        "spillway_cost": 5,
+        "spillway_capacity": 100000,
+        "use_state_variable": true,
+        "reserve_sustain_hours": 24,
+        "generators": [
+          {"generator": "gas", "heat_rate": 0.2}
+        ]
+      }
+    ],
+    "reserve_zone_array": [
+      {"uid": 1, "name": "csf_up", "urreq": 30, "urcost": 10000}
+    ],
+    "reserve_provision_array": [
+      {"uid": 1, "name": "gas_csf", "generator": "gas",
+       "reserve_zones": ["csf_up"], "urmax": 50, "ur_provision_factor": 1},
+      {"uid": 2, "name": "peaker_csf", "generator": "peaker",
+       "reserve_zones": ["csf_up"], "urmax": 50, "urcost": 3,
+       "ur_provision_factor": 1}
+    ]
+  }
+}

@@ -61,6 +61,18 @@ public:
   static constexpr std::string_view MinStartsName {"min_starts"};
   /// power_based: total power at the end of each block [MW]
   static constexpr std::string_view PowerName {"power"};
+  /// Usage-accounting output streams (`options.output_usage_metrics`).
+  static constexpr std::string_view UsagePminName {"usage_pmin"};
+  static constexpr std::string_view UsageAtPminName {"usage_at_pmin"};
+  /// Wear cost outputs ($ per start event, $/h per block).
+  static constexpr std::string_view StartupWearCostName {"startup_wear_cost"};
+  static constexpr std::string_view OperationWearCostName {
+      "operation_wear_cost"};
+  /// "At pmin" tolerance: p ≤ Pmin·u + abs + rel·Pmin [MW].
+  static constexpr double usage_at_pmin_abs_tol = 1e-6;
+  static constexpr double usage_at_pmin_rel_tol = 1e-3;
+  /// Status above which a (relaxed) unit counts as committed.
+  static constexpr double usage_on_status = 1e-6;
 
   using Base = ObjectLP<Commitment>;
 
@@ -178,6 +190,33 @@ public:
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
 private:
+  /// `options.output_usage_metrics` streams (see `add_to_output`).
+  void add_usage_to_output(OutputContext& out) const;
+  void add_wear_to_output(OutputContext& out) const;
+  /// Endpoints of one block's operation wear terms.
+  struct WearBlock
+  {
+    ColIndex ucol;
+    ColIndex gcol;
+    double pmin;
+    double pmax;
+  };
+  /// `startup_wear_cost` at @p rep_buid, validated (>= 0); recorded in
+  /// @p coefs when non-zero.
+  [[nodiscard]] double resolve_start_wear(const ScenarioLP& scenario,
+                                          const StageLP& stage,
+                                          BlockUid rep_buid,
+                                          BIndexHolder<double>& coefs) const;
+  /// Adds `a·u + b·(p − Pmin·u)` of one block to the u / p costs.
+  void add_operation_wear(LinearProblem& lp,
+                          const ScenarioLP& scenario,
+                          const StageLP& stage,
+                          const BlockLP& block,
+                          const WearBlock& wb,
+                          BIndexHolder<double>& wear_a,
+                          BIndexHolder<double>& wear_b,
+                          BIndexHolder<double>& wear_pmin) const;
+
   ElementIndex<GeneratorLP> generator_index_;
   /// Per-(stage, block) startup / shutdown costs applied to the v / w
   /// columns in the objective.  Back-compat: a scalar or per-stage JSON
@@ -205,6 +244,13 @@ private:
   /// (PLEXOS ``Min Stable Level`` time series).  Resolved block-by-
   /// block; unset blocks fall back to the gen column lower bound.
   OptTBRealSched pmin_;
+  /// Wear coefficients by (scenario, stage) → block: start wear [$/start]
+  /// at the period's representative block; a [$/h], b [$/MWh] and the
+  /// committed floor Pmin [MW] per block (outputs only).
+  STBIndexHolder<double> startup_wear_coefs_;
+  STBIndexHolder<double> wear_a_;
+  STBIndexHolder<double> wear_b_;
+  STBIndexHolder<double> wear_pmin_;
   /// Per-(stage, block) ramp limits / startup-shutdown output envelopes,
   /// resolved block-by-block exactly like ``pmin_``.  A scalar JSON input
   /// resolves to the same constant on every block (back-compat with the
@@ -214,6 +260,9 @@ private:
   OptTBRealSched ramp_down_;  ///< Ramp-down limit [MW/hr] while online
   OptTBRealSched startup_ramp_;  ///< Max output in startup block [MW]
   OptTBRealSched shutdown_ramp_;  ///< Max output in shutdown block [MW]
+  OptTBRealSched startup_wear_cost_;
+  OptTBRealSched wear_hour_cost_;
+  OptTBRealSched wear_load_cost_;
 
   STBIndexHolder<ColIndex> status_cols_;
   STBIndexHolder<ColIndex> block_status_cols_;  ///< every block → its u

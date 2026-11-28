@@ -1,0 +1,559 @@
+{
+ "options": {
+  "annual_discount_rate": 0.0,
+  "output_format": "csv",
+  "output_compression": "uncompressed",
+  "model_options": {
+   "use_single_bus": false,
+   "use_kirchhoff": true,
+   "demand_fail_cost": 1000.0,
+   "scale_objective": 1,
+   "network_model": "lindistflow",
+   "loss_segments": 16
+  }
+ },
+ "simulation": {
+  "block_array": [
+   {
+    "uid": 1,
+    "duration": 1
+   },
+   {
+    "uid": 2,
+    "duration": 1
+   },
+   {
+    "uid": 3,
+    "duration": 1
+   },
+   {
+    "uid": 4,
+    "duration": 1
+   },
+   {
+    "uid": 5,
+    "duration": 1
+   },
+   {
+    "uid": 6,
+    "duration": 1
+   },
+   {
+    "uid": 7,
+    "duration": 1
+   },
+   {
+    "uid": 8,
+    "duration": 1
+   },
+   {
+    "uid": 9,
+    "duration": 1
+   },
+   {
+    "uid": 10,
+    "duration": 1
+   },
+   {
+    "uid": 11,
+    "duration": 1
+   },
+   {
+    "uid": 12,
+    "duration": 1
+   },
+   {
+    "uid": 13,
+    "duration": 1
+   },
+   {
+    "uid": 14,
+    "duration": 1
+   },
+   {
+    "uid": 15,
+    "duration": 1
+   },
+   {
+    "uid": 16,
+    "duration": 1
+   },
+   {
+    "uid": 17,
+    "duration": 1
+   },
+   {
+    "uid": 18,
+    "duration": 1
+   },
+   {
+    "uid": 19,
+    "duration": 1
+   },
+   {
+    "uid": 20,
+    "duration": 1
+   },
+   {
+    "uid": 21,
+    "duration": 1
+   },
+   {
+    "uid": 22,
+    "duration": 1
+   },
+   {
+    "uid": 23,
+    "duration": 1
+   },
+   {
+    "uid": 24,
+    "duration": 1
+   }
+  ],
+  "stage_array": [
+   {
+    "uid": 1,
+    "first_block": 0,
+    "count_block": 24,
+    "active": 1
+   }
+  ],
+  "scenario_array": [
+   {
+    "uid": 1,
+    "probability_factor": 1
+   }
+  ]
+ },
+ "system": {
+  "name": "ldf_tiny",
+  "bus_array": [
+   {
+    "uid": 1,
+    "name": "src_src",
+    "voltage": 12.47,
+    "reference_theta": 0.0,
+    "reference_voltage": 1.02
+   },
+   {
+    "uid": 2,
+    "name": "src",
+    "voltage": 12.47,
+    "vmin_pu": 0.95,
+    "vmax_pu": 1.05,
+    "shunt_q": 0.000483635
+   },
+   {
+    "uid": 3,
+    "name": "b1",
+    "voltage": 12.47,
+    "vmin_pu": 0.95,
+    "vmax_pu": 1.05,
+    "shunt_q": 0.000741574
+   },
+   {
+    "uid": 4,
+    "name": "b2",
+    "voltage": 12.47,
+    "vmin_pu": 0.95,
+    "vmax_pu": 1.05,
+    "shunt_q": 0.00028725
+   },
+   {
+    "uid": 5,
+    "name": "b3",
+    "voltage": 12.47,
+    "vmin_pu": 0.95,
+    "vmax_pu": 1.05,
+    "shunt_q": 0.050023171
+   },
+   {
+    "uid": 6,
+    "name": "b4",
+    "voltage": 12.47,
+    "vmin_pu": 0.95,
+    "vmax_pu": 1.05
+   },
+   {
+    "uid": 7,
+    "name": "b5",
+    "voltage": 12.47,
+    "vmin_pu": 0.95,
+    "vmax_pu": 1.05,
+    "shunt_q": 0.3
+   },
+   {
+    "uid": 8,
+    "name": "c2",
+    "voltage": 4.16,
+    "vmin_pu": 0.95,
+    "vmax_pu": 1.05,
+    "shunt_q": 3.262e-05
+   },
+   {
+    "uid": 9,
+    "name": "c3",
+    "voltage": 4.16,
+    "vmin_pu": 0.95,
+    "vmax_pu": 1.05,
+    "shunt_q": 0.15003262
+   },
+   {
+    "uid": 10,
+    "name": "c1",
+    "voltage": 4.16,
+    "vmin_pu": 0.95,
+    "vmax_pu": 1.05
+   }
+  ],
+  "generator_array": [
+   {
+    "uid": 1,
+    "name": "source",
+    "bus": "src_src",
+    "pmin": -10000.0,
+    "pmax": 10000.0,
+    "gcost": 50.0,
+    "type": "import",
+    "qmin": -10000.0,
+    "qmax": 10000.0
+   },
+   {
+    "uid": 2,
+    "name": "g1",
+    "bus": "b5",
+    "pmin": 0.0,
+    "pmax": 0.2,
+    "gcost": 0.0,
+    "capacity": 0.2,
+    "power_factor": 0.95
+   },
+   {
+    "uid": 3,
+    "name": "g2",
+    "bus": "c3",
+    "pmin": 0.0,
+    "pmax": 0.1,
+    "gcost": 0.0,
+    "capacity": 0.1,
+    "qmin": -0.06,
+    "qmax": 0.08
+   },
+   {
+    "uid": 4,
+    "name": "pv1",
+    "bus": "c3",
+    "pmin": 0.0,
+    "pmax": 0.45,
+    "gcost": 0.0,
+    "capacity": 0.5,
+    "type": "pv"
+   },
+   {
+    "uid": 5,
+    "name": "pv2",
+    "bus": "b5",
+    "pmin": 0.0,
+    "pmax": 0.1,
+    "gcost": 0.0,
+    "capacity": 0.1,
+    "type": "pv",
+    "qmin": -0.04,
+    "qmax": 0.04
+   }
+  ],
+  "demand_array": [
+   {
+    "uid": 1,
+    "name": "d1",
+    "bus": "b2",
+    "lmax": [
+     [
+      0.45,
+      0.405,
+      0.36,
+      0.36,
+      0.405,
+      0.495,
+      0.63,
+      0.765,
+      0.855,
+      0.9,
+      0.9,
+      0.9,
+      0.855,
+      0.855,
+      0.855,
+      0.855,
+      0.9,
+      0.9,
+      0.855,
+      0.81,
+      0.72,
+      0.63,
+      0.54,
+      0.495
+     ]
+    ],
+    "power_factor": 0.948683298
+   },
+   {
+    "uid": 2,
+    "name": "d2",
+    "bus": "b3",
+    "lmax": [
+     [
+      0.075,
+      0.0675,
+      0.06,
+      0.06,
+      0.0675,
+      0.0825,
+      0.105,
+      0.1275,
+      0.1425,
+      0.15,
+      0.15,
+      0.15,
+      0.1425,
+      0.1425,
+      0.1425,
+      0.1425,
+      0.15,
+      0.15,
+      0.1425,
+      0.135,
+      0.12,
+      0.105,
+      0.09,
+      0.0825
+     ]
+    ],
+    "power_factor": 0.9
+   },
+   {
+    "uid": 3,
+    "name": "d3",
+    "bus": "c3",
+    "lmax": [
+     [
+      1.2,
+      1.2,
+      1.2,
+      1.2,
+      1.2,
+      1.2,
+      1.2,
+      1.2,
+      1.2,
+      1.2,
+      1.2,
+      1.2,
+      1.2,
+      1.2,
+      1.2,
+      1.2,
+      1.2,
+      1.2,
+      1.2,
+      1.2,
+      1.2,
+      1.2,
+      1.2,
+      1.2
+     ]
+    ],
+    "power_factor": -0.95
+   },
+   {
+    "uid": 4,
+    "name": "d4",
+    "bus": "b5",
+    "lmax": [
+     [
+      0.24,
+      0.24,
+      0.24,
+      0.24,
+      0.24,
+      0.24,
+      0.24,
+      0.24,
+      0.24,
+      0.24,
+      0.24,
+      0.24,
+      0.24,
+      0.24,
+      0.24,
+      0.24,
+      0.24,
+      0.24,
+      0.24,
+      0.24,
+      0.24,
+      0.24,
+      0.24,
+      0.24
+     ]
+    ],
+    "power_factor": 0.8
+   }
+  ],
+  "line_array": [
+   {
+    "uid": 1,
+    "name": "source_impedance",
+    "bus_a": "src_src",
+    "bus_b": "src",
+    "voltage": 12.47,
+    "resistance": 0.018857254,
+    "reactance": 0.075429016
+   },
+   {
+    "uid": 2,
+    "name": "l1",
+    "bus_a": "src",
+    "bus_b": "b1",
+    "voltage": 12.47,
+    "resistance": 0.255,
+    "reactance": 0.45,
+    "tmax_ab": 6.479602,
+    "tmax_ba": 6.479602
+   },
+   {
+    "uid": 3,
+    "name": "l2",
+    "bus_a": "b1",
+    "bus_b": "b2",
+    "voltage": 12.47,
+    "resistance": 0.136,
+    "reactance": 0.24,
+    "tmax_ab": 6.479602,
+    "tmax_ba": 6.479602
+   },
+   {
+    "uid": 4,
+    "name": "lat",
+    "bus_a": "b2",
+    "bus_b": "b3",
+    "voltage": 12.47,
+    "resistance": 0.9,
+    "reactance": 0.75,
+    "tmax_ab": 1.079934,
+    "tmax_ba": 1.079934
+   },
+   {
+    "uid": 5,
+    "name": "sw",
+    "bus_a": "b2",
+    "bus_b": "b4",
+    "voltage": 12.47,
+    "resistance": 1e-07,
+    "reactance": 0.0,
+    "type": "switch"
+   },
+   {
+    "uid": 6,
+    "name": "lm",
+    "bus_a": "b4",
+    "bus_b": "b5",
+    "voltage": 12.47,
+    "resistance": 0.4,
+    "reactance": 0.8,
+    "tmax_ab": 5.399668,
+    "tmax_ba": 5.399668
+   },
+   {
+    "uid": 7,
+    "name": "c2c3",
+    "bus_a": "c2",
+    "bus_b": "c3",
+    "voltage": 4.16,
+    "resistance": 0.3,
+    "reactance": 0.6,
+    "tmax_ab": 2.882133,
+    "tmax_ba": 2.882133
+   },
+   {
+    "uid": 8,
+    "name": "sub",
+    "bus_a": "b1",
+    "bus_b": "c1",
+    "voltage": 4.16,
+    "resistance": 0.057685333,
+    "reactance": 0.173056,
+    "type": "transformer",
+    "tmax_ab": 3.3,
+    "tmax_ba": 3.3
+   },
+   {
+    "uid": 9,
+    "name": "rega",
+    "bus_a": "c1",
+    "bus_b": "c2",
+    "voltage": 4.16,
+    "resistance": 0.000576,
+    "reactance": 0.000576,
+    "type": "transformer",
+    "tmax_ab": 3.3,
+    "tmax_ba": 3.3,
+    "tap_ratio_min": 0.909090909,
+    "tap_ratio_max": 1.111111111
+   }
+  ],
+  "battery_array": [
+   {
+    "uid": 1,
+    "name": "bess",
+    "bus": "c2",
+    "emin": 0.12,
+    "emax": 1.2,
+    "eini": 0.6,
+    "capacity": 1.2,
+    "input_efficiency": 0.95,
+    "output_efficiency": 0.95,
+    "pmax_charge": 0.3,
+    "pmax_discharge": 0.3
+   }
+  ],
+  "generator_profile_array": [
+   {
+    "uid": 1,
+    "name": "pv1_profile",
+    "generator": "pv1",
+    "profile": [
+     [
+      [
+       0.0,
+       0.0,
+       0.0,
+       0.0,
+       0.0,
+       0.05,
+       0.2,
+       0.4,
+       0.6,
+       0.8,
+       0.95,
+       1.0,
+       1.0,
+       0.95,
+       0.8,
+       0.6,
+       0.4,
+       0.2,
+       0.05,
+       0.0,
+       0.0,
+       0.0,
+       0.0,
+       0.0
+      ]
+     ]
+    ]
+   }
+  ]
+ }
+}

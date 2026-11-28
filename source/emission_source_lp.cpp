@@ -236,11 +236,13 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
 
   const auto pool_fk = zone.emission_zone().allowance_pool;
   const STBIndexHolder<RowIndex>::mapped_type* pool_energy_rows = nullptr;
+  double pool_ts = 1.0;
   if (pool_fk.has_value()) {
     // Tolerant reference (see active_ref.hpp): an inactive pool has no
     // energy row in this cell — the pool debit is omitted there.
     auto&& pool = sc.element<AllowancePoolLP>(AllowancePoolLPSId {*pool_fk});
     pool_energy_rows = pool.find_energy_rows(scenario, stage);
+    pool_ts = pool.balance_time_scale_at(scenario, stage);
     if (pool_energy_rows == nullptr) {
       warn_ref_once(Element::class_name.full_name(),
                     uid(),
@@ -336,7 +338,7 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
         const auto it = pool_energy_rows->find(buid);
         if (it != pool_energy_rows->end()) {
           const auto existing = lp.get_coeff(it->second, col);
-          lp.set_coeff(it->second, col, existing + alpha_block);
+          lp.set_coeff(it->second, col, existing + (alpha_block * pool_ts));
         }
       }
 

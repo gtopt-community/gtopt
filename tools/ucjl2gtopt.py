@@ -85,8 +85,13 @@ UC.jl problems map onto gtopt's native unit-commitment formulation:
 * **Expansion / TEP** (``Investment cost ($)`` on generators or lines)
   maps onto gtopt's expansion contract via ``_expansion_fields``:
   ``capacity = 0`` (no pre-existing), ``expcap = nameplate``,
-  ``expmod = 1`` (one module per candidate), ``capmax = nameplate``,
-  ``annual_capcost = invest_cost``.  The LP build then constructs
+  ``expmod = 1`` (one module per candidate; ``Maximum parallel
+  circuits`` on lines), ``capmax = expmod × nameplate`` and an
+  ``annual_capcost`` that makes one module cost exactly UC.jl's lump
+  ``Investment cost ($) × Investment cost weight`` over the horizon
+  (``invest × weight × 8760 / (nameplate × horizon_h)`` $/MW-year,
+  gtopt charging ``capainst × annual_capcost × hours / 8760``).  The
+  LP build then constructs
   ``capainst = capacity + expcap × expmod_var ∈ [0, expcap]`` and
   ``dispatch ≤ capainst`` (see ``source/capacity_object_lp.cpp``).
   Candidate generators also get ``pmin = 0`` so the LP is feasible
@@ -295,32 +300,53 @@ def _reactance_from_line(ldata):
     return None
 
 
-def _expansion_fields(invest_cost, nameplate_mw, integer=False):
+_HOURS_PER_YEAR = 8760.0
+
+
+def _expansion_fields(
+    invest_cost,
+    nameplate_mw,
+    integer=False,
+    *,
+    horizon_h=1.0,
+    invest_weight=1.0,
+    max_modules=1,
+):
     """Translate UC.jl's ``Investment cost ($)`` into gtopt expansion fields.
 
-    UC.jl TEP fixtures ship one ``Investment cost ($)`` figure per
-    *candidate* generator / line — the LP-side annualized cost of
-    activating that unit's nameplate capacity.  gtopt's LP-side
-    expansion contract (see ``source/capacity_object_lp.cpp:121–192``)
-    constructs::
+    UC.jl (``src/transmission/dc/build.jl``, ``input-format.md``) charges
+    a candidate's ``Investment cost ($)`` as a LUMP SUM per built unit
+    (per parallel circuit on a line), scaled by the global
+    ``Parameters["Investment cost weight"]`` (default 1), once per
+    horizon.  gtopt's LP-side expansion contract (see
+    ``source/capacity_object_lp.cpp``) constructs::
 
         capainst_var ∈ [capacity, capmax]
         capainst_var = capacity + expcap × expmod_var
         expmod_var   ∈ [0, expmod]
         dispatch ≤ capainst_var          (per-block, via capacity row)
+        capacost     = capainst × annual_capcost / 8760 × stage hours
 
     so the candidate's *optional-build* semantics requires::
 
         capacity = 0                     (no pre-existing capacity)
-        expcap   = nameplate_mw          (one module = full nameplate)
-        expmod   = 1                     (at most one module)
-        capmax   = nameplate_mw          (= capacity + expcap)
+        expcap   = nameplate_mw          (one module = one unit/circuit)
+        expmod   = max_modules           (1, or the line's parallel
+                                          circuits)
+        capmax   = expmod × nameplate_mw
+        annual_capcost = invest × weight × 8760 / (nameplate × horizon_h)
+
+    i.e. one module costs exactly ``invest × weight`` over the horizon.
+    ``annual_capcost`` is $/MW-year: emitting the lump ``invest`` there
+    (as this helper used to) charged it per MW of nameplate — on a line
+    with the 99 999 MW sentinel rating, ~10^5 times UC.jl's cost.  That
+    was invisible while gtopt let a lossless expandable line flow up to
+    ``tmax`` regardless of ``capainst`` (fixed by aa65c10df).
 
     With ``expmod_var = 0`` the LP gets ``capainst = 0`` → dispatch is
     forced to zero (line carries no flow / generator produces nothing).
-    With ``expmod_var = 1`` the LP pays ``annual_capcost`` and gets
-    ``capainst = nameplate_mw`` → full operational range.  Integrality
-    of the build decision is gated by ``integer_expmod`` (MIP TEP).
+    Integrality of the build decision is gated by ``integer_expmod``
+    (MIP TEP).
 
     ``capacity = 0`` must be carried by the *element itself* — i.e. the
     caller is responsible for emitting ``Generator.capacity = 0`` or
@@ -332,14 +358,18 @@ def _expansion_fields(invest_cost, nameplate_mw, integer=False):
     if invest_cost is None:
         return {}
     cost = float(invest_cost)
-    if cost <= 0.0 or nameplate_mw <= 0.0:
+    if cost <= 0.0 or nameplate_mw <= 0.0 or horizon_h <= 0.0:
         return {}
+    modules = max(1, int(max_modules))
+    annual_capcost = (
+        cost * float(invest_weight) * _HOURS_PER_YEAR / (nameplate_mw * horizon_h)
+    )
     fields: dict = {
         "capacity": 0.0,  # no pre-existing capacity for candidates
         "expcap": float(nameplate_mw),
-        "expmod": 1,
-        "capmax": float(nameplate_mw),
-        "annual_capcost": cost,
+        "expmod": modules,
+        "capmax": float(nameplate_mw) * modules,
+        "annual_capcost": annual_capcost,
     }
     if integer:
         fields["integer_expmod"] = True
@@ -738,6 +768,10 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
     block_duration_h = step_min / 60.0
     T = round(float(t_h) * 60.0 / step_min)
     power_balance_penalty = float(params.get("Power balance penalty ($/MW)", 1000.0))
+    # TEP: UC.jl charges ``Investment cost ($) × Investment cost weight``
+    # once per built unit / circuit over the whole horizon.
+    horizon_h = T * block_duration_h
+    invest_weight = float(params.get("Investment cost weight", 1.0))
 
     # 1 scenario × 1 chronological stage × T 1-hour blocks.
     scenario_array = [{"uid": 1, "probability_factor": 1.0}]
@@ -1041,7 +1075,13 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         # (overrides ``capacity`` to 0 on candidate units — see
         # ``_expansion_fields``).
         gen_entry.update(
-            _expansion_fields(invest_cost, pmax, integer=not relax_commitment)
+            _expansion_fields(
+                invest_cost,
+                pmax,
+                integer=not relax_commitment,
+                horizon_h=horizon_h,
+                invest_weight=invest_weight,
+            )
         )
         generator_array.append(gen_entry)
 
@@ -1585,7 +1625,17 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         # ``_expansion_fields``).
         line_entry.update(
             _expansion_fields(
-                ldata.get("Investment cost ($)"), tmax, integer=not relax_commitment
+                ldata.get("Investment cost ($)"),
+                tmax,
+                integer=not relax_commitment,
+                horizon_h=horizon_h,
+                invest_weight=invest_weight,
+                # UC.jl reads ``Maximum parallel circuits``; older
+                # fixtures (base.json) spell it ``Max number of ...``.
+                max_modules=ldata.get(
+                    "Maximum parallel circuits",
+                    ldata.get("Max number of parallel circuits", 1),
+                ),
             )
         )
         line_array.append(line_entry)

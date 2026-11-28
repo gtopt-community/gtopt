@@ -172,6 +172,11 @@ struct Demand
   OptTRealFieldSched fixed_om_cost {};
   /// @}
 
+  /// Signed power factor of the served load under `network_model =
+  /// "lindistflow"`: reactive load `sign(pf)·tan(acos|pf|)·load`
+  /// (negative = leading / capacitive).  Unset → unity.
+  OptReal power_factor {};
+
   /**
    * @brief Sets the demand attributes from a DemandAttrs object
    *

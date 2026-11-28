@@ -314,7 +314,11 @@ struct Battery
   /// balance are scaled by 24/stage_duration so that emin/emax constraints
   /// represent a daily cycle regardless of the stage length. Implies
   /// decoupled stage/phase behaviour (use_state_variable forced false).
-  /// Default for batteries is true (enabled); can be disabled explicitly.
+  /// Default for batteries is true (enabled); a long-duration / state
+  /// battery (pumped hydro, large BESS carried across stages like a
+  /// reservoir) must set it false explicitly (and `use_state_variable`
+  /// true): `use_state_variable` alone has no effect while daily_cycle
+  /// is on (validate_planning warns).
   OptBool daily_cycle {};
 
   /// Point-stage storage integration rule of this element (`block` = `cc` |

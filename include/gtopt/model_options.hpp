@@ -461,6 +461,7 @@ struct ModelOptions
   /// gtopt has no startup-time / notification-time field, so the rule
   /// uses min up/down only.  Default 1 h.
   OptReal fast_start_max_hours {};
+
   /// Ramp-rate discretisation for `Commitment.ramp_up` / `ramp_down`:
   ///  - `"backward"` (default, block and point stages): the interval
   ///    slope `−RD·u_k·h_k − SD·w_k ≤ p_k − p_{k−1} ≤ RU·u_{k−1}·h_k +
@@ -546,6 +547,14 @@ struct ModelOptions
   /// unit still gets a warning.  Unset: undeclared units are an error.
   OptName long_transition {};
 
+  /// Planning default of `Commitment.commitment_breaks`: the daily
+  /// commitment grid (cell boundaries in hours of the day, [0, 24),
+  /// strictly increasing, e.g. `[3.5, 7.5, 10.5, 14.5, 17.5, 23.5]`)
+  /// for every unit without its own `commitment_breaks`,
+  /// `commitment_period` or `commitment_grid` "block" / "cells".  Unset
+  /// (default) = no daily grid.
+  std::optional<std::vector<Real>> commitment_breaks {};
+
   /// Default integrality of the commitment startup / shutdown columns
   /// (v / w); `Commitment.transition_integrality` overrides it per unit.
   /// See `TransitionIntegrality` (transition_integrality.hpp):
@@ -589,11 +598,25 @@ struct ModelOptions
   /// Per-line `Line.flow_direction` overrides it.
   OptName line_direction_mode {};
 
+  /// Network power-flow model: `"dc"` (default; transport / DC power
+  /// flow, today's LP) or `"lindistflow"` (linearised DistFlow for
+  /// radial distribution feeders: squared voltages, reactive power,
+  /// taps, MVA polygons).  See `NetworkModel` (line_enums.hpp).
+  OptName network_model {};
+
+  /// Sides of the polygon that approximates a line's MVA circle
+  /// `P² + Q² ≤ S²` under `network_model = "lindistflow"` (default 8;
+  /// 0 = no polygon, only the active-power `tmax`).  The polygon
+  /// circumscribes the circle (over-estimate ≤ 1/cos(π/n) − 1).
+  OptInt mva_polygon_sides {};
+
   /// What a user-constraint `<attr>_prev` term reads at the first block
   /// of a stage whose predecessor is in the same phase.  See
   /// `PrevStageLink` (planning_enums.hpp):
   ///   * `"stage"` (default) — the previous stage's last block;
-  ///   * `"none"` — the constant 0 (legacy behaviour).
+  ///   * `"none"` — the constant 0 (legacy behaviour);
+  ///   * `"period"` — on a periodic stage (typical day / week) the last
+  ///     block of the SAME stage (the period wraps); else as `"stage"`.
   OptName prev_stage_link {};
 
   /// Global switch for the dynamic line rating (`Line.dlr`).  Default
@@ -617,6 +640,54 @@ struct ModelOptions
   /// well above reported DLR gains: +10–25 % typical, ~40 % at windy
   /// sites, 50–72 % outliers).
   OptReal max_overload_ratio {};
+
+  /// How reserve provisions react to `Generator.outage_fraction`
+  /// (maintenance schedule): `"none"` (default; provision caps
+  /// untouched, only the headroom shrinks with the scaled generation
+  /// bounds), `"proportional"` (`urmax`/`drmax` scaled by `1 − f`) or
+  /// `"exclude"` (no reserve in a block with `f > 0`).  See
+  /// `OutageReserveMode` (`generator_enums.hpp`).
+  OptName outage_reserve_mode {};
+
+  /// Risk measure of the scenario costs (see `RiskMeasure`,
+  /// `include/gtopt/risk_measure.hpp`):
+  ///   * `"expected"` (default) — minimise the expected total cost
+  ///     Σ_s p_s C_s (risk-neutral; the LP is unchanged).
+  ///   * `"cvar"` — minimise (1 − λ)·E[C] + λ·CVaR_α[C] over the
+  ///     scenarios of each (scene, phase) LP, in the Rockafellar–Uryasev
+  ///     form.  Investment is shared (first stage), so only the operating
+  ///     cost is risk-adjusted.  Monolithic single-phase planning only:
+  ///     SDDP / cascade and multi-phase runs are rejected by validation.
+  /// Use it INSTEAD of a risk premium in the candidates' `wacc`, never on
+  /// top of one (risk would be counted twice).
+  OptName risk_measure {};
+  /// Tail level α ∈ [0, 1) of `risk_measure = "cvar"`: CVaR_α averages the
+  /// worst (1 − α) share of the scenario-cost distribution.  α = 0 gives
+  /// the expectation; α → 1 the worst scenario.  Default 0.95.
+  OptReal cvar_alpha {};
+  /// Weight λ ∈ [0, 1] of CVaR in the mean-CVaR blend of
+  /// `risk_measure = "cvar"`.  λ = 0 is the expected cost.  Default 0.5.
+  OptReal cvar_weight {};
+  /// Tail selection of `risk_measure`: `"cost"` (default; endogenous, the
+  /// costliest scenarios at the optimum) or `"index"` (exogenous, by
+  /// `Scenario.risk_index`, e.g. a hydrology index wet → dry).
+  OptName risk_rank_by {};
+  /// Side of the ranking that forms the tail: `"upper"` (default; highest
+  /// cost / index) or `"lower"` (lowest index; index ranking only).
+  OptName risk_tail {};
+  /// Storages on periodic stages (`Stage.periodic`: a typical day / week
+  /// standing for n = `duration / period_hours` repetitions).
+  /// Unset / `false` (default): the legacy rules — a `daily_cycle`
+  /// storage chains its start level from the previous stage (and pins
+  /// `eini`), a state storage integrates the weighted block durations as
+  /// one stretched sequence.
+  /// `true`: a `daily_cycle` storage starts every periodic stage at a
+  /// free level and closes on itself (no chain, `eini` / `efin` not
+  /// applied); a state storage runs ONE real cycle and its stage-end
+  /// state is `efin = s + n·(x_{N−1} − s)` (`cycle_scale` row), with the
+  /// bounds checked on the first and the ⌈n⌉-th repetition
+  /// (`cycle_shift` rows).
+  OptBool periodic_storage {};
 
   void merge(const ModelOptions& opts)
   {
@@ -661,16 +732,25 @@ struct ModelOptions
     merge_opt(reserve_coupling, opts.reserve_coupling);
     merge_opt(pricing_mode, opts.pricing_mode);
     merge_opt(fast_start_max_hours, opts.fast_start_max_hours);
+    merge_opt(risk_measure, opts.risk_measure);
+    merge_opt(cvar_alpha, opts.cvar_alpha);
+    merge_opt(cvar_weight, opts.cvar_weight);
+    merge_opt(risk_rank_by, opts.risk_rank_by);
+    merge_opt(risk_tail, opts.risk_tail);
     merge_opt(transition_integrality, opts.transition_integrality);
     merge_opt(transition_status_rows, opts.transition_status_rows);
     merge_opt(startup_tier_integrality, opts.startup_tier_integrality);
     merge_opt(line_thermal_limit_mode, opts.line_thermal_limit_mode);
     merge_opt(line_direction_mode, opts.line_direction_mode);
+    merge_opt(network_model, opts.network_model);
+    merge_opt(mva_polygon_sides, opts.mva_polygon_sides);
     merge_opt(prev_stage_link, opts.prev_stage_link);
     merge_opt(use_line_dlr, opts.use_line_dlr);
     merge_opt(dlr_limit_mode, opts.dlr_limit_mode);
     merge_opt(overload_slack_bound, opts.overload_slack_bound);
     merge_opt(max_overload_ratio, opts.max_overload_ratio);
+    merge_opt(outage_reserve_mode, opts.outage_reserve_mode);
+    merge_opt(periodic_storage, opts.periodic_storage);
     merge_opt(ramp_formula, opts.ramp_formula);
     merge_opt(ramp_wrap, opts.ramp_wrap);
     merge_opt(uc_formulation, opts.uc_formulation);
@@ -679,6 +759,7 @@ struct ModelOptions
               opts.reservoir_storage_integration);
     merge_opt(battery_storage_integration, opts.battery_storage_integration);
     merge_opt(long_transition, opts.long_transition);
+    merge_opt(commitment_breaks, opts.commitment_breaks);
   }
 
   /// True if any field is set.
@@ -707,18 +788,21 @@ struct ModelOptions
         || battery_annual_standing_loss.has_value()
         || battery_power_envelope.has_value() || reserve_coupling.has_value()
         || pricing_mode.has_value() || fast_start_max_hours.has_value()
-        || transition_integrality.has_value()
+        || risk_measure.has_value() || cvar_alpha.has_value()
+        || cvar_weight.has_value() || transition_integrality.has_value()
         || transition_status_rows.has_value()
         || startup_tier_integrality.has_value()
         || line_thermal_limit_mode.has_value() || prev_stage_link.has_value()
-        || line_direction_mode.has_value() || use_line_dlr.has_value()
+        || line_direction_mode.has_value() || network_model.has_value()
+        || mva_polygon_sides.has_value() || use_line_dlr.has_value()
         || dlr_limit_mode.has_value() || overload_slack_bound.has_value()
         || max_overload_ratio.has_value() || ramp_formula.has_value()
+        || outage_reserve_mode.has_value() || periodic_storage.has_value()
         || ramp_wrap.has_value() || uc_formulation.has_value()
         || storage_integration.has_value()
         || reservoir_storage_integration.has_value()
         || battery_storage_integration.has_value()
-        || long_transition.has_value();
+        || long_transition.has_value() || commitment_breaks.has_value();
   }
 
   /// True iff every field set in `other` has an equal value in `*this`.
@@ -772,6 +856,11 @@ struct ModelOptions
         && covers_opt(reserve_coupling, other.reserve_coupling)
         && covers_opt(pricing_mode, other.pricing_mode)
         && covers_opt(fast_start_max_hours, other.fast_start_max_hours)
+        && covers_opt(risk_measure, other.risk_measure)
+        && covers_opt(cvar_alpha, other.cvar_alpha)
+        && covers_opt(cvar_weight, other.cvar_weight)
+        && covers_opt(risk_rank_by, other.risk_rank_by)
+        && covers_opt(risk_tail, other.risk_tail)
         && covers_opt(transition_integrality, other.transition_integrality)
         && covers_opt(transition_status_rows, other.transition_status_rows)
         && covers_opt(startup_tier_integrality, other.startup_tier_integrality)
@@ -779,9 +868,13 @@ struct ModelOptions
         && covers_opt(line_direction_mode, other.line_direction_mode)
         && covers_opt(prev_stage_link, other.prev_stage_link)
         && covers_opt(use_line_dlr, other.use_line_dlr)
+        && covers_opt(network_model, other.network_model)
+        && covers_opt(mva_polygon_sides, other.mva_polygon_sides)
         && covers_opt(dlr_limit_mode, other.dlr_limit_mode)
         && covers_opt(overload_slack_bound, other.overload_slack_bound)
         && covers_opt(max_overload_ratio, other.max_overload_ratio)
+        && covers_opt(outage_reserve_mode, other.outage_reserve_mode)
+        && covers_opt(periodic_storage, other.periodic_storage)
         && covers_opt(ramp_formula, other.ramp_formula)
         && covers_opt(ramp_wrap, other.ramp_wrap)
         && covers_opt(uc_formulation, other.uc_formulation)
@@ -790,7 +883,8 @@ struct ModelOptions
                       other.reservoir_storage_integration)
         && covers_opt(battery_storage_integration,
                       other.battery_storage_integration)
-        && covers_opt(long_transition, other.long_transition);
+        && covers_opt(long_transition, other.long_transition)
+        && covers_opt(commitment_breaks, other.commitment_breaks);
   }
 };
 

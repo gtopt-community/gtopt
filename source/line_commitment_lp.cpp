@@ -15,6 +15,7 @@
 
 #include <cmath>
 #include <numbers>
+#include <ranges>
 #include <tuple>
 
 #include <gtopt/cost_helper.hpp>
@@ -114,6 +115,24 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
   const auto is_must_run = lc.must_run.value_or(false);
 
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
+
+  // Cyclic line commitment (`LineCommitment.cycle = "stage"`): the stage
+  // is a typical period repeated in a cycle.  The breaker state wraps
+  // around the period (C1 at block 0 references the last block, no
+  // `initial_status` pin or pre-stage offline hours), windows run on
+  // real time steps and wrap, and start / stop costs are paid once per
+  // repetition (× n = duration / period_hours, 1 without period_hours).
+  const bool cyclic = lc.is_cyclic();
+  const double cycle_weight = cyclic ? stage.repetitions() : 1.0;
+  const auto nblk = blocks.size();
+  const auto dur_at = [&](size_t q)
+  {
+    return cyclic ? stage.real_duration(blocks[q % nblk])
+                  : blocks[q].duration();
+  };
+  // walk limit of a forward window starting at t (wraps at most once
+  // around the period when cyclic)
+  const auto fwd_end = [&](size_t t) { return cyclic ? t + nblk : nblk; };
 
   BIndexHolder<ColIndex> ucols;
   BIndexHolder<RowIndex> cprows;
@@ -225,7 +244,7 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
     // semantics instead.
     const bool uvw_active = lc.startup_cost.value_or(0.0) != 0.0
         || lc.shutdown_cost.value_or(0.0) != 0.0;
-    if (!has_fixed && !is_must_run && !uvw_active
+    if (!has_fixed && !is_must_run && !uvw_active && !cyclic
         && buid == blocks.front().uid() && lc.initial_status.has_value())
     {
       const double init = lc.initial_status.value();
@@ -497,7 +516,7 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
     // pinned the breaker's pre-stage state; default to 0 (assume open
     // before the stage starts — matches CommitmentLP convention).
     double initial_u = 0.0;
-    if (lc.initial_status.has_value()) {
+    if (lc.initial_status.has_value() && !cyclic) {
       initial_u = (lc.initial_status.value() >= 0.5) ? 1.0 : 0.0;
     }
 
@@ -516,13 +535,26 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
     const bool tiers_active = lc.has_startup_tiers();
     const auto v_cost = (tiers_active ? 0.0 : startup_cost)
         * CostHelper::cost_factor(scenario.probability_factor(),
-                                  stage.discount_factor());
+                                  stage.discount_factor())
+        * cycle_weight;
     const auto w_cost = shutdown_cost
         * CostHelper::cost_factor(scenario.probability_factor(),
-                                  stage.discount_factor());
+                                  stage.discount_factor())
+        * cycle_weight;
 
     ColIndex prev_ucol {};
     bool first_block = true;
+    // Cyclic: block 0's predecessor is the last block with a status
+    // column (the transition wraps around the period).
+    if (cyclic) {
+      for (const auto& blk : blocks | std::views::reverse) {
+        if (const auto it = ucols.find(blk.uid()); it != ucols.end()) {
+          prev_ucol = it->second;
+          first_block = false;
+          break;
+        }
+      }
+    }
 
     for (const auto& block : blocks) {
       const auto buid = block.uid();
@@ -598,9 +630,12 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
             .context = ctx,
         };
         row.equal(first_block ? initial_u : 0.0);
-        row[ucol] = 1.0;
-        if (!first_block) {
-          row[prev_ucol] = -1.0;
+        // (a one-block cyclic stage wraps onto itself: no u terms)
+        if (first_block || prev_ucol != ucol) {
+          row[ucol] = 1.0;
+          if (!first_block) {
+            row[prev_ucol] = -1.0;
+          }
         }
         row[vcol] = -1.0;
         row[wcol] = 1.0;
@@ -660,8 +695,8 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
         // Forward-walk to find UT (in blocks) covering min_up_hours.
         double acc = 0.0;
         size_t ut = 0;
-        for (size_t q = t; q < blocks.size() && acc < min_up_hours; ++q) {
-          acc += blocks[q].duration();
+        for (size_t q = t; q < fwd_end(t) && acc < min_up_hours; ++q) {
+          acc += dur_at(q);
           ++ut;
         }
         if (ut <= 1) {
@@ -674,8 +709,8 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
             .context = make_block_context(scenario.uid(), stage.uid(), buid_t),
         };
         row.greater_equal(0.0);
-        for (size_t q = t; q < t + ut && q < blocks.size(); ++q) {
-          const auto u_it = ucols.find(blocks[q].uid());
+        for (size_t q = t; q < t + ut && q < fwd_end(t); ++q) {
+          const auto u_it = ucols.find(blocks[q % nblk].uid());
           if (u_it != ucols.end()) {
             row[u_it->second] = 1.0;
           }
@@ -707,14 +742,14 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
         }
         double acc = 0.0;
         size_t dt = 0;
-        for (size_t q = t; q < blocks.size() && acc < min_down_hours; ++q) {
-          acc += blocks[q].duration();
+        for (size_t q = t; q < fwd_end(t) && acc < min_down_hours; ++q) {
+          acc += dur_at(q);
           ++dt;
         }
         if (dt <= 1) {
           continue;
         }
-        const auto span = std::min(t + dt, blocks.size()) - t;
+        const auto span = std::min(t + dt, fwd_end(t)) - t;
         SparseRow row {
             .class_name = cname,
             .constraint_name = MinDownTimeName,
@@ -722,8 +757,8 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
             .context = make_block_context(scenario.uid(), stage.uid(), buid_t),
         };
         row.less_equal(static_cast<double>(span));
-        for (size_t q = t; q < t + dt && q < blocks.size(); ++q) {
-          const auto u_it = ucols.find(blocks[q].uid());
+        for (size_t q = t; q < t + dt && q < fwd_end(t); ++q) {
+          const auto u_it = ucols.find(blocks[q % nblk].uid());
           if (u_it != ucols.end()) {
             row[u_it->second] = 1.0;
           }
@@ -842,8 +877,10 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
         const auto initial_offline =
             (initial_u < 0.5) ? lc.initial_hours.value_or(1e6) : 0.0;
 
-        const auto tier_factor = CostHelper::cost_factor(
-            scenario.probability_factor(), stage.discount_factor());
+        const auto tier_factor =
+            CostHelper::cost_factor(scenario.probability_factor(),
+                                    stage.discount_factor())
+            * cycle_weight;
         const auto h_cost = hot_cost * tier_factor;
         const auto wm_cost = warm_cost * tier_factor;
         const auto c_cost = cold_cost * tier_factor;
@@ -968,15 +1005,19 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
           // ``w[q]`` for which the cumulative offline window covers
           // [0, hot_time] feeds hot_row; the slice (hot_time,
           // cold_time] feeds warm_row.
+          // (cyclic: the walk wraps around the period, at most the
+          // other N − 1 blocks)
           double back = 0.0;
-          for (size_t q = t; q > 0; --q) {
-            const auto buid_q = blocks[q - 1].uid();
+          const size_t back_limit = cyclic ? nblk - 1 : t;
+          for (size_t s_back = 1; s_back <= back_limit; ++s_back) {
+            const auto qb = (t + nblk - s_back) % nblk;
+            const auto buid_q = blocks[qb].uid();
             const auto w_q_it = w_holder->second.find(buid_q);
             if (w_q_it == w_holder->second.end()) {
               continue;
             }
             const auto wcol_q = w_q_it->second;
-            back += blocks[q - 1].duration();
+            back += dur_at(qb);
             if (back < hot_time) {
               hot_row[wcol_q] = -1.0;
             }
@@ -992,7 +1033,7 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
           // slack is never looser than the real offline time.  It used
           // to apply at t = 0 only (later first starts were always
           // cold) and with inclusive thresholds.
-          if (initial_u < 0.5) {
+          if (!cyclic && initial_u < 0.5) {
             const auto offline_since_initial = initial_offline + elapsed;
             if (offline_since_initial < hot_time) {
               hot_row.less_equal(1.0);

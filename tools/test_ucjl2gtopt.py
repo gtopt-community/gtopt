@@ -1568,6 +1568,53 @@ def test_real_base_with_storage_topology_counts(tmp_path: Path) -> None:
         assert bats[sname]["daily_cycle"] is False
 
 
+@pytest.mark.skipif(
+    not _VENDORED_BASE_WITH_STORAGE.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_BASE_WITH_STORAGE}",
+)
+def test_real_base_with_storage_tep_lump_investment_cost(tmp_path: Path) -> None:
+    """UC.jl ``Investment cost ($)`` is a lump sum per unit / circuit.
+
+    UC.jl adds ``invest × Investment cost weight`` (here 0.1) to the
+    objective once per built unit (per parallel circuit on a line) over
+    the 4 h horizon.  gtopt charges ``capainst × annual_capcost / 8760``
+    per hour, so one module must cost exactly ``invest × weight``:
+
+      * l21 (b1-b3): 1000 × 0.1 = 100 $ per circuit, up to 3 circuits.
+      * l22 (b2-b6): 5000 × 0.1 = 500 $, one circuit.
+      * g2: 5000 × 0.1 = 500 $; p2: 1000 × 0.1 = 100 $.
+
+    The converter used to emit the lump cost as ``annual_capcost``
+    ($/MW-year) on the 99 999 MW sentinel line rating, i.e. 45 662 $ for
+    one l21 circuit.  Hidden while gtopt ignored ``capainst`` on
+    lossless lines; once aa65c10df bounded their flow by it, the MIP
+    paid that and its objective jumped from 143 285 to 189 345.
+    """
+    out = tmp_path / "g.json"
+    proc = _run_converter(_VENDORED_BASE_WITH_STORAGE, out, "--mip")
+    assert proc.returncode == 0, proc.stderr
+    system = json.loads(out.read_text())["system"]
+    horizon_h = 4.0
+
+    def module_cost(elem: dict) -> float:
+        return elem["expcap"] * elem["annual_capcost"] / 8760.0 * horizon_h
+
+    lines = {ln["name"]: ln for ln in system["line_array"]}
+    gens = {g["name"]: g for g in system["generator_array"]}
+    assert module_cost(lines["l21"]) == pytest.approx(100.0)
+    assert lines["l21"]["expmod"] == 3
+    assert lines["l21"]["capmax"] == pytest.approx(3 * lines["l21"]["expcap"])
+    assert module_cost(lines["l22"]) == pytest.approx(500.0)
+    assert lines["l22"]["expmod"] == 1
+    assert module_cost(gens["g2"]) == pytest.approx(500.0)
+    assert module_cost(gens["p2"]) == pytest.approx(100.0)
+    for elem in (lines["l21"], lines["l22"], gens["g2"], gens["p2"]):
+        assert elem["capacity"] == 0.0
+        assert elem["integer_expmod"] is True
+    # Existing lines stay plain (no expansion machinery).
+    assert "annual_capcost" not in lines["l1"]
+
+
 def _base_with_storage_soft_r2(tmp_path: Path) -> Path:
     """base_with_storage with r2's shortfall penalty -5 replaced by +5.
 
@@ -1643,11 +1690,15 @@ def test_real_base_with_storage_solves_lprelax(tmp_path: Path) -> None:
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0
-    # A true relaxation of the MIP below (143 285.28): UC.jl's
+    # A true relaxation of the MIP below (143 846.38): UC.jl's
     # when-charging / when-discharging rate floors relax to p >= 0.
     # When they were emitted as hard every-block floors this read
-    # 143 400.38, ABOVE the MIP.  HiGHS and CPLEX agree to 1e-9.
-    assert obj == pytest.approx(143_231.35, rel=1e-6)
+    # 143 400.38, ABOVE the MIP.  CLP, HiGHS and CPLEX agree to 1e-9.
+    # Was 143 231.35 while the TEP candidate lines l21 / l22 flowed for
+    # free (gtopt ignored capainst on lossless lines until aa65c10df);
+    # +63.47 is p2's build priced at UC.jl's lump 1000 × 0.1 = 100 $
+    # instead of 36.53 $, the rest the fractional circuits of l21/l22.
+    assert obj == pytest.approx(143_294.99, rel=1e-6)
 
     # Battery output dir confirms the LP build instantiated the BESS
     # variables (efin / efmax / charge / discharge cols + balance rows).
@@ -1683,9 +1734,17 @@ def test_real_base_with_storage_mip_clean_binary(tmp_path: Path) -> None:
     exactly +498 000 to ``139 284.82`` when 7fd5b5fbe added the met
     soft-reserve valuation ``urcost × urreq`` to the objective constant
     (r1 1000 × 400 + r2 -5 × 400 + r3 500 × 200 MWh); dispatch unchanged.
-    Now ``143 285.28`` on the soft-r2 variant: r2's -5 $/MW (a reward
+    Then ``143 285.28`` on the soft-r2 variant: r2's -5 $/MW (a reward
     for shortfall, really a hard requirement in UC.jl) became +5, i.e.
     exactly +10 × 400 MWh of r2 shortfall = +4 000; dispatch unchanged.
+    Now ``143 846.38`` (HiGHS and CPLEX agree at mip_gap 1e-9): that
+    value let the TEP candidate lines l21 / l22 carry flow without
+    being built (gtopt ignored ``capainst`` on lossless lines until
+    aa65c10df).  With the line capacity enforced and UC.jl's lump
+    investment cost (``invest × weight 0.1``) the MIP builds one l21
+    circuit (100 $) and p2 (100 $, was 36.53 $): exactly +163.47 with
+    l22 kept free (143 448.75); l22's 500 $ is not worth it, so it
+    stays unbuilt and redispatch costs +397.63 instead.
 
     Skipped when no MIP solver plugin is loaded.
     """
@@ -1712,7 +1771,14 @@ def test_real_base_with_storage_mip_clean_binary(tmp_path: Path) -> None:
     # solver can pick equally-optimal integer corners that float slightly
     # around the original-formulation incumbent.  See the matching comment
     # on ``test_real_case14_flex_mip_full_network``.
-    assert obj == pytest.approx(143_285.28, rel=1e-3)
+    assert obj == pytest.approx(143_846.38, rel=1e-4)
+
+    # The TEP decisions behind that value: one l21 circuit and p2 built,
+    # l22 not.  (Before the fix the MIP bought a whole 99 999 MW "module"
+    # of l21 for 45 662 $ and read 189 344.56.)
+    expmod_csv = tmp_path / "run" / "output" / "Line" / "expmod_sol_s0_p0.csv"
+    assert _read_uid_column_csv(expmod_csv, 21) == pytest.approx([1.0], abs=1e-6)
+    assert _read_uid_column_csv(expmod_csv, 22) == pytest.approx([0.0], abs=1e-6)
 
     # Integer-column scaling-fix invariant on every commitment.
     for gen_uid in range(1, 11):  # 10 commitments on the thermal gens
@@ -1919,15 +1985,19 @@ def test_real_tep_ieee24_topology_counts(tmp_path: Path) -> None:
 
     # Spot-check the candidate-line expansion contract:
     #   capacity = 0  (no pre-existing capacity)
-    #   expmod   = 1  (one module)
-    #   capmax   = tmax_ab (= capacity + expcap)
-    #   expcap   = tmax_ab (one module = full nameplate)
+    #   expmod   = Max number of parallel circuits (l1 b1-b2: 2)
+    #   expcap   = tmax_ab (one module = one circuit)
+    #   capmax   = expmod × expcap
+    #   annual_capcost = invest × 8760 / (expcap × 1 h): one circuit
+    #   costs UC.jl's lump 7 040 000 $ over the 1 h horizon.
     sample = candidate_lines[0]
     assert sample["capacity"] == 0.0
-    assert sample["expmod"] == 1
+    assert sample["expmod"] == 2
     assert sample["expcap"] == sample["tmax_ab"]
-    assert sample["capmax"] == sample["tmax_ab"]
-    assert sample["annual_capcost"] > 0.0
+    assert sample["capmax"] == 2 * sample["tmax_ab"]
+    assert sample["annual_capcost"] * sample["expcap"] / 8760.0 == pytest.approx(
+        7_040_000.0
+    )
 
 
 @pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")

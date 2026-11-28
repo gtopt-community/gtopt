@@ -122,6 +122,7 @@ REQUIRED_DATA_FILES: tuple[tuple[str, str], ...] = (
     ("gtopt_shared", "data/json_contracts.json"),
     ("gtopt_shared", "data/emissions/cen_chile.json"),
     ("gtopt_shared", "data/cogen/cen_chile_cogen.csv"),
+    ("opendss2gtopt", "data/vad_params.json"),
     *(
         ("gtopt_shared", f"data/countries/{cc}.toml")
         for cc in ("au", "cl", "co", "gt", "pe")

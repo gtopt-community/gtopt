@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include <expected>
 #include <format>
@@ -6,6 +7,7 @@
 #include <ranges>
 #include <span>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <tuple>
 #include <utility>
@@ -25,6 +27,60 @@ namespace
 {
 
 using namespace gtopt;
+
+/// Per-block SSCC known variable-cost adders [$/MW·h held].
+struct SsccAdders
+{
+  double partload {0.0};
+  double activation {0.0};  ///< γ · activation energy cost
+  double degradation {0.0};  ///< γ · degradation cost
+  [[nodiscard]] constexpr double total() const noexcept
+  {
+    return partload + activation + degradation;
+  }
+};
+
+/// Resolve the adders of one direction at (stage, block).  Every term
+/// is off unless its field is set; `activation_cost` unset with γ set
+/// reads `energy_cost_at(buid)` (generator SRMC) for up reserve.  Each
+/// input must be finite and ≥ 0, γ ≤ 1 (guard rails: a negative adder
+/// would pay the LP to hold reserve).
+std::expected<SsccAdders, std::string> sscc_cost_adders(
+    const ReserveProvisionLP::Provision& rp,
+    StageUid suid,
+    BlockUid buid,
+    const auto& energy_cost_at)
+{
+  const auto valid = [](std::optional<double> v) -> bool
+  { return !v || (std::isfinite(*v) && *v >= 0.0); };
+  const auto partload = rp.partload_cost.optval(suid, buid);
+  const auto gamma = rp.activation_factor.optval(suid, buid);
+  const auto act = rp.activation_cost.optval(suid, buid);
+  const auto deg = rp.degradation_cost.optval(suid, buid);
+  if (!valid(partload) || !valid(act) || !valid(deg)) {
+    return std::unexpected(std::string {
+        "partload / activation / degradation costs must be finite and >= 0"});
+  }
+  if (gamma && (!std::isfinite(*gamma) || *gamma < 0.0 || *gamma > 1.0)) {
+    return std::unexpected(
+        std::format("activation factor = {} must be in [0, 1]", *gamma));
+  }
+  SsccAdders out {.partload = partload.value_or(0.0)};
+  const double g = gamma.value_or(0.0);
+  if (g > 0.0) {
+    // A negative SRMC (e.g. a must-take credit) never makes the
+    // activation adder negative.
+    double energy_cost = 0.0;
+    if (act) {
+      energy_cost = *act;
+    } else if (rp.activation_cost_is_srmc) {
+      energy_cost = std::max(0.0, energy_cost_at(buid));
+    }
+    out.activation = g * energy_cost;
+    out.degradation = g * deg.value_or(0.0);
+  }
+  return out;
+}
 
 /// Build the provision column + coupling rows for a single direction
 /// (up or down) and inject the `stage_provision_factor × prov_col`
@@ -54,7 +110,9 @@ std::expected<void, Error> add_provision(
     std::span<const ElementIndex<ReserveZoneLP>> reserve_zone_indexes,
     const SystemContext& sc,
     auto get_requirement_rows,
-    auto provision_row)
+    auto provision_row,
+    auto energy_cost_at,
+    auto outage_rmax_scale_at)
 {
   // `provision_factor` / `cost` / `capacity_factor` are now
   // per-(stage, block).  An *empty* provision_factor at every block of
@@ -118,6 +176,37 @@ std::expected<void, Error> add_provision(
     }
 
     const auto block_cost = rp.cost.optval(stage.uid(), buid).value_or(0.0);
+    // Guard rail: the reserve bid cost is the DIRECT provision cost
+    // (wear, regulation VOM) of holding 1 MW for 1 h — never negative.
+    // A negative coefficient would make the LP buy reserve for its own
+    // sake (unbounded up to `rmax`) and credit the energy price through
+    // the shared headroom.  `validate_planning` rejects inline values;
+    // this catches file-backed schedules resolved at load time.
+    if (block_cost < 0.0 || !std::isfinite(block_cost)) {
+      return std::unexpected(Error {
+          .code = ErrorCode::InvalidInput,
+          .message = std::format(
+              "{} cost = {} at stage {} block {} must be finite and >= 0 "
+              "(urcost / drcost are direct provision costs)",
+              pname,
+              block_cost,
+              stage.uid(),
+              buid),
+      });
+    }
+    // SSCC known variable-cost adders [$/MW·h held] (each off unless
+    // set): part-load penalty + γ·(activation energy cost + degradation).
+    const auto adders = sscc_cost_adders(rp, stage.uid(), buid, energy_cost_at);
+    if (!adders) {
+      return std::unexpected(Error {
+          .code = ErrorCode::InvalidInput,
+          .message = std::format("{} at stage {} block {}: {}",
+                                 pname,
+                                 stage.uid(),
+                                 buid,
+                                 adders.error()),
+      });
+    }
     const auto block_capacity_factor =
         rp.capacity_factor.optval(stage.uid(), buid);
     const bool use_capacity = use_capacity_field && block_capacity_factor;
@@ -132,6 +221,7 @@ std::expected<void, Error> add_provision(
     }
     const auto gcol = gcol_it->second;
     auto block_rmax = rp.max.optval(stage.uid(), buid);
+    const bool explicit_rmax = block_rmax.has_value();
     if (!block_rmax) {
       // No explicit provision max for this (stage, block).  A wired
       // provision (it reached here past the positive-provision_factor
@@ -167,7 +257,21 @@ std::expected<void, Error> add_provision(
     // for up-reserve), making the LP infeasible.  Faithfully reproducing
     // PLEXOS's energy+reserve co-optimisation needs a soft (penalised-slack)
     // reserve floor rather than this hard ``lowb`` — future work.
-    const auto block_rmin = rp.min.optval(stage.uid(), buid).value_or(0.0);
+    auto block_rmin = rp.min.optval(stage.uid(), buid).value_or(0.0);
+
+    // Maintenance outage (`Generator.outage_fraction`) under
+    // `outage_reserve_mode`: scale (`proportional`) or zero (`exclude`)
+    // the provision ceiling.  The gcol-uppb fallback above is already
+    // the outage-scaled pmax, so only an explicit `max` scales; a zero
+    // scale always zeroes.  The floor never exceeds the ceiling.
+    if (const double scale = outage_rmax_scale_at(buid); scale < 1.0) {
+      if (scale <= 0.0) {
+        block_rmax = 0.0;
+      } else if (explicit_rmax) {
+        block_rmax = *block_rmax * scale;
+      }
+      block_rmin = std::min(block_rmin, *block_rmax);
+    }
 
     // LP-size: when both bounds collapse to zero the provision column is
     // fixed at 0 — the capacity row ``cap_factor · cap − prov ≥ 0``
@@ -186,7 +290,8 @@ std::expected<void, Error> add_provision(
     const auto prov_col = lp.add_col({
         .lowb = block_rmin,
         .uppb = block_rmax.value(),
-        .cost = CostHelper::block_ecost(scenario, stage, block, block_cost),
+        .cost = CostHelper::block_ecost(
+            scenario, stage, block, block_cost + adders->total()),
         .class_name = cname,
         .variable_name = pname,
         .variable_uid = uid,
@@ -194,6 +299,15 @@ std::expected<void, Error> add_provision(
     });
 
     prov_cols[buid] = prov_col;
+    if (rp.partload_cost.has_value()) {
+      rp.partload_coefs[st_k][buid] = adders->partload;
+    }
+    if (rp.activation_factor.has_value()) {
+      rp.activation_coefs[st_k][buid] = adders->activation;
+      if (rp.degradation_cost.has_value()) {
+        rp.degradation_coefs[st_k][buid] = adders->degradation;
+      }
+    }
 
     if (use_capacity) {
       auto crow =
@@ -330,6 +444,20 @@ ReserveProvisionLP::ReserveProvisionLP(
 {
   up.zone_factors = std::exchange(reserve_provision().ur_zone_factors, {});
   dp.zone_factors = std::exchange(reserve_provision().dr_zone_factors, {});
+
+  // SSCC known variable-cost adders (default off).
+  auto&& rpo = reserve_provision();
+  const auto sched = [&](OptTBRealFieldSched& f)
+  { return OptTBRealSched {ic, Element::class_name, id(), std::move(f)}; };
+  up.partload_cost = sched(rpo.ur_partload_cost);
+  dp.partload_cost = sched(rpo.dr_partload_cost);
+  up.activation_factor = sched(rpo.ur_activation_factor);
+  dp.activation_factor = sched(rpo.dr_activation_factor);
+  up.activation_cost = sched(rpo.ur_activation_cost);
+  dp.activation_cost = sched(rpo.dr_activation_cost);
+  up.degradation_cost = sched(rpo.ur_degradation_cost);
+  dp.degradation_cost = sched(rpo.dr_degradation_cost);
+  up.activation_cost_is_srmc = true;
 }
 
 bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
@@ -435,7 +563,9 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
       rrow[rcol] = 1;
 
       if (capacity_col) {
-        rrow[*capacity_col] = -1;
+        // `gen + r ≤ (1 − f)·capacity` under a maintenance outage.
+        rrow[*capacity_col] =
+            -generator_lp.available_fraction_at(scenario, stage, buid);
         return rrow.less_equal(0.0);
       }
       return rrow;
@@ -466,6 +596,32 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
 
     const auto& blocks = stage.blocks();
 
+    // Generator SRMC (fuel + VOM, $/MWh) of the block: the default
+    // activation energy cost of up reserve (`ur_activation_cost` unset).
+    const auto energy_cost_at = [&](BlockUid buid) -> double
+    { return generator_lp.srmc_at(scenario, stage, buid).value_or(0.0); };
+
+    // Provision-ceiling multiplier under a maintenance outage
+    // (`model_options.outage_reserve_mode`, default `none` = 1).
+    const auto outage_mode = sc.options().outage_reserve_mode();
+    const auto outage_rmax_scale_at = [&](BlockUid buid) -> double
+    {
+      const double avail =
+          generator_lp.available_fraction_at(scenario, stage, buid);
+      if (avail >= 1.0) {
+        return 1.0;
+      }
+      switch (outage_mode) {
+        case OutageReserveMode::proportional:
+          return avail;
+        case OutageReserveMode::exclude:
+          return 0.0;
+        case OutageReserveMode::none:
+          break;
+      }
+      return 1.0;
+    };
+
     // `add_provision` now consumes the full zone list and creates one
     // column per (provision, block) — the per-zone work is folded
     // inside its block loop.  See the docstring above for why the
@@ -486,7 +642,9 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
             sc,
             [](const auto& rz) -> const auto&
             { return rz.urequirement_rows(); },
-            uprov_row);
+            uprov_row,
+            energy_cost_at,
+            outage_rmax_scale_at);
         !res)
     {
       fail_lp(*this,
@@ -514,7 +672,9 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
             sc,
             [](const auto& rz) -> const auto&
             { return rz.drequirement_rows(); },
-            dprov_row);
+            dprov_row,
+            energy_cost_at,
+            outage_rmax_scale_at);
         !res)
     {
       fail_lp(*this,
@@ -612,6 +772,37 @@ bool ReserveProvisionLP::add_to_output(OutputContext& out) const
   if (!symmetry_rows_.empty()) {
     out.add_row_dual(cname, SymmetryName, pid, symmetry_rows_);
   }
+
+  // SSCC known variable costs [$/h] = applied adder × provision, one
+  // stream per term (only for the terms that are set).
+  const auto cost_stream = [&](std::string_view fname,
+                               const STBIndexHolder<double>& coefs,
+                               const STBIndexHolder<ColIndex>& cols)
+  {
+    if (coefs.empty()) {
+      return;
+    }
+    STBIndexHolder<double> values;
+    for (const auto& [st_key, bcoefs] : coefs) {
+      const auto cit = cols.find(st_key);
+      if (cit == cols.end()) {
+        continue;
+      }
+      auto& vst = values[st_key];
+      for (const auto& [buid, coef] : bcoefs) {
+        if (const auto it = cit->second.find(buid); it != cit->second.end()) {
+          vst[buid] = coef * out.primal(it->second);
+        }
+      }
+    }
+    out.add_col_sol_values(cname, fname, pid, values);
+  };
+  cost_stream(UpPartloadCostName, up.partload_coefs, up.provision_cols);
+  cost_stream(UpActivationCostName, up.activation_coefs, up.provision_cols);
+  cost_stream(UpDegradationCostName, up.degradation_coefs, up.provision_cols);
+  cost_stream(DnPartloadCostName, dp.partload_coefs, dp.provision_cols);
+  cost_stream(DnActivationCostName, dp.activation_coefs, dp.provision_cols);
+  cost_stream(DnDegradationCostName, dp.degradation_coefs, dp.provision_cols);
 
   return true;
 }

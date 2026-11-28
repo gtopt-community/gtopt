@@ -1,0 +1,66 @@
+{
+  "options": {
+    "annual_discount_rate": 0.0,
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "method": "monolithic",
+    "model_options": {
+      "use_single_bus": true,
+      "scale_objective": 1,
+      "demand_fail_cost": 1000
+    }
+  },
+  "simulation": {
+    "block_array": [
+      {"uid": 1, "duration": 720},
+      {"uid": 2, "duration": 720},
+      {"uid": 3, "duration": 720}
+    ],
+    "stage_array": [
+      {"uid": 1, "first_block": 0, "count_block": 1, "active": 1},
+      {"uid": 2, "first_block": 1, "count_block": 1, "active": 1},
+      {"uid": 3, "first_block": 2, "count_block": 1, "active": 1}
+    ],
+    "scenario_array": [
+      {"uid": 1, "probability_factor": 1}
+    ]
+  },
+  "system": {
+    "name": "lng_spot_1b",
+    "bus_array": [
+      {"uid": 1, "name": "b1"}
+    ],
+    "generator_array": [
+      {"uid": 1, "name": "gas", "bus": "b1", "pmax": 150, "gcost": 5,
+       "capacity": 150},
+      {"uid": 2, "name": "backup", "bus": "b1", "pmax": 200, "gcost": 200,
+       "capacity": 200}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "d1", "bus": "b1", "lmax": 100, "capacity": 100}
+    ],
+    "lng_terminal_array": [
+      {
+        "uid": 1,
+        "name": "tank",
+        "emin": 0,
+        "emax": 20000,
+        "eini": 0,
+        "annual_standing_loss": 0,
+        "delivery": [40000, 0, 0],
+        "delivery_cost": 30,
+        "spot_cargo_volume": 6000,
+        "spot_cargo_max": 2,
+        "spot_cost": [20, 45, 35],
+        "spot_integer": true,
+        "spot_annual_max": 1,
+        "spillway_cost": 5,
+        "spillway_capacity": 100000,
+        "use_state_variable": true,
+        "generators": [
+          {"generator": "gas", "heat_rate": 0.2}
+        ]
+      }
+    ]
+  }
+}

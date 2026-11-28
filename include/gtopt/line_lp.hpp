@@ -54,6 +54,17 @@ public:
   /// pick.  ``flowe`` (not ``flown``) for the rc so the naming
   /// signals "excluded", not "negative direction".
   static constexpr std::string_view FlownName {"flown"};
+  /// LinDistFlow reactive flow A→B [MVAr].
+  static constexpr std::string_view QflowName {"qflow"};
+  /// LinDistFlow tapped sending voltage `y = w_a/t²` (optimised taps).
+  static constexpr std::string_view VsqTapName {"vsqtap"};
+  /// LinDistFlow voltage-drop row.
+  static constexpr std::string_view VdropName {"vdrop"};
+  static constexpr std::string_view VdropCapName {"vdropcap"};
+  /// LinDistFlow MVA-polygon rows.
+  static constexpr std::string_view MvaName {"mva"};
+  /// LinDistFlow tap-range rows.
+  static constexpr std::string_view TapName {"tap"};
   static constexpr std::string_view FloweName {"flowe"};
   /// Internal-only LP variable names used during ``add_to_lp`` (not
   /// emitted in default output stems; consumers read ``flow_sol`` /
@@ -249,6 +260,19 @@ public:
   /// only inserts the outer key when at least one block populated
   /// the inner map, so callers must handle the missing-key case —
   /// these helpers centralise it.
+  /// LinDistFlow reactive-flow / tapped-voltage columns (empty when
+  /// the model is off or the line has fixed taps).
+  [[nodiscard]] constexpr const auto& qflow_cols_at(const ScenarioLP& scenario,
+                                                    const StageLP& stage) const
+  {
+    return find_or_empty_inner(qflow_cols, scenario, stage);
+  }
+  [[nodiscard]] constexpr const auto& vsqtap_cols_at(const ScenarioLP& scenario,
+                                                     const StageLP& stage) const
+  {
+    return find_or_empty_inner(vsqtap_cols, scenario, stage);
+  }
+
   [[nodiscard]] constexpr const auto& flowp_cols_at(const ScenarioLP& scenario,
                                                     const StageLP& stage) const
   {
@@ -621,6 +645,19 @@ public:
   /// @}
 
 private:
+  /// LinDistFlow columns and rows of one (scenario, stage); see
+  /// `line_lindistflow.cpp`.  `flow` = the signed active flow as a
+  /// weighted column sum per block.
+  void add_lindistflow(
+      const SystemContext& sc,
+      const ScenarioLP& scenario,
+      const StageLP& stage,
+      LinearProblem& lp,
+      const BusLP& bus_a_lp,
+      const BusLP& bus_b_lp,
+      const BIndexHolder<std::vector<std::pair<ColIndex, double>>>& flow,
+      std::optional<ColIndex> capacity_col);
+
   /// Schedule value at (s, b); nullopt when unset or not finite (a NaN /
   /// missing cell means "no limit", never 0).  ``negate`` flips PLEXOS
   /// signed ``Min *`` values into B→A magnitudes.
@@ -678,6 +715,9 @@ private:
 
   STBIndexHolder<ColIndex> flowp_cols;
   STBIndexHolder<ColIndex> flown_cols;
+  STBIndexHolder<ColIndex> qflow_cols;  ///< LinDistFlow reactive flow
+  STBIndexHolder<ColIndex> vsqtap_cols;  ///< LinDistFlow y = w_a/t²
+  STBIndexHolder<RowIndex> vdrop_rows;  ///< LinDistFlow voltage drop
   /// Per-direction LINEAR loss factors, keyed identically to
   /// `flowp_cols` / `flown_cols` (`(scenario, stage) → (buid →
   /// double)`).  Populated ONLY under `LineLossesMode::linear`, where

@@ -857,3 +857,151 @@ def test_battery_candidate_phes_has_no_self_discharge(
     )
     assert entry.get("annual_standing_loss") == loss
     assert entry["type"] == ("candidate_phes" if loss == 0.0 else "candidate_battery")
+
+
+def test_commitment_breaks_daily_grid(xcase: tuple[Path, Path]) -> None:
+    """``--commitment-breaks``: model_options default + Stage.start_hour =
+    the --week-start hour (Wednesday 12:00); the per-month file writes
+    Stage.commitment_breaks; without the option nothing is emitted."""
+    study = [3.5, 7.5, 10.5, 14.5, 17.5, 23.5]
+    plain = _build(*xcase, week_sampler="chebyshev:24", week_steps_per_day=24)
+    assert "commitment_breaks" not in plain.planning["options"]["model_options"]
+    assert all(
+        "start_hour" not in st for st in plain.planning["simulation"]["stage_array"]
+    )
+    wk = _build(
+        *xcase,
+        week_sampler="chebyshev:24",
+        week_steps_per_day=24,
+        commitment_breaks=study,
+    )
+    assert wk.planning["options"]["model_options"]["commitment_breaks"] == study
+    stages = wk.planning["simulation"]["stage_array"]
+    assert stages and all(st["start_hour"] == 12.0 for st in stages)
+    assert all("commitment_breaks" not in st for st in stages)
+    # representative days start at midnight
+    rep = _build(*xcase, commitment_breaks=study)
+    assert all(
+        st["start_hour"] == 0.0 for st in rep.planning["simulation"]["stage_array"]
+    )
+    # per-month patterns (the first month of FY2028 is July)
+    first = exp.month_starts(2028, 1)[0].month
+    winter = [4.5, 8.5, 11.5, 14.5, 16.5, 23.5]
+    by_month = _build(
+        *xcase,
+        week_sampler="chebyshev:24",
+        week_steps_per_day=24,
+        commitment_breaks=study,
+        commitment_breaks_by_month={first: winter},
+    )
+    st = by_month.planning["simulation"]["stage_array"]
+    assert st[0]["commitment_breaks"] == winter
+    assert all("commitment_breaks" not in s for s in st[1:])
+    with pytest.raises(ValueError, match="no row for month"):
+        _build(
+            *xcase,
+            week_sampler="chebyshev:24",
+            week_steps_per_day=24,
+            commitment_breaks_by_month={first: winter},
+        )
+
+
+def test_commitment_breaks_cli(tmp_path: Path) -> None:
+    """The CLI parses --commitment-breaks / --commitment-breaks-file."""
+    table = tmp_path / "m.csv"
+    table.write_text("7,4.5 8.5 11.5 14.5 16.5 23.5\n")
+    args = exp._parse_args(  # pylint: disable=protected-access
+        [
+            "x.xml",
+            "-o",
+            str(tmp_path),
+            "--commitment-breaks",
+            "study",
+            "--commitment-breaks-file",
+            str(table),
+        ]
+    )
+    assert args.commitment_breaks == [3.5, 7.5, 10.5, 14.5, 17.5, 23.5]
+    assert args.commitment_breaks_file == table
+    assert exp._parse_args(["x.xml", "-o", "o"]).commitment_breaks is None  # pylint: disable=protected-access
+    with pytest.raises(SystemExit):
+        exp._parse_args(["x.xml", "-o", "o", "--commitment-breaks", "25"])  # pylint: disable=protected-access
+
+
+def test_battery_storage_mode_by_duration() -> None:
+    """Long-duration batteries (PHES, deep BESS) are state storages, short
+    ones close their cycle; the threshold is a CLI option."""
+    phes = {"emax": [[0.0, 2400.0]], "pmax_discharge": [[300.0, 300.0]]}
+    bess = {"emax": 600.0, "pmax_discharge": 300.0}
+    assert exp.battery_duration_hours(phes) == pytest.approx(8.0)
+    assert exp.battery_duration_hours(bess) == pytest.approx(2.0)
+    assert exp.battery_duration_hours({"emax": 10.0}) == float("inf")
+
+    item = dict(phes)
+    assert exp.apply_battery_storage_mode(item, 8.0) is True
+    assert item["daily_cycle"] is False and item["use_state_variable"] is True
+    item = dict(bess)
+    assert exp.apply_battery_storage_mode(item, 8.0) is False
+    assert item["daily_cycle"] is True and "use_state_variable" not in item
+    # inf: every battery cyclic, also one without discharge power;
+    # 0: every battery a state storage
+    item = dict(phes)
+    assert exp.apply_battery_storage_mode(item, float("inf")) is False
+    item = {"emax": 10.0}
+    assert exp.apply_battery_storage_mode(item, float("inf")) is False
+    item = dict(bess)
+    assert exp.apply_battery_storage_mode(item, 0.0) is True
+
+
+def test_periodic_options_cli_defaults() -> None:
+    """The storage-mode / periodic flags default to the legacy output."""
+    args = exp._parse_args(["x.xml", "-o", "out"])  # pylint: disable=protected-access
+    assert args.battery_state_hours == float("inf")
+    assert args.periodic_storage is False
+    assert args.rep_day_periodic is False
+    args = exp._parse_args(  # pylint: disable=protected-access
+        [
+            "x.xml",
+            "-o",
+            "out",
+            "--battery-state-hours",
+            "4",
+            "--periodic-storage",
+            "--rep-day-periodic",
+        ]
+    )
+    assert args.battery_state_hours == 4.0
+    assert args.periodic_storage is True
+    assert args.rep_day_periodic is True
+
+
+def test_battery_state_hours_case(xcase: tuple[Path, Path]) -> None:
+    """Default: every battery cyclic; a threshold below the 2 h duration
+    of the fixture's batteries makes them state storages with the raw
+    ``eini``."""
+    plain = _build(*xcase).planning["system"]["battery_array"]
+    assert plain and all(b["daily_cycle"] is True for b in plain)
+    assert all("use_state_variable" not in b for b in plain)
+    state = _build(*xcase, battery_state_hours=1.0)
+    bats = state.planning["system"]["battery_array"]
+    assert all(b["daily_cycle"] is False for b in bats)
+    assert all(b["use_state_variable"] is True for b in bats)
+    assert state.stats["batteries_state"] == len(bats)
+
+
+def test_rep_day_periodic(xcase: tuple[Path, Path]) -> None:
+    """``--rep-day-periodic`` marks hourly rep days ``period_hours = 24``
+    (blocks unchanged); off by default."""
+    plain = _build(*xcase).planning["simulation"]
+    assert all("period_hours" not in st for st in plain["stage_array"])
+    per = _build(*xcase, rep_day_periodic=True).planning["simulation"]
+    assert all(st["period_hours"] == 24.0 for st in per["stage_array"])
+    assert per["block_array"] == plain["block_array"]
+
+
+def test_periodic_storage_model_option(xcase: tuple[Path, Path]) -> None:
+    """``periodic_storage`` is written only when asked for."""
+    plain = _build(*xcase).planning["options"]["model_options"]
+    assert "periodic_storage" not in plain
+    per = _build(*xcase, periodic_storage=True).planning["options"]["model_options"]
+    assert per["periodic_storage"] is True

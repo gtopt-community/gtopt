@@ -1,0 +1,233 @@
+{
+  "source_date": "2026-11-27",
+  "notes": "Chilean public sources preferred; items with region 'US' come from NREL and are labelled international. Mixed currency dates (USD Dec-2020, USD 2017, USD 2025/26) are NOT escalated; escalate before mixing if needed.",
+  "fx": {
+    "clp_per_usd": 916.21,
+    "clp_per_usd_date": "average daily dolar observado 2026-04-01..2026-09-30 (Banco Central), as used by CNE",
+    "clp_per_usd_source_url": "https://www.cne.cl/wp-content/uploads/2026/10/ITP-PNP-enero-2027-vCNE091026.pdf",
+    "clp_per_usd_alt": 897.64,
+    "clp_per_usd_alt_date": "monthly average May 2026",
+    "clp_per_usd_alt_source_url": "https://www.diariooficial.interior.gob.cl/publicaciones/2026/08/21/44530/01/2857667.pdf"
+  },
+  "items": [
+    {
+      "key": "mv_line_23kv_overhead_per_km_long_rural",
+      "value": 49661,
+      "unit": "USD/km",
+      "orig_value": 1072678,
+      "orig_unit": "USD (Dec-2020) for 21.6 km, 23 kV line Lago Atravesado - Tehuelche 1",
+      "source_url": "https://www.cne.cl/wp-content/uploads/2023/05/Rex-187-aprueba-IT-SSMM-Aysen-Palena-General-Carrera-y-Puerto-Cisnes.pdf",
+      "note": "CNE RE 187/2023, Tabla 3-10. Includes surcharges and easements; conductor section not stated. Aysen (Patagonia) medium system."
+    },
+    {
+      "key": "mv_line_23kv_overhead_per_km_short",
+      "value": 79178,
+      "unit": "USD/km",
+      "orig_value": 633420,
+      "orig_unit": "USD (Dec-2020) for 8.0 km, 23 kV line S/E Baguales - Coyhaique",
+      "source_url": "https://www.cne.cl/wp-content/uploads/2023/05/Rex-187-aprueba-IT-SSMM-Aysen-Palena-General-Carrera-y-Puerto-Cisnes.pdf",
+      "note": "CNE RE 187/2023, Tabla 3-10. Shorter line into the city: higher per-km cost."
+    },
+    {
+      "key": "mv_line_23kv_new_circuit_9mva_per_km",
+      "value": 48758,
+      "unit": "USD/km",
+      "orig_value": 438822,
+      "orig_unit": "USD for a new 9 km, 9 MVA second circuit Alto Baguales - Divisadero 23 kV",
+      "source_url": "https://www.cne.cl/wp-content/uploads/2023/05/Rex-187-aprueba-IT-SSMM-Aysen-Palena-General-Carrera-y-Puerto-Cisnes.pdf",
+      "note": "CNE RE 187/2023, Tabla 3-22 (optimal expansion plan, entry 2025). Use as the candidate new-feeder cost per km; 9 MVA rating gives the MVA limit."
+    },
+    {
+      "key": "hv_mv_substation_transformer_66_13p2kv_16mva",
+      "value": 5885691,
+      "unit": "USD per project",
+      "orig_value": 5885691,
+      "orig_unit": "USD, V.I. referencial",
+      "source_url": "https://www.cne.cl/wp-content/uploads/2026/09/ITD-Plan-de-Expansion-de-la-Transmision-2025.pdf",
+      "note": "Ampliacion en S/E La Union (NTR ATMT): new 66/13.2 kV transformer >= 16 MVA with OLTC, both bays, new 13.2 kV bar with 4 feeder bays. Life 33 yr. About 367,856 USD/MVA including bays and bar (not transformer-only)."
+    },
+    {
+      "key": "hv_mv_substation_package_per_mva",
+      "value": 367856,
+      "unit": "USD/MVA",
+      "orig_value": 5885691,
+      "orig_unit": "USD for 16 MVA",
+      "source_url": "https://www.cne.cl/wp-content/uploads/2026/09/ITD-Plan-de-Expansion-de-la-Transmision-2025.pdf",
+      "note": "Derived = 5,885,691 / 16. Cross-check: S/E Las Dichas 66/12 kV 30 MVA + 6 feeder bays + line sectioning = 10,286,476 USD (342,883 USD/MVA), same document Tabla 4-1."
+    },
+    {
+      "key": "capacitor_bank_3ph_300kvar",
+      "value": 8290,
+      "unit": "USD per bank",
+      "orig_value": [6000, 8290, 10700],
+      "orig_unit": "USD 2017, low/mid/high installed",
+      "source_url": "https://docs.nlr.gov/docs/fy18osti/70710.pdf",
+      "note": "INTERNATIONAL (US). NREL/TP-6A20-70710 Tabla 6. Mid value = 27.6 USD/kvar (range 20.0-35.7)."
+    },
+    {
+      "key": "line_voltage_regulator_12kv",
+      "value": 166000,
+      "unit": "USD per regulator",
+      "orig_value": [150000, 166000, 183000],
+      "orig_unit": "USD 2017, min/avg/max installed, 12-12.7 kV line regulators",
+      "source_url": "https://docs.nlr.gov/docs/fy18osti/70710.pdf",
+      "note": "INTERNATIONAL (US). NREL/TP-6A20-70710 Tabla 5, from the NREL Distribution Grid Integration Unit Cost Database."
+    },
+    {
+      "key": "substation_ltc_retrofit",
+      "value": 310000,
+      "unit": "USD per transformer",
+      "orig_value": 203000,
+      "orig_unit": "USD 1997 (PNNL), inflated to 2017 USD by NREL",
+      "source_url": "https://docs.nlr.gov/docs/fy18osti/70710.pdf",
+      "note": "INTERNATIONAL (US), single data point. NREL/TP-6A20-70710 Tabla 5."
+    },
+    {
+      "key": "dist_transformer_3ph_oh_100kva",
+      "value": 32500,
+      "unit": "USD per unit",
+      "orig_value": [15600, 32500, 49300],
+      "orig_unit": "USD 2017, low/mid/high installed",
+      "source_url": "https://docs.nlr.gov/docs/fy18osti/70710.pdf",
+      "note": "INTERNATIONAL (US). NREL/TP-6A20-70710 Tabla 6."
+    },
+    {
+      "key": "dist_transformer_3ph_oh_50kva",
+      "value": 10400,
+      "unit": "USD per unit",
+      "orig_value": 10400,
+      "orig_unit": "USD 2017 installed",
+      "source_url": "https://docs.nlr.gov/docs/fy18osti/70710.pdf",
+      "note": "INTERNATIONAL (US). NREL/TP-6A20-70710 Tabla 6."
+    },
+    {
+      "key": "reconductor_oh_per_km_us",
+      "value": 567585,
+      "unit": "USD/km",
+      "orig_value": [130, 173, 258],
+      "orig_unit": "USD 2017 per ft, low/mid/high",
+      "source_url": "https://docs.nlr.gov/docs/fy18osti/70710.pdf",
+      "note": "INTERNATIONAL (US, California feeder). NREL/TP-6A20-70710 Tabla 4; mid 173 USD/ft x 3280.84 ft/km. About 7-11x the Chilean 23 kV new-line costs above: use only as a high-cost sensitivity."
+    },
+    {
+      "key": "coma_pct_zonal_transmission_system_c",
+      "value": 0.047,
+      "unit": "fraction of VI per year",
+      "orig_value": 4.70,
+      "orig_unit": "% of V.I. referencial",
+      "source_url": "https://www.cne.cl/wp-content/uploads/2026/09/ITD-Plan-de-Expansion-de-la-Transmision-2025.pdf",
+      "note": "Reference COMA for zonal system C works; system F: 5.46 %, national system works: 1.79 %."
+    },
+    {
+      "key": "vad_coym_over_network_vnr_atd1_2022",
+      "value": 0.046,
+      "unit": "fraction",
+      "orig_value": [67031, 1457581],
+      "orig_unit": "MM CLP Dec-2022: COyM / (VNR base + VNR quality)",
+      "source_url": "https://www.cne.cl/wp-content/uploads/2026/01/RE-CNE-N58-2026-Aprueba-ITPv2-VAD-24-28.pdf",
+      "note": "Derived from ITP v2 Tablas 4-2, 4-3, 5-1. Range across 12 ATD: 4.6 % (ATD1) to 29.6 % (ATD9); includes administration, not pure network O&M."
+    },
+    {
+      "key": "vad_quality_vnr_share",
+      "value": [0.030, 0.330],
+      "unit": "fraction of network VNR (ATD1, ATD5), base year 2022",
+      "orig_value": [[43497, 1414084], [200605, 407156]],
+      "orig_unit": "MM CLP Dec-2022: [VNR quality, VNR base]",
+      "source_url": "https://www.cne.cl/wp-content/uploads/2026/01/RE-CNE-N58-2026-Aprueba-ITPv2-VAD-24-28.pdf",
+      "note": "Benchmark: extra investment to meet NTD reliability, dense urban vs rural."
+    },
+    {
+      "key": "vadsd_atd1_2024",
+      "value": 80.09,
+      "unit": "USD/kW-yr",
+      "orig_value": 73376,
+      "orig_unit": "CLP (31-Dec-2022) per kW-yr",
+      "source_url": "https://www.cne.cl/wp-content/uploads/2026/01/RE-CNE-N58-2026-Aprueba-ITPv2-VAD-24-28.pdf",
+      "note": "ITP v2 Tabla 8-1, whole-distribution-system VAD per kW of peak. Converted at 916.21 CLP/USD (2026 fx on 2022 CLP: approximate). ATD5 (rural): 545,507 CLP/kW-yr = 595 USD/kW-yr."
+    },
+    {
+      "key": "pnp_power_price_enel",
+      "value": 12.31,
+      "unit": "USD/kW-month",
+      "orig_value": 12.31,
+      "orig_unit": "USD/kW-month (PNPP)",
+      "source_url": "https://www.cne.cl/wp-content/uploads/2026/10/ITP-PNP-enero-2027-vCNE091026.pdf",
+      "note": "ITP PNP 1st half 2027, Tabla 22. SEN range 8.98 (Coopelan) - 12.35 (Colina). Use to value peak-power losses (147.7 USD/kW-yr)."
+    },
+    {
+      "key": "pncp_quillota_220",
+      "value": 52.970,
+      "unit": "USD/MWh",
+      "orig_value": [52.970, 9.95],
+      "orig_unit": "USD/MWh energy, USD/kW-month power (DS 16T/2026)",
+      "source_url": "https://www.cne.cl/wp-content/uploads/2026/10/ITP-PNP-enero-2027-vCNE091026.pdf",
+      "note": "Short-run node price (precio de nudo de corto plazo), Tabla 19. Lower-bound alternative for loss valuation."
+    },
+    {
+      "key": "cfld_sen_0_5pct",
+      "value": 795.11,
+      "unit": "USD/MWh",
+      "orig_value": 795.11,
+      "orig_unit": "USD/MWh, deficit depth 0-5 %",
+      "source_url": "https://www.diariooficial.interior.gob.cl/publicaciones/2026/08/21/44530/01/2857667.pdf",
+      "note": "Long-duration outage cost (rationing), RE 432/2026. Deeper tranches: 974.80 / 1,135.97 / 1,434.37 USD/MWh."
+    }
+  ],
+  "annuity_rate": 0.06,
+  "annuity_rate_note": "Real, after taxes; LGSE art. 182 bis band 6-8 %; computed 5.56 % -> floor 6.00 % (Bases RE 221/2023 1.2 d).",
+  "annuity_rate_source_url": "https://www.cne.cl/wp-content/uploads/2023/05/RE-CNE-N%C2%B0-221-Aprueba-BT-Definitivas-VAD-24-28.pdf",
+  "crf_at_6pct": {
+    "10": 0.13587,
+    "15": 0.10296,
+    "30": 0.07265,
+    "35": 0.06897,
+    "40": 0.06646,
+    "50": 0.06344
+  },
+  "lives": {
+    "conductor_bare_yr": 40,
+    "conductor_insulated_yr": 40,
+    "conductor_protected_yr": 35,
+    "electromechanical_equipment_yr": 30,
+    "poles_structures_yr": 50,
+    "civil_works_yr": 50,
+    "digital_protection_yr": 15,
+    "electromechanical_protection_yr": 10,
+    "control_telecontrol_yr": 10,
+    "meters_smmc_yr": 15,
+    "backup_generators_yr": 20,
+    "vehicles_yr": 10,
+    "land_easements_intangibles": "perpetual",
+    "source_url": "https://www.cne.cl/wp-content/uploads/2023/05/RE-CNE-N%C2%B0-221-Aprueba-BT-Definitivas-VAD-24-28.pdf",
+    "note": "Bases RE 221/2023 section 6.4 table of agrupaciones. Transformers, capacitors and regulators assumed to fall under 'equipamiento electromecanico y electromagnetico' (30 yr) - mapping not stated explicitly (not verified)."
+  },
+  "coym_pct": 0.047,
+  "coym_pct_note": "Model default: CNE reference COMA 4.70 % of VI (zonal system C, PET 2025), close to VAD ATD1 COyM/VNR 4.6 %. Rural ATDs are much higher (up to ~30 %).",
+  "coym_pct_source_url": "https://www.cne.cl/wp-content/uploads/2026/09/ITD-Plan-de-Expansion-de-la-Transmision-2025.pdf",
+  "loss_energy_price_usd_mwh": 97.888,
+  "loss_energy_price_note": "Average node price (PNP) of the SEN, 1st half 2027 ITP (Tabla 20). VAD bases value losses at the PNP decree price at the distribution entry point, without art. 157 adjustments.",
+  "loss_energy_price_source_url": "https://www.cne.cl/wp-content/uploads/2026/10/ITP-PNP-enero-2027-vCNE091026.pdf",
+  "loss_power_price_usd_kw_month": 12.31,
+  "loss_power_price_source_url": "https://www.cne.cl/wp-content/uploads/2026/10/ITP-PNP-enero-2027-vCNE091026.pdf",
+  "cens_usd_mwh": 13730,
+  "cens_note": "CFCD (costo de falla de corta duracion) SEN = 13.73 USD/kWh, RE 432 exenta 17-08-2026. The VAD itself treats quality as an NTD constraint (no ENS cost in the model company); art. 16 B compensations = 2 x ENS at costo de racionamiento. Use CFCD as the ENS penalty proxy; CFLD 795.11 USD/MWh is the long-duration alternative.",
+  "cens_source_url": "https://www.diariooficial.interior.gob.cl/publicaciones/2026/08/21/44530/01/2857667.pdf",
+  "quality": {
+    "mv_voltage_band_pct_high_medium_density": 6.0,
+    "mv_voltage_band_pct_low_density": 8.0,
+    "lv_voltage_band_pct_high_medium_density": 7.5,
+    "lv_voltage_band_pct_low_density": 10.0,
+    "saidi_h_from_2026": {"alta": 5, "media": 7, "baja": 9, "muy_baja": 11, "extremadamente_baja": 14},
+    "saifi_from_2026": {"alta": 3.5, "media": 4.5, "baja": 5.5, "muy_baja": 6.5, "extremadamente_baja": 7},
+    "source_url": "https://www.cne.cl/wp-content/uploads/2024/05/NTCSDx2024-1.pdf",
+    "note": "NTD April 2024, Tabla 3 (95 % of time, 10-min averages, normal state) and Tabla 16."
+  },
+  "not_sourced_publicly": [
+    "Chilean MV conductor cost by type/section (AAAC/Cu 2/0, 4/0, 300 MCM): CNE ITP annex 3-7 / SEC VNR unit prices not published as a downloadable table",
+    "Chilean MV/LV distribution transformer cost by kVA (15-500 kVA)",
+    "Chilean capacitor bank cost per kvar and voltage regulator cost",
+    "Protection / switching device costs (reclosers, sectionalisers, load-break switches): no Chilean or NREL value captured",
+    "DER and BESS capex for distribution: not researched here",
+    "Exact CLP/USD at 31-Dec-2022 for converting VAD base-year CLP values"
+  ]
+}

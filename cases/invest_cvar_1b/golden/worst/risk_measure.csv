@@ -1,0 +1,4 @@
+scene,phase,scenario,probability,cost,eta,excess,dual,risk_probability,risk_factor,alpha,weight,measure,rank_by,tail
+0,0,1,0.3,54316999.999991186,54317000.00000001,0,-0,0,0,0.8,1,cvar,cost,upper
+0,0,2,0.5,54316999.99999826,54317000.00000001,0,-0,0,0,0.8,1,cvar,cost,upper
+0,0,3,0.2,54317000,54317000.00000001,0,1,1,5,0.8,1,cvar,cost,upper

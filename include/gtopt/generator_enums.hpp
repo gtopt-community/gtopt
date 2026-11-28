@@ -1,6 +1,6 @@
 /**
  * @file      generator_enums.hpp
- * @brief     Generator-class enums (CogenMode)
+ * @brief     Generator-class enums (CogenMode, OutageReserveMode)
  * @date      2026-06-03
  * @author    marcelo
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
@@ -66,6 +66,35 @@ inline constexpr auto cogen_mode_entries = std::to_array<EnumEntry<CogenMode>>({
 [[nodiscard]] constexpr auto enum_entries(CogenMode /*tag*/) noexcept
 {
   return std::span {cogen_mode_entries};
+}
+
+// ─── OutageReserveMode ──────────────────────────────────────────────
+
+/**
+ * @brief How reserve offers react to a `Generator.outage_fraction`
+ *        maintenance schedule (`model_options.outage_reserve_mode`).
+ *
+ * In every mode the generation bounds scale by the available fraction
+ * `a = 1 − f`, and so do the provision headroom rows built from them.
+ * The mode only changes the provision column's own ceiling:
+ */
+enum class OutageReserveMode : uint8_t
+{
+  none = 0,  ///< `urmax` / `drmax` untouched (default)
+  proportional = 1,  ///< `urmax` / `drmax` scaled by `a` (monthly average)
+  exclude = 2,  ///< no reserve offered in a block with `f > 0`
+};
+
+inline constexpr auto outage_reserve_mode_entries =
+    std::to_array<EnumEntry<OutageReserveMode>>({
+        {.name = "none", .value = OutageReserveMode::none},
+        {.name = "proportional", .value = OutageReserveMode::proportional},
+        {.name = "exclude", .value = OutageReserveMode::exclude},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(OutageReserveMode /*tag*/) noexcept
+{
+  return std::span {outage_reserve_mode_entries};
 }
 
 }  // namespace gtopt

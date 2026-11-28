@@ -3663,12 +3663,32 @@ BlockResult dispatch_block(const LossConfig& config,
   // modes (``piecewise`` / ``bidirectional`` / ``piecewise_direct``)
   // share this fallback so the caller can pass ``nseg = 0`` without
   // tripping the per-mode ``assert(nseg > 0)``.
-  if (config.nseg <= 0
-      && (config.mode == LineLossesMode::piecewise
-          || config.mode == LineLossesMode::bidirectional
-          || config.mode == LineLossesMode::piecewise_direct
-          || config.mode == LineLossesMode::tangent_signed_flow))
-  {
+  const bool envelope_mode = config.mode == LineLossesMode::piecewise
+      || config.mode == LineLossesMode::bidirectional
+      || config.mode == LineLossesMode::piecewise_direct
+      || config.mode == LineLossesMode::tangent_signed_flow;
+  // An unrated line (no ``tmax`` / capacity: the block cap is
+  // ``DblMax``) without an explicit ``loss_envelope`` has no finite
+  // range to spread the PWL over: ``width = DblMax / K`` overflows the
+  // segment slopes to ``inf`` and the per-line row scale to 0, stamping
+  // ``NaN`` loss coefficients that each solver reads differently (CPLEX
+  // and HiGHS then return different "optimal" objectives).  Model such
+  // a line lossless and say so; rate it or set ``loss_envelope`` to
+  // keep its losses.
+  const auto unbounded = [](double cap)
+  { return !std::isfinite(cap) || cap >= LinearProblem::DblMax; };
+  const bool no_envelope = envelope_mode && config.nseg > 0
+      && !(config.loss_envelope > 0.0)
+      && (unbounded(block_tmax_ab) || unbounded(block_tmax_ba));
+  if (no_envelope) {
+    static WarnOnceFlag warned_unrated;
+    warn_once(warned_unrated,
+              "line_losses: line uid {} has resistance but no flow rating "
+              "(tmax/capacity) nor loss_envelope; its losses are not "
+              "modelled.  Set tmax or loss_envelope to keep them.",
+              uid);
+  }
+  if (no_envelope || (config.nseg <= 0 && envelope_mode)) {
     return add_none(scenario,
                     stage,
                     block,

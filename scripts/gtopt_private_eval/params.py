@@ -30,6 +30,8 @@ from .defaults import DEFAULTS
 #: substring → technology (first match wins) when a project has no mapping
 _NAME_HINTS: tuple[tuple[str, str], ...] = (
     ("bess", "bess"),
+    ("_fv", "solar_pv"),
+    ("_eo", "wind"),
     ("batt", "bess"),
     ("storage", "bess"),
     ("solar", "solar_pv"),
@@ -111,7 +113,10 @@ class Params:
     def project(self, name: str) -> Mapping[str, Any]:
         return self.cfg.get("projects", {}).get(name, {}) or {}
 
-    def technology(self, name: str, kind: str) -> str:
+    def technology(self, name: str, kind: str, elem_type: str | None = None) -> str:
+        """Project mapping → element ``type`` (``technology_types``) → name
+        hints → ``thermal``.  A generic type (``thermal``) yields to a more
+        specific name hint (``..._ccgt``)."""
         tech = self.project(name).get("technology")
         if tech:
             return str(tech)
@@ -119,11 +124,15 @@ class Params:
             return "bess"
         if kind == "Line":
             return "line"
+        types = self.cfg.get("technology_types", {}) or {}
+        by_type = types.get(elem_type.lower()) if elem_type else None
+        if by_type and by_type != "thermal":
+            return str(by_type)
         low = name.lower()
         for hint, t in _NAME_HINTS:
             if hint in low:
                 return t
-        return "thermal"
+        return str(by_type) if by_type else "thermal"
 
     def tech(self, tech: str) -> Mapping[str, Any]:
         return self.cfg.get("technologies", {}).get(tech, {}) or {}

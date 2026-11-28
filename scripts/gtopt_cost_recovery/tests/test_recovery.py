@@ -370,6 +370,18 @@ def test_profile_from_file_assumes_one(
     rep = compute_recovery(_with_profile(gen_case(), "profile_file"))
     assert rep.projects[0].value_per_unit == pytest.approx(20.0)
     assert "not inline" in caplog.text
+    # warned once per generator, not once per period
+    assert caplog.text.count("not inline") == 1
+
+
+def test_profile_referenced_by_uid(gen_case: Callable[..., Path]) -> None:
+    rdir = _with_profile(gen_case(), [[[0.5, 1.0]]])
+    path = rdir / "planning.json"
+    planning = json.loads(path.read_text(encoding="utf-8"))
+    gen = planning["system"]["generator_array"][0]
+    planning["system"]["generator_profile_array"][0]["generator"] = gen["uid"]
+    path.write_text(json.dumps(planning), encoding="utf-8")
+    assert compute_recovery(rdir).projects[0].value_per_unit == pytest.approx(10.0)
 
 
 def test_demand_project_social_value(tmp_path: Path) -> None:

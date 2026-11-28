@@ -355,6 +355,42 @@ def case_roundtrip_ieee14(ctx: CliRun) -> None:
 
 
 # ---------------------------------------------------------------------------
+# opendss2gtopt / gtopt2opendss (hand-made feeder, no OpenDSS engine)
+# ---------------------------------------------------------------------------
+
+_TINY_DSS = SCRIPTS_DIR / "opendss2gtopt" / "tests" / "data" / "tiny_feeder.dss"
+
+
+def _opendss2gtopt_tiny(ctx: CliRun, *extra: str) -> Path:
+    out_dir = ctx.tmp_path / "dss"
+    ctx.run(["-i", _TINY_DSS, "-o", out_dir, *extra])
+    data = assert_planning_json(out_dir / "tiny.json")
+    assert len(data["system"]["bus_array"]) == 10
+    return out_dir / "tiny.json"
+
+
+@e2e("opendss2gtopt")
+def case_convert_tiny_feeder(ctx: CliRun) -> None:
+    """OpenDSS script (12.47/4.16 kV feeder with regulators, DER) -> gtopt."""
+    _opendss2gtopt_tiny(ctx)
+
+
+@e2e("opendss2gtopt", needs_gtopt=True)
+def case_roundtrip_tiny_feeder(ctx: CliRun) -> None:
+    """OpenDSS script -> gtopt DC case -> optimal gtopt solve."""
+    assert_solved(ctx.run_gtopt(_opendss2gtopt_tiny(ctx, "--line-rating", "none")))
+
+
+@e2e("gtopt2opendss")
+def case_export_ieee_4b(ctx: CliRun) -> None:
+    """gtopt case (ieee_4b_ori) -> balanced 3-phase OpenDSS script."""
+    out = ctx.tmp_path / "ieee4b.dss"
+    ctx.run([CASES_DIR / "ieee_4b_ori" / "ieee_4b_ori.json", "-o", out])
+    text = out.read_text(encoding="utf-8")
+    assert "New Circuit." in text and text.count("New Line.") == 5
+
+
+# ---------------------------------------------------------------------------
 # sienna2gtopt -- the Sienna data is not redistributable; it is only
 # used when already cached.  GTOPT_OFFLINE=1 forbids downloads here.
 # ---------------------------------------------------------------------------

@@ -68,6 +68,7 @@
 #include <gtopt/reservoir_lp.hpp>
 #include <gtopt/reservoir_production_factor_lp.hpp>
 #include <gtopt/reservoir_seepage_lp.hpp>
+#include <gtopt/risk_measure_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/scene_lp.hpp>
 #include <gtopt/schedule.hpp>
@@ -763,6 +764,22 @@ public:
   }
   constexpr void set_output_skipped(bool v) noexcept { m_output_skipped_ = v; }
 
+  /// The mean-CVaR construct of this cell (`model_options.risk_measure =
+  /// cvar`), or empty for the expected-cost objective.
+  [[nodiscard]] constexpr const std::optional<CvarLayout>& cvar_layout()
+      const noexcept
+  {
+    return m_cvar_layout_;
+  }
+
+  /// CVaR values of the solved cell (set by `write_out`; empty for the
+  /// expected-cost objective or an unsolved cell).
+  [[nodiscard]] constexpr const std::optional<CvarSolution>& cvar_solution()
+      const noexcept
+  {
+    return m_cvar_solution_;
+  }
+
   /// Access the LP fingerprint computed during create_lp().
   [[nodiscard]] constexpr const LpFingerprint& fingerprint() const noexcept
   {
@@ -803,6 +820,11 @@ private:
   SceneLP m_scene_;
   LinearInterface m_linear_interface_;
   LpFingerprint m_fingerprint_;
+  /// CVaR construct of this cell (`risk_measure = cvar`); empty otherwise.
+  std::optional<CvarLayout> m_cvar_layout_ {};
+  /// Post-solve CVaR values, captured by `write_out` while the solution
+  /// is still resident (read by `PlanningLP::write_out`).
+  std::optional<CvarSolution> m_cvar_solution_ {};
   std::optional<ObjectSingleId<BusLP>> m_single_bus_id_ {};
 
   /// Flat-assembly options captured at construction.  Retained for

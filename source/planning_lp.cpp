@@ -45,6 +45,7 @@
 #include <gtopt/planning_method.hpp>
 #include <gtopt/pricing_mode.hpp>
 #include <gtopt/reservoir.hpp>
+#include <gtopt/risk_measure_lp.hpp>
 #include <gtopt/solution_csv.hpp>
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/solver_options.hpp>
@@ -2794,6 +2795,56 @@ void PlanningLP::write_out()
         row.obj_value,
         row.gap,
         row.gap_change);
+  }
+
+  // ── risk_measure.csv: mean-CVaR values (risk_measure = cvar) ──────────
+  // One row per (scene, phase, scenario): scenario cost O_s, η, u_s, the
+  // dual μ_s and the risk-adjusted probability π_s = (1 − λ) p_s + μ_s.
+  // `gtopt_cost_recovery` reweights the scenarios with ζ_s = π_s / p_s.
+  {
+    std::string risk_lines;
+    std::vector<const SystemLP*> risk_cells;
+    for (const auto& phase_systems : m_systems_) {
+      for (const auto& system : phase_systems) {
+        if (system.cvar_layout() && system.cvar_solution()) {
+          risk_cells.push_back(&system);
+        }
+      }
+    }
+    std::ranges::sort(risk_cells,
+                      [](const SystemLP* a, const SystemLP* b)
+                      {
+                        if (a->scene().uid() != b->scene().uid()) {
+                          return a->scene().uid() < b->scene().uid();
+                        }
+                        return a->phase().uid() < b->phase().uid();
+                      });
+    for (const auto* system : risk_cells) {
+      const auto& sol = system->cvar_solution();
+      const auto& layout = system->cvar_layout();
+      if (!sol || !layout) {
+        continue;
+      }
+      const CvarSolution& solution = *sol;
+      const CvarLayout& cvar_layout = *layout;
+      for (const auto& r : solution.scenarios) {
+        risk_lines += risk_measure_csv_line(system->scene().uid().value(),
+                                            system->phase().uid().value(),
+                                            solution.eta,
+                                            cvar_layout,
+                                            r);
+      }
+    }
+    if (!risk_cells.empty()) {
+      const auto risk_path = out_dir / "risk_measure.csv";
+      std::ofstream risk_file(risk_path.string(), std::ios::out);
+      if (!risk_file) [[unlikely]] {
+        SPDLOG_ERROR("Cannot open risk measure file '{}' for writing",
+                     risk_path.string());
+      } else {
+        risk_file << risk_measure_csv_header() << risk_lines;
+      }
+    }
   }
 
   // ── pricing.csv: post-MIP pricing provenance (pricing_mode) ────────────

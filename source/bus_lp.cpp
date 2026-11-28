@@ -158,7 +158,69 @@ bool BusLP::add_to_lp(const SystemContext& sc,
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   balance_rows[st_key] = std::move(brows);
 
+  if (sc.options().use_lindistflow()) {
+    add_lindistflow(scenario, stage, lp);
+  }
+
   return true;
+}
+
+void BusLP::add_lindistflow(const ScenarioLP& scenario,
+                            const StageLP& stage,
+                            LinearProblem& lp)
+{
+  // ── LinDistFlow: w = |V|² column and reactive balance per block ──
+  //   reference bus:  w = reference_voltage²  (1 p.u. when only
+  //                   reference_theta marks it as the slack)
+  //   other buses:    vmin_pu² ≤ w ≤ vmax_pu²       (unset → [0, +∞))
+  //   Q balance:      Σ q_inj − Σ q_load + shunt_q · w + Σ q_in − Σ q_out = 0
+  const auto& b = bus();
+  OptReal ref_v = b.reference_voltage;
+  if (!ref_v && b.reference_theta.has_value()) {
+    ref_v = 1.0;
+  }
+  double lowb = 0.0;
+  double uppb = LinearProblem::DblMax;
+  if (ref_v) {
+    lowb = uppb = *ref_v * *ref_v;
+  } else {
+    if (b.vmin_pu) {
+      lowb = *b.vmin_pu * *b.vmin_pu;
+    }
+    if (b.vmax_pu) {
+      uppb = *b.vmax_pu * *b.vmax_pu;
+    }
+  }
+  const double shunt = b.shunt_q.value_or(0.0);
+
+  BIndexHolder<ColIndex> wcols;
+  BIndexHolder<RowIndex> qrows;
+  for (const auto& block : stage.blocks()) {
+    const auto ctx =
+        make_block_context(scenario.uid(), stage.uid(), block.uid());
+    const auto wcol = lp.add_col(SparseCol {
+        .lowb = lowb,
+        .uppb = uppb,
+        .class_name = Element::class_name.full_name(),
+        .variable_name = VsqName,
+        .variable_uid = uid(),
+        .context = ctx,
+    });
+    SparseRow qrow {
+        .class_name = Element::class_name.full_name(),
+        .constraint_name = QBalanceName,
+        .variable_uid = uid(),
+        .context = ctx,
+    };
+    if (shunt != 0.0) {
+      qrow[wcol] = shunt;
+    }
+    wcols[block.uid()] = wcol;
+    qrows[block.uid()] = lp.add_row(std::move(qrow));
+  }
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
+  vsq_cols[st_key] = std::move(wcols);
+  qbalance_rows[st_key] = std::move(qrows);
 }
 
 bool BusLP::add_to_output(OutputContext& out) const
@@ -176,6 +238,10 @@ bool BusLP::add_to_output(OutputContext& out) const
   // guiservice/ / integration_test/, 2026-05-14).  Mirrors the
   // line.flow:cost / line.theta:dual drops in commit ceabc88c.
   out.add_col_sol(cname, ThetaName, pid, theta_cols);
+  if (!vsq_cols.empty()) {
+    out.add_col_sol(cname, VsqName, pid, vsq_cols);
+    out.add_row_dual(cname, QBalanceName, pid, qbalance_rows);
+  }
 
   return true;
 }

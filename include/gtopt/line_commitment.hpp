@@ -324,6 +324,22 @@ struct LineCommitment
   /// first close is cold).
   OptReal initial_hours {};
 
+  /// Cyclic line commitment: `"none"` (default, chronological from
+  /// `initial_status`) or `"stage"` — the stage is a typical day / week
+  /// repeated in a cycle (mirrors `Commitment.cycle`): the C1 transition
+  /// at the first block wraps to the last block, min up / down windows
+  /// and the start-up tier walk wrap around the period on real time
+  /// steps, and start / shut-down (and tier) costs per cycle are scaled
+  /// by the stage weight `duration / period_hours`.  `initial_status` /
+  /// `initial_hours` are ignored.
+  OptName cycle {};
+
+  /// True when `cycle = "stage"`.
+  [[nodiscard]] bool is_cyclic() const noexcept
+  {
+    return cycle.value_or("none") == "stage";
+  }
+
   /// True iff all five tier fields are set (LP build then activates
   /// the tier rows and zeroes the flat startup_cost contribution).
   [[nodiscard]] constexpr bool has_startup_tiers() const noexcept

@@ -40,6 +40,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -341,6 +342,58 @@ struct Commitment
   /// identical.
   OptName ramp_allowance {};
 
+  /// Daily commitment grid: cell boundaries in hours of the day
+  /// (clock time, [0, 24), strictly increasing, at least one), e.g.
+  /// `[3.5, 7.5, 10.5, 14.5, 17.5, 23.5]` = the cells 23:30–03:30,
+  /// 03:30–07:30, 07:30–10:30, 10:30–14:30, 14:30–17:30 and the peak
+  /// 17:30–23:30 (the last cell wraps around midnight).  The status u
+  /// lives on these cells: every node (point stages: `Block.time`;
+  /// block stages: the block midpoint) joins the cell holding its clock
+  /// time `Stage.start_hour + t` (half-open [a, b): a node exactly on a
+  /// boundary starts the later cell), v / w happen only at cell
+  /// boundaries and min up / down count the real cell hours.  Cells
+  /// holding no node continue the previous cell's status (as the
+  /// uniform overlay grid).  On a cyclic stage whose length is a whole
+  /// number of days, the cell straddling the period start is ONE cell:
+  /// its two pieces share the status (no start / stop at the wrap).
+  ///
+  /// Precedence: the unit's own `commitment_breaks` > its
+  /// `commitment_period` > `Stage.commitment_breaks` (per-stage
+  /// pattern, e.g. seasonal) > `model_options.commitment_breaks` (the
+  /// planning default) — the last two only for units without
+  /// `commitment_period` / `commitment_grid` "block" / "cells" — >
+  /// `Block.commitment_cell` > the per-block grid.  A unit with both
+  /// `commitment_breaks` and `commitment_period`, or with
+  /// `commitment_grid` "block" / "cells", is a validation error.
+  /// Empty (default) = unset.  Non-chronological stages ignore it.
+  std::vector<Real> commitment_breaks {};
+
+  /// Daily cell boundaries in force for this unit on a stage whose own
+  /// pattern is @p stage_breaks (`Stage.commitment_breaks`, empty =
+  /// none) given the planning default @p dflt
+  /// (`model_options.commitment_breaks`): the unit's own list, else —
+  /// for units without their own grid (`commitment_period`, legacy
+  /// `commitment_grid` "block" / "cells") — the stage's list, else
+  /// @p dflt; empty = no daily grid.
+  [[nodiscard]] std::span<const Real> effective_commitment_breaks(
+      std::span<const Real> stage_breaks,
+      const std::optional<std::vector<Real>>& dflt) const noexcept
+  {
+    if (!commitment_breaks.empty()) {
+      return commitment_breaks;
+    }
+    if (commitment_period.has_value() || uses_legacy_point_grid()) {
+      return {};
+    }
+    if (!stage_breaks.empty()) {
+      return stage_breaks;
+    }
+    if (!dflt) {
+      return {};
+    }
+    return *dflt;
+  }
+
   /// Resolved commitment grid: true for the overlay grid.
   [[nodiscard]] bool uses_overlay_grid() const noexcept
   {
@@ -553,6 +606,23 @@ struct Commitment
   std::vector<Real> shutdown_trajectory {};
   /// Spacing of the trajectory samples [h] (default 1).
   OptReal trajectory_step {};
+
+  /// @name Operation wear adders (SSCC maintenance signal), default off
+  /// Separate from the fuel / energy start cost so the outputs can split
+  /// them (`Commitment/startup_wear_cost_sol`,
+  /// `Commitment/operation_wear_cost_sol`).  All linear: valid for a
+  /// relaxed commitment and with capacity expansion.
+  /// @{
+  /// Wear part of one start [$/start] (added to the startup column, also
+  /// with hot / warm / cold tiers).  Must be >= 0.
+  OptTBRealFieldSched startup_wear_cost {};
+  /// `a`: wear cost per committed hour [$/h] (term `a·u`).  Must be >= 0.
+  OptTBRealFieldSched wear_hour_cost {};
+  /// `b`: wear cost per MWh above the committed floor [$/MWh] (term
+  /// `b·(p − Pmin·u)`), any sign: `b < 0` makes low load more costly.
+  /// The hourly wear `a + b·(Pmax − Pmin)` at Pmax must stay >= 0.
+  OptTBRealFieldSched wear_load_cost {};
+  /// @}
 
   /// Resolved per-unit formulation: true for power-based, given the
   /// planning-wide default @p global_power_based.

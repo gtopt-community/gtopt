@@ -12,6 +12,122 @@ in [docs/whats-new.md](docs/whats-new.md).
 
 ### Added
 
+- **LinDistFlow distribution network model
+  (`model_options.network_model = "lindistflow"`).**  Squared bus
+  voltages with `vmin_pu`/`vmax_pu`/`reference_voltage`, a reactive balance
+  per bus (`shunt_q`, Generator `qmin`/`qmax`/`power_factor`, Demand
+  `power_factor`), the voltage-drop row
+  `w_a/t² − w_b − 2(rP + xQ)/V² = 0` per line, exact continuous
+  optimised taps (`tap_ratio_min`/`tap_ratio_max`), MVA polygons
+  (`mva_polygon_sides`, default 8) bounded by the line capacity column,
+  and disjunctive big-M drop rows for zero-capacity candidate lines, so
+  reconductoring, transformer upgrades, BESS and PV hosting studies run
+  as LP or MIP (`integer_expmod`).  The default `"dc"` builds the same
+  LP as before.  New outputs `Bus/vsq`, `Bus/qbalance` dual,
+  `Line/qflow`, `Line/vsqtap`, `Line/vdrop` dual and
+  `Generator/qgen`.  `opendss2gtopt --study vad|hosting` builds the
+  Chilean VAD sizing study and the PV hosting study on OpenDSS feeders.
+  See [§5.6 bis](docs/formulation/mathematical-formulation.md#56-bis-lindistflow-distribution-network)
+  and [docs/methods/distribution-expansion.md](docs/methods/distribution-expansion.md).
+- **`opendss2gtopt` and `gtopt2opendss` converters.** Parse OpenDSS
+  `.dss` distribution circuits (own parser: Redirect/Compile, `like=`,
+  continuations, RPN values; Line/LineCode/LineGeometry with modified
+  Carson, Transformer, RegControl, Load, Generator, PVSystem, Storage,
+  Capacitor, LoadShape) into a balanced single-phase-equivalent gtopt
+  case, and write a gtopt case plus its solved dispatch back as an
+  OpenDSS script for AC validation through the optional
+  `opendssdirect.py` (`pip install "./scripts[opendss]"`).  Converter
+  fidelity against OpenDSS: 0.01 % voltage error on the balanced IEEE
+  4-bus feeder, mean 0.2-0.5 % on the unbalanced IEEE 13/34/123-bus
+  feeders.  See [docs/scripts/opendss2gtopt.md](docs/scripts/opendss2gtopt.md).
+- **`gtopt_private_eval` storage valuation (`storage_valuation`,
+  `--storage-valuation [TYPE=]MODE`).** Units drawing from a storage
+  (LNG terminal, reservoir, battery) can be valued at the storage shadow
+  value (its balance dual: `LngTerminal/energy_dual`,
+  `Reservoir/water_value_dual`, `Battery/energy_dual`) instead of a
+  declared fuel / water cost; refills at purchase price (LNG cargoes),
+  zero (natural inflow) or CMg (battery charge), and the report gives a
+  per-storage account that reconciles unit margins + storage margin =
+  one-owner profit and values the inventory change.  Default
+  `declared`, except reservoirs in `cl` (water value, as the CEN
+  dispatches hydro).
+- **LNG tank draw along the generator's heat-rate curve
+  (`LngTerminal.use_generator_fuel_curve`).** Opt-in: a linked unit
+  draws `link heat_rate × (h₁·P + Σ Δhₖ·sₖ + noload_fuel·u)` from the
+  tank — its `pmax_segments` / `heat_rate_segments`, scalar
+  `Generator.heat_rate` and committed `Commitment.noload_fuel` (the
+  `Fuel` offtake legs) — in the balance, send-out rows and PAMPL `fuel`,
+  so holding reserve at part load costs gas; the up-reserve backing uses
+  the top slope.  `gtopt_private_eval` charges thermal units the
+  declared curve at the dispatched point (fuel price × upper segments +
+  no-load fuel / P on top of `srmc`).  plexos2gtopt no longer uses
+  `Heat Rate Base` (no-load burn per hour) as a per-MWh heat rate.
+  Case `cases/lng_heat_curve_2u` (the less efficient unit is part-loaded
+  to hold the reserve).
+
+- **Gas-backed reserves of LNG-fed units (`LngTerminal.reserve_sustain_hours`,
+  `reserve_gas_usage`).** Opt-in (unset = LP unchanged).  Per block the
+  linked generators' up reserve must be sustainable from the tank,
+  `V_end − fcr·T·Σ heat_rate·r_up ≥ emin`, and with `sendout_max`
+  enforced `Σ heat_rate·(P + r_up) ≤ sendout_max`; `reserve_gas_usage`
+  burns the expected deployment from the tank.  Down reserve stays
+  gas-limited through the generic `r_dn ≤ P − Pmin` row (empty tank →
+  P = 0 → r_dn = 0).  Duals `LngTerminal/reserve_up_energy_dual`,
+  `reserve_up_sendout_dual`.  Case `cases/lng_reserve_1b` (the reserve
+  price rises from 0 to the peaker bid when the tank empties); tests for
+  the battery down-reserve rules (idle not full → by charging, idle full
+  → none, discharging full → up to its discharge).  `gtopt_private_eval`
+  SSCC revenue uses the dispatched provisions (also by generator uid).
+
+- **`gtopt_private_eval` storages (`storage_valuation`,
+  `--storage-valuation [TYPE=]MODE`).** The evaluation stays cash in
+  every market (`cash`, default): units receive CMg × energy and pay
+  their variable cost — hydro with a reservoir only its VOM, batteries
+  their charge at the CMg, LNG-linked units VOM + heat rate × the
+  terminal purchase price (`delivery_cost`, else `spot_cost`); the
+  report adds the LNG terminal / owner account of the cargo purchases.
+  `shadow` is an opt-in diagnostic that charges the storage balance dual
+  (`LngTerminal/energy_dual`, `Reservoir/water_value_dual`,
+  `Battery/energy_dual`) instead, to split profit between a storage and
+  its units and value the end-of-horizon inventory; its accounts
+  reconcile with the one-owner cash profit.
+
+- **LNG spot cargoes and contract price (`LngTerminal.spot_cargo_volume`,
+  `spot_cargo_max`, `spot_cost`, `spot_integer`, `spot_annual_max`,
+  `delivery_cost`).** Optional cargoes, one column per stage (integer
+  slots make the case a MIP: HiGHS / CPLEX, never CLP), arrive in the
+  stage's first block and need room under `emax`; `spot_annual_max`
+  caps them per 8760-h planning year.  `delivery_cost` prices the
+  contracted deliveries (a constant for must-take cargoes); the linked
+  units' `gcost` is then non-fuel VOM, the tank dual prices the gas.
+  Outputs `LngTerminal/spot_sol`, `spot_cost`, `spot_annual_dual`; PAMPL
+  `lng_terminal("X").spot`.  Unset fields build the same LP.  Case
+  `cases/lng_spot_1b`.
+
+- **Risk-averse planner (`model_options.risk_measure = "cvar"`,
+  `cvar_alpha`, `cvar_weight`).** Minimises (1 − λ)·E[cost] +
+  λ·CVaR_α[cost] over the scenarios of a monolithic single-phase LP in
+  the Rockafellar–Uryasev form (one η, one excess column and one row per
+  scenario; investment stays first-stage).  The duals become
+  risk-adjusted probabilities, written to `risk_measure.csv`;
+  `gtopt_cost_recovery --risk-weights auto|probability` values projects
+  under them (zero profit) or under the true probabilities (risk
+  premium).  SDDP / cascade and multi-phase runs are rejected (nested
+  CVaR design in formulation §4.5).  Default `expected` leaves the LP
+  byte-identical.  Case `cases/invest_cvar_1b`.
+- **Daily (non-uniform) commitment grid (`commitment_breaks`).** Cell
+  boundaries in hours of the day, e.g. `[3.5, 7.5, 10.5, 14.5, 17.5,
+  23.5]` (the peak 17:30–23:30 as ONE cell, 3 h sunrise / sunset
+  cells), per unit (`Commitment`), per stage (`Stage`, e.g. seasonal)
+  or as the planning default (`model_options`).  Point and block stages
+  map nodes by their clock time `Stage.start_hour + t` (new field,
+  default 0); v / w only at cell boundaries, min up / down in cell
+  hours, the cell straddling a cyclic week start is one cell.
+  `tcheby2gtopt` and `plexos2gtopt.aemo_isp_expansion` take
+  `--commitment-breaks` / `--commitment-breaks-file` (per month).
+  Unset leaves the LP unchanged.  See
+  [docs/methods/typical-week-sampling.md](docs/methods/typical-week-sampling.md)
+  §4c.
 - **Per-candidate cost of capital (`overnight_capcost`,
   `economic_life`, `wacc`).** Generators, lines, batteries (energy and
   `power_overnight_capcost`), converters, demands and carrier
@@ -37,6 +153,88 @@ in [docs/whats-new.md](docs/whats-new.md).
   about); cases `invest_screening_1b`, `invest_garver_6b`,
   `invest_bat_1b`, `invest_wacc_1b`, `invest_multi_3b` (electrolyser and
   desalination candidates) and the e2e case `invest_wacc_2c`.
+- **Operation wear adders on `Commitment` (SSCC maintenance signal in
+  the LP).** These are new optional fields, off by default.  With them,
+  wear acts on dispatch and expansion, not only on reserve:
+  - `startup_wear_cost` [$/start]: the wear part of one start, added to
+    the startup column apart from `startup_cost`, also when hot / warm /
+    cold tiers are used;
+  - `wear_hour_cost` a [$/h] and `wear_load_cost` b [$/MWh]: hourly wear
+    `a·u + b·(p − Pmin·u)`.  b may be negative (a low-load penalty); the
+    LP builder checks `a + b·(Pmax − Pmin) >= 0`.
+
+  The terms are linear, so they work with a relaxed commitment and with
+  capacity expansion.  They are reported as
+  `Commitment/startup_wear_cost` and `Commitment/operation_wear_cost`.
+  Negative `startup_wear_cost` or `wear_hour_cost` values are rejected.
+  Docs: input-data.md (Commitment), formulation §5.15 Costs.
+- **gtopt_usage `maintenance`: maintenance counters, a calendar and an
+  incremental cost.** Each unit keeps counters per maintenance type (EOH,
+  starts, cycles and calendar years, "whichever comes first").  An event
+  of type k resets k and every lower type, optionally to a fraction of the
+  counter (imperfect maintenance).  EOH counts operating hours weighted
+  by load, `a + b·(p − Pmin)/(Pmax − Pmin)` with b of either sign, plus
+  Kd·starts, Kf·trips and α·reserve MW·h / Pmax.  Batteries count
+  DoD-weighted equivalent full cycles instead.  The counters run against a
+  fixed calendar (CSV, or the `outage_fraction` schedule from plp2gtopt)
+  and each calendar event is classed early, late or consistent.  Only the
+  difference between a run with SSCC and one without is priced, by two
+  methods: a rate method (ΔEOH · Σ C/HOM) and an event method (extra
+  events, advancement `C·[1 − (1+r)^−Δt]`, replacement energy, terminal
+  wear; discount rate 0.06 by default).  The tool reports gross, savings
+  and net per unit and technology, and θ per product for both methods.
+  Wear factors (`eoh_per_reserve_mwh`, `alpha_reserve`, `service_weights`)
+  take per-direction keys (`{"cpf": {"up": a, "dn": b}}` or `"cpf_up"`;
+  flat per-service values still work) and θ is reported per technology,
+  service and direction (the six SSCC products) in `theta` and
+  `maintenance`.  Docs: scripts/gtopt_usage.md.
+- **Per-service reserve costs on one unit (SSCC), guard against negative
+  costs.** A unit that offers CPF, CSF and CTF at different costs uses one
+  `ReserveProvision` per service with `shared_headroom: true`: each
+  service keeps its own `urcost` / `drcost` and the services share one
+  headroom pair `p + Σ r_up ≤ Pmax·u`, `p − Σ r_dn ≥ Pmin·u`. New tests
+  show the zone prices then differ exactly by the cost gap. A negative
+  `urcost` / `drcost` is now rejected by `validate_planning` and by the
+  LP builder (file schedules); no existing case used one. Docs:
+  input-data.md (ReserveProvision), formulation §5.9.
+- **Usage accounting outputs (`output_usage_metrics`) and the
+  `gtopt_usage` post-processor.** With the option on (default off, the LP
+  is unchanged) gtopt also writes `Generator/usage_on` (1 when the unit
+  generates), `Generator/usage_ramp` (|Δp| between consecutive
+  chronological blocks), `Commitment/usage_pmin` and
+  `Commitment/usage_at_pmin` (committed at the floor). `gtopt_usage usage
+  RUN` turns them into hours, starts, ramp MW, hours at pmin and
+  reserve MW·h per unit, and, from per-technology maintenance parameters
+  (intervals in EOH / starts / cycles, cost per event, Kf / Kd), into
+  equivalent operating hours, maintenance events and cost.
+  `gtopt_usage theta BASE SSCC --params P` derives the SSCC wear cost
+  θ per technology and service = Δ maintenance cost / reserve MW·h from a
+  run without and a run with reserves. Docs: usage.md,
+  scripts/gtopt_usage.md.
+- **Known SSCC variable costs on `ReserveProvision` (all off by
+  default).** `ur/dr_partload_cost` (part-load penalty, $/MW·h),
+  `ur/dr_activation_factor` γ ∈ [0, 1] with `ur/dr_activation_cost`
+  (deployed-energy cost; up defaults to the generator SRMC, down to 0)
+  and `ur/dr_degradation_cost` (per MWh of deployed throughput, BESS).
+  The provision column cost becomes `urcost + partload + γ·(activation +
+  degradation)`; each term is written separately
+  (`ReserveProvision/{up,dn}_{partload,activation,degradation}_cost`,
+  $/h) so θ splits into known costs and the derived maintenance delta.
+  Negative costs and γ outside [0, 1] are rejected. New accessor
+  `GeneratorLP::srmc_at`. Docs: input-data.md, formulation §5.9.
+- **Maintenance calendar: `Generator.outage_fraction` and
+  `model_options.outage_reserve_mode`.** A per-(stage, block) fraction
+  `f` ∈ [0, 1] of the unit in maintenance scales `pmin` / `pmax` (and
+  the expansion capacity row) by `1 − f`, kept apart from derates and
+  entry / retirement; the applied value is written as
+  `Generator/outage_fraction`. `outage_reserve_mode`: `none` (default,
+  only the headroom shrinks), `proportional` (`urmax` / `drmax` scaled by
+  `1 − f`) or `exclude` (no reserve in a block with `f > 0`). Unset =
+  the previous model. `plp2gtopt --mance-split {off,auto,xlsm}` (default
+  `off`) moves `plpmance.dat` maintenance derates into this schedule:
+  `auto` uses a heuristic on thermal centrals, `xlsm` takes the
+  maintained centrals from the PLP workbook (`--mance-xlsm FILE`).
+  Docs: input-data.md (Generator), planning-options.md, formulation.
 - **Radial lines: one-way and dead-end detection
   (`model_options.line_direction_mode`, `Line.flow_direction`).** The
   bridges of the transport graph (every line ever active, DC links and
@@ -155,8 +353,10 @@ in [docs/whats-new.md](docs/whats-new.md).
 - **Point-sampled stages** (`Stage.sampling = "point"`, `Block.time`,
   `Stage.period_hours`, `Stage.periodic`): block values are samples at
   node times and block durations are quadrature weights; a stage can
-  sample one typical day or week that repeats, with every intra-period
-  coupling wrapped around the period.  A generic cell partition counts
+  sample one typical day or week that repeats; the intra-period
+  couplings wrap around the period where an option asks for it
+  (`Commitment.cycle = "stage"`, `model_options.periodic_storage`).  A
+  generic cell partition counts
   min up / down times, commitment periods and daily-cycle windows on the
   quadrature cells.  See
   [Typical-week sampling](docs/methods/typical-week-sampling.md).
@@ -168,6 +368,37 @@ in [docs/whats-new.md](docs/whats-new.md).
   `trapezoid`, `lg4` / `lg6`, `lg4_pos` / `lg6_pos`.  Built-in defaults:
   `lg4_pos` for reservoirs, `block` for other storages; `plexos2gtopt`
   and `tcheby2gtopt` write `cc` (`--point-storage-integration`).
+- **Storages on periodic stages** (`model_options.periodic_storage`,
+  default `false`): a `daily_cycle` storage starts every periodic stage
+  at a free level and closes on itself; a state storage (reservoir, LNG
+  tank, a battery with `daily_cycle = false`) runs ONE real cycle and
+  its stage-end state is `efin = s + n·(x_last − s)` (`cycle_scale` row,
+  `n = duration / period_hours`), with the bounds checked on the first
+  and the ⌈n⌉-th repetition (`cycle_shift` rows).  External terms in the
+  storage balance (VolumeRight, LNG fuel, AllowancePool, EmissionSource)
+  use the same one-cycle time scale.  Off: the LP is unchanged.
+- **Cyclic line commitment** (`LineCommitment.cycle = "stage"`, default
+  `"none"`, mirrors `Commitment.cycle`): the breaker transition at the
+  first block wraps to the last block, min up / down windows and the
+  start-up tier walk wrap around the stage on real time steps, start /
+  shut-down costs are paid `duration / period_hours` times, and
+  `initial_status` / `initial_hours` are ignored (validation warning).
+- **`model_options.prev_stage_link = "period"`**: a user-constraint
+  `<attr>_prev` term at the first block of a periodic stage (typical day /
+  week, ≥ 2 blocks) reads the last block of the same stage — the period
+  wraps; other stages behave as under `"stage"` (the default, unchanged).
+- **Validation warning for contradictory storage flags**: a storage
+  whose resolved `daily_cycle` and `use_state_variable` are both true
+  (e.g. a Battery that sets only `use_state_variable: true`, its
+  `daily_cycle` defaulting to true) is cyclic and the state request has
+  no effect; the warning asks for `daily_cycle: false`.  Defaults and the
+  LP are unchanged.
+- **`plexos2gtopt` AEMO ISP expansion storage modes**:
+  `--battery-state-hours H` (default `inf`, all cyclic as before) writes
+  batteries of at least H hours (PHES, long-duration BESS) as state
+  storages; `--periodic-storage` sets `model_options.periodic_storage`;
+  `--rep-day-periodic` writes hourly representative days with
+  `period_hours = 24`.  All off by default (unchanged output).
 - **Typical-week sampling in `plexos2gtopt`**: Chebyshev weeks and days,
   uniform and point weeks, a Wednesday-noon window and the
   `--ramp-refine` sunrise / sunset refinement.
@@ -660,6 +891,56 @@ in [docs/whats-new.md](docs/whats-new.md).
   and the HiGHS section of `docs/solvers.md`.
 
 ### Fixed
+
+- **LP coefficients were silently dropped while the LP was built,
+  making results depend on the solver and the memory layout.**
+  `LinearProblem` kept rows and columns in a `std::vector`, and element
+  builders stamp through `lp.row_at(i)` references while other code
+  adds rows: `LineLP` around `line_losses::add_block` (every PWL loss
+  mode adds segment / loss-link rows between the forward and reverse
+  stamps) and `DemandLP` around its capacity rows (an expandable demand
+  with a stage `emin`).  When the vector reallocated, the stamps that
+  followed went to freed memory: the reverse `flown` / `lossn` of a
+  line, or a demand's `lman`, vanished from one block's bus balance.
+  Which block, if any, depended on the allocation pattern, so HiGHS /
+  CLP and CPLEX / MindOpt / SCIP built different LPs from the same case.
+  Rows and columns now live in `StableVector` (append-only chunks that
+  never move), so a `row_at` / `col_at` reference stays valid across
+  `add_row` / `add_col`; correct code builds the same LP as before.
+
+- **PWL line losses on an unrated line no longer stamp NaN
+  coefficients.**  A line with resistance but no `tmax` / capacity /
+  `loss_envelope` spread its loss segments over the unbounded block cap,
+  overflowing the slopes to `inf` and the row scale to 0: NaN entries in
+  the loss rows, which each solver reads differently.  Such a line is now
+  lossless with a warning; rate it or set `loss_envelope` to keep its
+  losses.  Rated lines build the same LP as before.
+- **`LngTerminal.sendout_max` / `sendout_min` were ignored.** The
+  fields were parsed and documented as regasification limits but never
+  written into the LP, so the linked units could draw any rate.  Each
+  set limit now bounds Σ heat_rate × generation per block
+  (`LngTerminal/sendout_dual`).  `enforce_sendout` (default true) turns
+  it off to restore the old LP; cases without the fields are unchanged.
+
+- **plp2gtopt: `plpmaness.dat` (ESS maintenance) clobbered the central
+  and demand maintenance.** Batteries with DC maintenance went through a
+  legacy path that wrote `Generator/pmax` and `Demand/lmax` under the
+  battery uid (overwriting the `plpmance.dat` / demand schedules) and
+  built separate `<bat>_disch` / `<bat>_chrg` elements.  The rows now set
+  the unified battery's own `Battery/emin`, `emax`, `pmax_discharge`,
+  `pmax_charge` (DCMax as both power limits, dense over the blocks,
+  unlisted blocks at the nominal values; `DCMin` > 0 is warned), and a
+  DCMod=2 regulation tank's `Reservoir/ess_emin` / `ess_emax`.  Battery
+  `emin` / `emax` reference a file only when it was written.  Case
+  `scripts/cases/plp_min_ess_maness`.
+
+- **plp2gtopt: battery entry dates from `plpmance.dat`.** Maintenance
+  rows of a battery central (and of its `<bat>_LOAD` charge phantom)
+  were written as `Generator` schedules of the auxiliary units and
+  ignored, so a battery entering mid-horizon was available from the
+  first block.  They now set the battery's `pmax_discharge` /
+  `pmax_charge` block schedules (`Battery/pmax_*`; unlisted blocks keep
+  the `plpcnfce.dat` power).  Case `scripts/cases/plp_min_battery_entry`.
 
 - **`Battery.integer_expmod` now also makes the converter's power
   modules integer** when the power axis is expandable (it was not

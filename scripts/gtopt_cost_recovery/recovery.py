@@ -14,8 +14,10 @@ from gtopt_pricing_uplift._data import (
     Case,
     Period,
     SeriesMap,
+    _uid_of,
     load_case,
     load_series,
+    name_index,
     read_pricing_csv,
     resolve_ref,
     sched_value,
@@ -87,6 +89,35 @@ def annual_capcost(
     )
 
 
+def financing_wedge_fraction(
+    elem: dict[str, Any],
+    stage_index: int,
+    social_rate: float,
+    prefix: str = "",
+) -> float | None:
+    """Share of the LP annuity due to the private rate: ``1 − CRF(social)/CRF(wacc)``.
+
+    The annuity at the element's ``wacc`` minus the annuity at the social
+    rate, over the same ``economic_life``, as a fraction of the former
+    (TIMES "INV+").  ``None`` when the annuity is not built from
+    ``overnight_capcost`` and ``economic_life`` (an explicit
+    ``annual_capcost`` wins in gtopt); 0 when ``wacc`` is unset.
+    """
+    if _stage_value(elem.get(f"{prefix}annual_capcost"), stage_index) is not None:
+        return None
+    overnight = _stage_value(elem.get(f"{prefix}overnight_capcost"), stage_index)
+    life = _stage_value(elem.get("economic_life"), stage_index)
+    if overnight is None or life is None or life <= 0.0:
+        return None
+    wacc = _stage_value(elem.get("wacc"), stage_index)
+    if wacc is None:
+        return 0.0
+    private = capital_recovery_factor(wacc, life)
+    if private <= 0.0:
+        return None
+    return 1.0 - capital_recovery_factor(social_rate, life) / private
+
+
 @dataclass
 class ProjectRecovery:
     """Cost recovery of one expandable element (all money in $)."""
@@ -119,6 +150,10 @@ class ProjectRecovery:
     #: part of the margin earned in blocks with unserved energy (price set
     #: by the failure cost); 0 in a well-posed expansion plan
     failure_rent: float = 0.0
+    #: part of ``total_capex`` due to the private rate: annuity at the
+    #: element's ``wacc`` − annuity at the social rate (TIMES "INV+");
+    #: None when the annuity is not built from overnight cost and life
+    financing_wedge: float | None = None
 
     @property
     def built(self) -> bool:
@@ -181,8 +216,16 @@ class ProjectRecovery:
             profit_over_capex=self.profit_over_capex,
             make_whole=self.make_whole,
             net_value_per_unit=self.net_value_per_unit,
+            social_capex=self.social_capex,
         )
         return d
+
+    @property
+    def social_capex(self) -> float | None:
+        """Annuity of the new capacity at the social rate (capex − wedge)."""
+        if self.financing_wedge is None:
+            return None
+        return self.total_capex - self.financing_wedge
 
 
 @dataclass
@@ -224,6 +267,10 @@ class RecoveryReport:
     market: MarketBalance = field(default_factory=MarketBalance)
     #: per (period, bus) price decomposition (``price_blocks=True`` only)
     blocks: list[dict[str, Any]] = field(default_factory=list)
+    #: ``risk_measure.csv`` rows of a mean-CVaR run (empty otherwise)
+    risk: list[RiskScenario] = field(default_factory=list)
+    #: True when the money is valued under the risk-adjusted measure π_s
+    risk_adjusted: bool = False
 
     @property
     def total_failure_rent(self) -> float:
@@ -242,6 +289,13 @@ class RecoveryReport:
     def total_make_whole(self) -> float:
         return sum(p.make_whole for p in self.projects)
 
+    @property
+    def total_financing_wedge(self) -> float | None:
+        """Σ financing wedge of the projects that have one (None: none has)."""
+        vals = [p.financing_wedge for p in self.projects]
+        known = [v for v in vals if v is not None]
+        return sum(known) if known else None
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "results_dir": self.results_dir,
@@ -253,11 +307,14 @@ class RecoveryReport:
             "total_capex": self.total_capex,
             "total_profit": self.total_profit,
             "total_make_whole": self.total_make_whole,
+            "total_financing_wedge": self.total_financing_wedge,
             "market": {**asdict(self.market), "residual": self.market.residual},
             "projects": [p.to_dict() for p in self.projects],
             "existing": [p.to_dict() for p in self.existing],
             "total_failure_rent": self.total_failure_rent,
             "blocks": self.blocks,
+            "risk_adjusted": self.risk_adjusted,
+            "risk": [asdict(r) for r in self.risk],
         }
 
 
@@ -285,10 +342,22 @@ class _Ctx:
     stage_cache: dict[str, StageMap] = field(default_factory=dict)
     #: (scenario, stage, block, bus) -> PriceSplit, built on first use
     split: dict[tuple[int, int, int, int], PriceSplit] | None = None
+    #: scenario uid -> 1 / ζ_s: turns a risk-adjusted dual (``*_dual``) back
+    #: into the scenario's own marginal value (``risk_measure = cvar``)
+    dual_scale: dict[int, float] = field(default_factory=dict)
+    #: bus name -> uid, built on first use
+    bus_index: dict[str, int] | None = None
+    #: generator ref (name or uid) -> its profiles, built on first use
+    profiles: dict[Any, list[Any]] | None = None
+    #: generators already warned about a file-backed profile
+    warned: set[Any] = field(default_factory=set)
 
     def series(self, stem: str) -> SeriesMap | None:
         if stem not in self.cache:
-            self.cache[stem] = load_series(self.rdir, stem)
+            data = load_series(self.rdir, stem)
+            if data is not None and stem.endswith("_dual"):
+                data = _rescale_duals(data, self.dual_scale)
+            self.cache[stem] = data
         return self.cache[stem]
 
     def stage_series(self, stem: str) -> StageMap:
@@ -300,6 +369,85 @@ class _Ctx:
         """Probability × discount of a period (duration applied by caller)."""
         disc = self.stages.get(p.stage, (0, 0.0, 1.0))[2]
         return self.case.scenario_weight.get(p.scenario, 1.0) * disc
+
+
+@dataclass
+class RiskScenario:
+    """One row of ``risk_measure.csv`` (mean-CVaR objective)."""
+
+    scenario: int
+    probability: float  #: p_s
+    cost: float  #: O_s, the scenario's discounted operating cost
+    excess: float  #: u_s = max(O_s − η, 0)
+    dual: float  #: μ_s, dual of the CVaR row of s
+    risk_probability: float  #: π_s = (1 − λ)·p_s + μ_s
+    risk_factor: float  #: ζ_s = π_s / p_s
+    eta: float = 0.0  #: η, the value at risk
+    alpha: float = 0.0
+    weight: float = 0.0
+    measure: str = "cvar"  #: cvar | trim
+    rank_by: str = "cost"  #: cost (endogenous) | index (Scenario.risk_index)
+    tail: str = "upper"
+
+
+def read_risk_measure_csv(rdir: Path) -> list[RiskScenario]:
+    """Rows of ``<rdir>/risk_measure.csv`` (empty when absent)."""
+    path = rdir / "risk_measure.csv"
+    if not path.is_file():
+        return []
+    out: list[RiskScenario] = []
+    with open(path, encoding="utf-8", newline="") as fh:
+        for row in csv.DictReader(fh):
+            out.append(
+                RiskScenario(
+                    scenario=int(row["scenario"]),
+                    probability=float(row["probability"]),
+                    cost=float(row["cost"]),
+                    excess=float(row["excess"]),
+                    dual=float(row["dual"]),
+                    risk_probability=float(row["risk_probability"]),
+                    risk_factor=float(row["risk_factor"]),
+                    eta=float(row["eta"]),
+                    alpha=float(row["alpha"]),
+                    weight=float(row["weight"]),
+                    measure=row.get("measure") or "cvar",
+                    rank_by=row.get("rank_by") or "cost",
+                    tail=row.get("tail") or "upper",
+                )
+            )
+    return out
+
+
+def _rescale_duals(data: SeriesMap, scale: dict[int, float]) -> SeriesMap:
+    """Divide every dual of scenario s by ζ_s (no-op without ``scale``)."""
+    if not scale:
+        return data
+    return {k: v * scale.get(k[0], 1.0) for k, v in data.items()}
+
+
+def apply_risk_weights(
+    case: Case, risk: list[RiskScenario], *, risk_adjusted: bool = True
+) -> dict[int, float]:
+    """Read a CVaR run back into scenario prices and weights.
+
+    Returns 1/ζ_s per scenario: the factor that turns each reported dual
+    (÷ p_s by gtopt, hence ζ_s × the scenario's own marginal value) back
+    into the scenario's marginal value.  With ``risk_adjusted`` the
+    scenario weights of ``case`` become π_s / Σ π (the measure under which
+    zero profit holds); otherwise they stay p_s (expected profit under the
+    true probabilities, i.e. minus the risk premium).  A scenario with
+    π_s = 0 (λ = 1, outside the tail) gets factor 0: its dispatch is
+    unpriced.
+    """
+    total = sum(r.risk_probability for r in risk)
+    if total <= 0.0:
+        return {}
+    scale: dict[int, float] = {}
+    for r in risk:
+        if risk_adjusted:
+            case.scenario_weight[r.scenario] = r.risk_probability / total
+        scale[r.scenario] = 1.0 / r.risk_factor if r.risk_factor > 0.0 else 0.0
+    return scale
 
 
 def _get(series: SeriesMap | None, p: Period, uid: int) -> float:
@@ -338,14 +486,37 @@ def _social_rate(planning: dict[str, Any]) -> float:
 # ── capacity bookkeeping (shared by every kind) ────────────────────────
 
 
+@dataclass
+class _Axis:
+    """Capacity bookkeeping of one expansion axis."""
+
+    existing: float
+    installed: float
+    capex: float  #: annuity charge (fixed O&M excluded)
+    value: float  #: value per unit
+    cost_per_unit: float
+    fixed_om: float
+    wedge: float | None  #: financing wedge part of ``capex``
+
+    def parts(self) -> tuple[float, float, float, float, float, float]:
+        return (
+            self.existing,
+            self.installed,
+            self.capex,
+            self.value,
+            self.cost_per_unit,
+            self.fixed_om,
+        )
+
+
 def _capacity(
     ctx: _Ctx,
     cls: str,
     elem: dict[str, Any],
     dual_stems: tuple[str, ...],
     prefix: str = "",
-) -> tuple[float, float, float, float, float, float]:
-    """(existing, installed, capex, value/unit, cost/unit, fixed O&M) of one axis.
+) -> _Axis:
+    """Existing, installed, capex, value/unit, cost/unit, fixed O&M, wedge.
 
     ``capacost_sol`` holds the annuity plus the fixed O&M of the capacity
     built (``fixed_om_cost``); the fixed O&M part is recomputed from the
@@ -361,6 +532,7 @@ def _capacity(
     cost_per_unit = 0.0
     fixed_om = 0.0
     built_fom = 0.0  #: Σ built·F of the modules built so far [$/year]
+    wedge: float | None = 0.0
     # Capacity is scene-wide (stage-level streams, scenario column 0); the
     # capex carries the scene probability, which sums to 1 here.
     for stage_uid, (s_idx, dur, disc) in sorted(
@@ -369,8 +541,15 @@ def _capacity(
         fom = _stage_value(elem.get(f"{prefix}fixed_om_cost"), s_idx) or 0.0
         expcap = _stage_value(elem.get(f"{prefix}expcap"), s_idx) or 0.0
         built_fom += _first(expmod, stage_uid, uid) * expcap * fom
-        fixed_om += built_fom * dur / HOURS_PER_YEAR * disc
-        capex += _first(capacost, stage_uid, uid) * dur * disc
+        stage_fom = built_fom * dur / HOURS_PER_YEAR * disc
+        stage_capex = _first(capacost, stage_uid, uid) * dur * disc - stage_fom
+        fixed_om += stage_fom
+        capex += stage_capex + stage_fom
+        frac = financing_wedge_fraction(elem, s_idx, ctx.social_rate, prefix)
+        if frac is None:
+            wedge = None
+        elif wedge is not None:
+            wedge += frac * stage_capex
         cost_per_unit += (
             (annual_capcost(elem, s_idx, ctx.social_rate, prefix) + fom)
             * dur
@@ -391,7 +570,19 @@ def _capacity(
         for periods in ctx.case.periods.values():
             for p in periods:
                 value += abs(_get(duals, p, uid)) * p.duration * ctx.weight(p)
-    return existing, installed, capex - fixed_om, value, cost_per_unit, fixed_om
+    return _Axis(
+        existing=existing,
+        installed=installed,
+        capex=capex - fixed_om,
+        value=value,
+        cost_per_unit=cost_per_unit,
+        fixed_om=fixed_om,
+        wedge=wedge,
+    )
+
+
+def _sum_wedge(a: float | None, b: float | None) -> float | None:
+    return None if a is None or b is None else a + b
 
 
 def _first(series: StageMap, stage_uid: int, uid: int) -> float:
@@ -415,9 +606,39 @@ def _expandable(elem: dict[str, Any], prefix: str = "") -> bool:
 
 
 def _bus_of(ctx: _Ctx, ref: Any) -> int:
-    buses = ctx.case.planning.get("system", {}).get("bus_array", []) or []
-    uid = resolve_ref(ref, buses)
+    if ctx.bus_index is None:
+        buses = ctx.case.planning.get("system", {}).get("bus_array", []) or []
+        ctx.bus_index = name_index(buses)
+    uid = _uid_of(ref, ctx.bus_index)
     return -1 if uid is None else uid
+
+
+def _profiles_of(ctx: _Ctx, gen: dict[str, Any]) -> list[Any]:
+    """The ``profile`` values of the profiles that reference a generator."""
+    if ctx.profiles is None:
+        system = ctx.case.planning.get("system", {})
+        # The input's generator_profile_array; gtopt's planning.json
+        # carries it as capacity_profile_array (owner_kind "generator").
+        pairs = [
+            (prof, prof.get("generator"))
+            for prof in system.get("generator_profile_array", []) or []
+        ] + [
+            (prof, prof.get("owner"))
+            for prof in system.get("capacity_profile_array", []) or []
+            if prof.get("owner_kind", "generator") == "generator"
+        ]
+        index: dict[Any, list[Any]] = {}
+        for prof, ref in pairs:
+            if isinstance(ref, (str, int)) and not isinstance(ref, bool):
+                index.setdefault(ref, []).append(prof.get("profile"))
+        ctx.profiles = index
+    out: list[Any] = []
+    seen: set[Any] = set()
+    for key in (gen.get("name"), gen.get("uid")):
+        if isinstance(key, (str, int)) and key not in seen:
+            seen.add(key)
+            out.extend(ctx.profiles.get(key, []))
+    return out
 
 
 def _profile_factor(ctx: _Ctx, gen: dict[str, Any], p: Period) -> float:
@@ -427,21 +648,7 @@ def _profile_factor(ctx: _Ctx, gen: dict[str, Any], p: Period) -> float:
     the generator has no profile (a file-backed profile is read as 1, with
     a warning).
     """
-    system = ctx.case.planning.get("system", {})
-    # The input's generator_profile_array; gtopt's planning.json carries
-    # it as capacity_profile_array (owner_kind "generator").
-    profiles = [
-        (prof, prof.get("generator"))
-        for prof in system.get("generator_profile_array", []) or []
-    ] + [
-        (prof, prof.get("owner"))
-        for prof in system.get("capacity_profile_array", []) or []
-        if prof.get("owner_kind", "generator") == "generator"
-    ]
-    for prof, ref in profiles:
-        if ref not in (gen.get("name"), gen.get("uid")):
-            continue
-        value: Any = prof.get("profile")
+    for value in _profiles_of(ctx, gen):
         for idx in (p.scenario - 1, ctx.stages[p.stage][0], p.block_index):
             if not isinstance(value, list):
                 break
@@ -450,7 +657,10 @@ def _profile_factor(ctx: _Ctx, gen: dict[str, Any], p: Period) -> float:
             value = value[min(max(idx, 0), len(value) - 1)]
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             return float(value)
-        log.warning("profile of %s is not inline: availability 1 assumed", ref)
+        ref = gen.get("name")
+        if ref not in ctx.warned:
+            ctx.warned.add(ref)
+            log.warning("profile of %s is not inline: availability 1 assumed", ref)
     return 1.0
 
 
@@ -494,9 +704,8 @@ def _gen_flows(ctx: _Ctx, gen: dict[str, Any]) -> tuple[float, float, float]:
 def _generator(ctx: _Ctx, gen: dict[str, Any]) -> ProjectRecovery:
     revenue, opex, unit_margin = _gen_flows(ctx, gen)
     cap_rent, fail_rent = _gen_rents(ctx, gen)
-    existing, installed, capex, _dual_value, cpu, fom = _capacity(
-        ctx, "Generator", gen, ()
-    )
+    ax = _capacity(ctx, "Generator", gen, ())
+    existing, installed, capex, _dual_value, cpu, fom = ax.parts()
     return ProjectRecovery(
         kind="Generator",
         name=str(gen.get("name", gen["uid"])),
@@ -511,6 +720,7 @@ def _generator(ctx: _Ctx, gen: dict[str, Any]) -> ProjectRecovery:
         value_per_unit=unit_margin,
         cost_per_unit=cpu,
         fixed_om=fom,
+        financing_wedge=ax.wedge,
         capacity_rent=cap_rent,
         failure_rent=fail_rent,
     )
@@ -555,7 +765,8 @@ def _line_rent(ctx: _Ctx, line: dict[str, Any]) -> tuple[float, float, float]:
 
 def _line(ctx: _Ctx, line: dict[str, Any]) -> ProjectRecovery:
     rent, tcost, spread = _line_rent(ctx, line)
-    existing, installed, capex, _dual_value, cpu, fom = _capacity(ctx, "Line", line, ())
+    ax = _capacity(ctx, "Line", line, ())
+    existing, installed, capex, _dual_value, cpu, fom = ax.parts()
     return ProjectRecovery(
         kind="Line",
         name=str(line.get("name", line["uid"])),
@@ -570,6 +781,7 @@ def _line(ctx: _Ctx, line: dict[str, Any]) -> ProjectRecovery:
         value_per_unit=spread,
         cost_per_unit=cpu,
         fixed_om=fom,
+        financing_wedge=ax.wedge,
     )
 
 
@@ -613,9 +825,8 @@ def _battery_flows(ctx: _Ctx, bat: dict[str, Any]) -> tuple[float, float]:
 
 def _battery(ctx: _Ctx, bat: dict[str, Any]) -> ProjectRecovery:
     revenue, opex = _battery_flows(ctx, bat)
-    existing, installed, capex, value, cpu, fom = _capacity(
-        ctx, "Battery", bat, ("Battery/capacity_dual",)
-    )
+    ax = _capacity(ctx, "Battery", bat, ("Battery/capacity_dual",))
+    existing, installed, capex, value, cpu, fom = ax.parts()
     rec = ProjectRecovery(
         kind="Battery",
         name=str(bat.get("name", bat["uid"])),
@@ -630,6 +841,7 @@ def _battery(ctx: _Ctx, bat: dict[str, Any]) -> ProjectRecovery:
         value_per_unit=value,
         cost_per_unit=cpu,
         fixed_om=fom,
+        financing_wedge=ax.wedge,
     )
     system = ctx.case.planning.get("system", {})
     conv = _by_name(system.get("converter_array", []) or [], f"{rec.name}_conv")
@@ -641,9 +853,9 @@ def _battery(ctx: _Ctx, bat: dict[str, Any]) -> ProjectRecovery:
             conv_view.setdefault(key, bat.get(key))
         conv_view.setdefault("overnight_capcost", bat.get("power_overnight_capcost"))
         conv_view.setdefault("fixed_om_cost", bat.get("power_fixed_om_cost"))
-        p_exist, p_inst, p_capex, p_value, p_cpu, p_fom = _capacity(
-            ctx, "Converter", conv_view, ("Converter/capacity_dual",)
-        )
+        pax = _capacity(ctx, "Converter", conv_view, ("Converter/capacity_dual",))
+        p_exist, p_inst, p_capex, p_value, p_cpu, p_fom = pax.parts()
+        rec.financing_wedge = _sum_wedge(rec.financing_wedge, pax.wedge)
         rec.power_new = max(0.0, p_inst - p_exist)
         rec.power_capex = p_capex
         rec.power_value_per_unit = p_value
@@ -909,9 +1121,8 @@ def _demand(ctx: _Ctx, dem: dict[str, Any]) -> ProjectRecovery:
             revenue += value * q * w
             opex += lam * q * w
             unit_margin += max(value - lam, 0.0) * w
-    existing, installed, capex, _dual_value, cpu, fom = _capacity(
-        ctx, "Demand", dem, ()
-    )
+    ax = _capacity(ctx, "Demand", dem, ())
+    existing, installed, capex, _dual_value, cpu, fom = ax.parts()
     return ProjectRecovery(
         kind="Demand",
         name=str(dem.get("name", dem["uid"])),
@@ -926,6 +1137,7 @@ def _demand(ctx: _Ctx, dem: dict[str, Any]) -> ProjectRecovery:
         value_per_unit=unit_margin,
         cost_per_unit=cpu,
         fixed_om=fom,
+        financing_wedge=ax.wedge,
     )
 
 
@@ -992,9 +1204,8 @@ def _converter_flows(
 
 def _carrier_converter(ctx: _Ctx, cc: dict[str, Any]) -> ProjectRecovery:
     revenue, cost, unit_margin, _ = _converter_flows(ctx, cc)
-    existing, installed, capex, _dual_value, cpu, fom = _capacity(
-        ctx, "CarrierConverter", cc, ()
-    )
+    ax = _capacity(ctx, "CarrierConverter", cc, ())
+    existing, installed, capex, _dual_value, cpu, fom = ax.parts()
     return ProjectRecovery(
         kind="CarrierConverter",
         name=str(cc.get("name", cc["uid"])),
@@ -1009,6 +1220,7 @@ def _carrier_converter(ctx: _Ctx, cc: dict[str, Any]) -> ProjectRecovery:
         value_per_unit=unit_margin,
         cost_per_unit=cpu,
         fixed_om=fom,
+        financing_wedge=ax.wedge,
     )
 
 
@@ -1056,6 +1268,7 @@ def _scaled(p: ProjectRecovery, k: float) -> ProjectRecovery:
         "power_cost_per_unit",
         "capacity_rent",
         "failure_rent",
+        "financing_wedge",
     ):
         v = getattr(p, attr)
         if v is not None:
@@ -1083,13 +1296,27 @@ def compute_recovery(
     per_year: bool = False,
     include_existing: bool = False,
     price_blocks: bool = False,
+    risk_weights: str = "auto",
 ) -> RecoveryReport:
     """Cost-recovery report of one solved case.
 
     ``planning`` defaults to ``<results_dir>/planning.json`` (written by
     every gtopt run, batteries already expanded into ``<bat>_gen`` /
     ``<bat>_dem`` / ``<bat>_conv``).
+
+    ``risk_weights``: for a risk-averse run (``risk_measure.csv`` present,
+    ``model_options.risk_measure = cvar``) the duals are first turned back
+    into each scenario's own marginal values (÷ ζ_s); ``"auto"`` (default)
+    then weights the scenarios with the risk-adjusted probabilities π_s,
+    the measure under which the zero-profit identity holds;
+    ``"probability"`` weights them with p_s: the profit is then the
+    expected profit under the true probabilities, minus the risk premium
+    the risk-averse plan pays each project.
     """
+    if risk_weights not in ("auto", "probability"):
+        raise ValueError(
+            f"risk_weights must be 'auto' or 'probability' (got {risk_weights!r})"
+        )
     rdir = Path(results_dir)
     ppath = Path(planning) if planning is not None else rdir / "planning.json"
     if not ppath.is_file():
@@ -1100,13 +1327,20 @@ def compute_recovery(
         raise FileNotFoundError(
             f"{rdir}: Bus/balance_dual is required (run gtopt with --write-out all)"
         )
+    risk = read_risk_measure_csv(rdir)
+    dual_scale = (
+        apply_risk_weights(case, risk, risk_adjusted=risk_weights == "auto")
+        if risk
+        else {}
+    )
     rate = _social_rate(case.planning)
     ctx = _Ctx(
         case=case,
         rdir=rdir,
         social_rate=rate,
         stages=_stage_table(case.planning, rate),
-        price=price,
+        price=_rescale_duals(price, dual_scale),
+        dual_scale=dual_scale,
     )
     horizon = sum(d for _, d, _ in ctx.stages.values())
     scale = HOURS_PER_YEAR / horizon if per_year and horizon > 0 else 1.0
@@ -1122,6 +1356,8 @@ def compute_recovery(
         obj_value=_read_obj(rdir),
         pricing_mode=str(mode),
         applied_modes=sorted({r.get("applied_mode", "") for r in rows} - {""}),
+        risk=risk,
+        risk_adjusted=bool(dual_scale) and risk_weights == "auto",
     )
     system = case.planning.get("system", {})
     bat_names = {str(b.get("name")) for b in system.get("battery_array", []) or []}

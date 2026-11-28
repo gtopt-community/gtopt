@@ -226,6 +226,11 @@ of an ordinary LP attribute:
   (same LP) and chronological: the previous stage's **last** block. This is
   `model_options.prev_stage_link = "stage"` (default); `"none"` restores the
   legacy constant 0 at every stage start after the first;
+- at the first block of a **periodic** stage (`Stage.periodic`: a typical
+  day / week repeated in a cycle, at least 2 blocks) under
+  `model_options.prev_stage_link = "period"`: the **last** block of the same
+  stage — the period wraps (also at the horizon start and at a later-phase
+  start, where no initial value or 0 is used);
 - at the first block of the **horizon** (no previous stage): the constant
   `initial_<attr>` when the element defines it — `Generator.initial_generation`
   for `generation_prev` (PLEXOS *Initial Generation*) — folded into the row,

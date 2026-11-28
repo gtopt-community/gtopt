@@ -1,0 +1,17 @@
+{
+  "_comment": "cases/invest_bat_1b, certainty-equivalent mode: revenues x (1 - haircut), costs x (1 + haircut), all at the risk-free rate.",
+  "finance": {
+    "wacc": 0.08,
+    "stream_rates": {
+      "method": "certainty_equivalent",
+      "risk_free": 0.03,
+      "haircuts": {"energy": 0.25, "om": 0.0}
+    }
+  },
+  "projects": {
+    "bess": {"technology": "bess", "overnight_capcost": 200000, "power_overnight_capcost": 100000, "economic_life": 15},
+    "solar": {"technology": "solar_pv"},
+    "coal": {"technology": "coal"},
+    "gas": {"technology": "ocgt"}
+  }
+}

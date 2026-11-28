@@ -719,6 +719,11 @@ def build_options(args: argparse.Namespace) -> dict[str, Any]:
     opts["sanity_report"] = getattr(args, "sanity_report", None)
     # Technology detection
     opts["auto_detect_tech"] = args.auto_detect_tech
+    # Maintenance split (plpmance → Generator.outage_fraction); default off.
+    opts["mance_split"] = getattr(args, "mance_split", "off") or "off"
+    opts["mance_xlsm"] = getattr(args, "mance_xlsm", None)
+    if opts["mance_split"] == "xlsm" and opts["mance_xlsm"] is None:
+        raise ValueError("--mance-split xlsm needs --mance-xlsm FILE")
     if args.tech_overrides is not None:
         from .tech_detect import load_overrides  # noqa: PLC0415
 

@@ -35,6 +35,13 @@ behaviour changes and fixes, is the [Changelog](../CHANGELOG.md).
 
 ## Unit commitment and pricing
 
+- **Daily (non-uniform) commitment grid** (`commitment_breaks` on
+  `Commitment`, `Stage` or `model_options`; `Stage.start_hour`):
+  the status lives on cells given by daily boundaries, e.g. the
+  evening peak 17:30–23:30 as one cell, on point and block stages,
+  with a per-stage (seasonal) pattern.  Converters:
+  `--commitment-breaks` / `--commitment-breaks-file`.  See
+  [Typical-week sampling §4c](methods/typical-week-sampling.md).
 - **Power-based unit commitment** (Morales-España et al.):
   `model_options.uc_formulation = "power_based"` (per unit
   `Commitment.uc_formulation`) models power at block boundaries,
@@ -52,6 +59,10 @@ behaviour changes and fixes, is the [Changelog](../CHANGELOG.md).
   (`transition_status_rows`) were removed.
 - **Pricing modes** after a MIP (`pricing_mode`: `fixed`, `relaxed`,
   `fast_start`), recorded in `pricing.csv`.
+- **Risk-averse planner** (`risk_measure = "cvar"`, `cvar_alpha`,
+  `cvar_weight`): mean-CVaR over the scenarios of a monolithic plan;
+  risk-adjusted scenario probabilities in `risk_measure.csv`.  See
+  [formulation §4.5](formulation/mathematical-formulation.md#45-risk-averse-objective-mean-cvar-opt-in).
 - **Numerics switches**: `lp_matrix_options.pin_logic_rows` keeps ±1
   commitment-logic rows out of row equilibration;
   `solver_options.accept_optimal_infeas` accepts an "optimal with

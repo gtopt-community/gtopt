@@ -69,6 +69,30 @@ struct json_data_contract<ReserveProvision>
                         jvtl_TBRealFieldSched>,
       json_variant_null<"dr_energy_usage",
                         OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
+      json_variant_null<"ur_partload_cost",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
+      json_variant_null<"dr_partload_cost",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
+      json_variant_null<"ur_activation_factor",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
+      json_variant_null<"dr_activation_factor",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
+      json_variant_null<"ur_activation_cost",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
+      json_variant_null<"dr_activation_cost",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
+      json_variant_null<"ur_degradation_cost",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
+      json_variant_null<"dr_degradation_cost",
+                        OptTBRealFieldSched,
                         jvtl_TBRealFieldSched>>;
 
   constexpr static auto to_json_data(ReserveProvision const& obj)
@@ -100,7 +124,15 @@ struct json_data_contract<ReserveProvision>
                                  obj.drmax_response,
                                  obj.drmax_charge_response,
                                  obj.ur_energy_usage,
-                                 obj.dr_energy_usage);
+                                 obj.dr_energy_usage,
+                                 obj.ur_partload_cost,
+                                 obj.dr_partload_cost,
+                                 obj.ur_activation_factor,
+                                 obj.dr_activation_factor,
+                                 obj.ur_activation_cost,
+                                 obj.dr_activation_cost,
+                                 obj.ur_degradation_cost,
+                                 obj.dr_degradation_cost);
   }
 };
 

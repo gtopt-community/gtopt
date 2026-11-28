@@ -79,6 +79,9 @@ struct json_data_contract<ModelOptions>
       json_string_null<"reservoir_storage_integration", OptName>,
       json_string_null<"battery_storage_integration", OptName>,
       json_string_null<"long_transition", OptName>,
+      json_array_null<"commitment_breaks",
+                      std::optional<std::vector<gtopt::Real>>,
+                      json_number_no_name<gtopt::Real>>,
       json_string_null<"transition_integrality", OptName>,
       json_variant_null<"transition_status_rows",
                         gtopt::OptBoolOrName,
@@ -86,11 +89,20 @@ struct json_data_contract<ModelOptions>
       json_string_null<"startup_tier_integrality", OptName>,
       json_string_null<"line_thermal_limit_mode", OptName>,
       json_string_null<"line_direction_mode", OptName>,
+      json_string_null<"network_model", OptName>,
+      json_number_null<"mva_polygon_sides", OptInt>,
       json_string_null<"prev_stage_link", OptName>,
       json_bool_null<"use_line_dlr", OptBool>,
       json_string_null<"dlr_limit_mode", OptName>,
       json_string_null<"overload_slack_bound", OptName>,
-      json_number_null<"max_overload_ratio", OptReal>>;
+      json_number_null<"max_overload_ratio", OptReal>,
+      json_string_null<"outage_reserve_mode", OptName>,
+      json_string_null<"risk_measure", OptName>,
+      json_number_null<"cvar_alpha", OptReal>,
+      json_number_null<"cvar_weight", OptReal>,
+      json_string_null<"risk_rank_by", OptName>,
+      json_string_null<"risk_tail", OptName>,
+      json_bool_null<"periodic_storage", OptBool>>;
 
   constexpr static auto to_json_data(ModelOptions const& opt)
   {
@@ -142,16 +154,26 @@ struct json_data_contract<ModelOptions>
                                  opt.reservoir_storage_integration,
                                  opt.battery_storage_integration,
                                  opt.long_transition,
+                                 opt.commitment_breaks,
                                  opt.transition_integrality,
                                  opt.transition_status_rows,
                                  opt.startup_tier_integrality,
                                  opt.line_thermal_limit_mode,
                                  opt.line_direction_mode,
+                                 opt.network_model,
+                                 opt.mva_polygon_sides,
                                  opt.prev_stage_link,
                                  opt.use_line_dlr,
                                  opt.dlr_limit_mode,
                                  opt.overload_slack_bound,
-                                 opt.max_overload_ratio);
+                                 opt.max_overload_ratio,
+                                 opt.outage_reserve_mode,
+                                 opt.risk_measure,
+                                 opt.cvar_alpha,
+                                 opt.cvar_weight,
+                                 opt.risk_rank_by,
+                                 opt.risk_tail,
+                                 opt.periodic_storage);
   }
 };
 

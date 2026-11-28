@@ -50,6 +50,12 @@ public:
     return make_uid<Scenario>(m_scenario_.uid);
   }
 
+  /// Exogenous risk-tail ranking index (`Scenario.risk_index`).
+  [[nodiscard]] constexpr auto risk_index() const noexcept -> OptReal
+  {
+    return m_scenario_.risk_index;
+  }
+
   [[nodiscard]] constexpr auto probability_factor() const noexcept
   {
     return m_scenario_.probability_factor.value_or(1.0);

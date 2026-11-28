@@ -9,11 +9,11 @@ Data sources and their roles
 * ``plpcnfce.dat`` (BAT section via ``central_parser``) – source for battery
   UID (central number) and pmax_discharge (central pmax); also used to look up
   injection central pmax for pmax_charge.
-* ``plpmanbat.dat`` (via ``manbat_parser``) – per-stage pmax_charge / pmax_discharge
+* ``plpmanbat.dat`` (via ``manbat_parser``) – per-block emin / emax
   overrides (maintenance schedules).
 * ``plpess.dat`` (via ``ess_parser``) – ESS model; capacity = pmax × hrs_reg.
-* ``plpmaness.dat`` (via ``maness_parser``) – per-stage pmax_charge / pmax_discharge
-  overrides for ESS (maintenance schedules).
+* ``plpmaness.dat`` (via ``maness_parser``) – per-block emin / emax and
+  DC power (pmax_charge / pmax_discharge) overrides for ESS.
 
 Matching rule: plpcenbat.dat battery name == BAT central name in plpcnfce.dat.
 
@@ -41,8 +41,25 @@ When ``plpmanbat.dat`` or ``plpmaness.dat`` provides per-block overrides:
 **plpmaness.dat** (ESS model, Fortran ``LeeManEss``):
   Each data line contains ``IBind Emin Emax DCMin DCMax [DCMod]`` (5-6 fields).
   Energy bounds map to Battery ``emin``/``emax`` schedules (same as above).
-  DC power bounds map to Generator ``pmax`` (``Generator/pmax.parquet``)
-  and Demand ``lmax`` (``Demand/lmax.parquet``) schedule files.
+  ``DCMax`` is the block's discharge and charge limit: Battery
+  ``pmax_discharge`` / ``pmax_charge`` schedules (``Battery/pmax_*``,
+  shared with the plpmance.dat rows below; plpmaness.dat wins on a block
+  listed in both).  ``DCMin`` > 0 has no gtopt counterpart and is warned.
+  ``DCMod`` selects the charge coupling (see ``charge_coupling_constraints``).
+  A DCMod=2 regulation tank is a hydro Reservoir: its Emin / Emax become
+  ``Reservoir/ess_emin`` / ``ess_emax`` (``Reservoir/emin`` / ``emax``
+  belong to plpmanem.dat).  Nothing is written to ``Generator/pmax`` or
+  ``Demand/lmax``, which the central / demand maintenance writers own.
+
+**plpmance.dat** (central maintenance) rows of the battery central
+(``<battery>``) and of its charge phantom (``<battery>_LOAD``):
+  PLP bases set battery entry dates there (PotMax = 0 / PotMin = 0 until
+  the battery enters).  They map to the battery's own per-block
+  ``pmax_discharge`` (PotMax of ``<battery>``) and ``pmax_charge``
+  (−PotMin of ``<battery>_LOAD``) schedules — ``Battery/pmax_discharge``
+  and ``Battery/pmax_charge`` — which ``System::expand_batteries()``
+  forwards to the synthetic discharge generator / charge demand.  Blocks
+  not listed keep the central's own plpcnfce.dat value, as in PLP.
 """
 
 import logging
@@ -58,6 +75,7 @@ from .block_parser import BlockParser
 from .bus_parser import BusParser
 from .stage_parser import StageParser
 from .manbat_parser import ManbatParser
+from .mance_parser import ManceParser
 from .ess_parser import EssParser
 from .maness_parser import ManessParser
 
@@ -139,6 +157,7 @@ class BatteryWriter(BaseWriter):
         maness_parser: Optional[ManessParser] = None,
         options: Optional[Dict[str, Any]] = None,
         block_parser: Optional[BlockParser] = None,
+        mance_parser: Optional[ManceParser] = None,
     ) -> None:
         """Initialize the BatteryWriter with optional parsers and configuration options."""
         super().__init__(None, options)
@@ -148,6 +167,7 @@ class BatteryWriter(BaseWriter):
         self.bus_parser = bus_parser
         self.stage_parser = stage_parser
         self.block_parser = block_parser
+        self.mance_parser = mance_parser
         # Unified maintenance accessor: manbat for battery, maness for ESS
         self._man_parser = manbat_parser or maness_parser
         self._clamped_warnings: list[str] = []
@@ -277,9 +297,7 @@ class BatteryWriter(BaseWriter):
                     src,
                 )
                 continue
-            man = entry.get("man_data")
-            has_dc_man = man is not None and "dcmax" in man
-            dem = f"{name}_chrg" if has_dc_man else f"{name}_dem"
+            dem = f"{name}_dem"
             expr = f"demand('{dem}').load - generator('{src}').generation <= 0"
             if blocks is not None:
                 expr += f", for(block in {{{', '.join(map(str, blocks))}}})"
@@ -297,9 +315,7 @@ class BatteryWriter(BaseWriter):
     def _all_entries(self) -> List[Dict[str, Any]]:
         """Build the unified list of battery entries.
 
-        Each entry contains all fields needed by ``to_battery_array()``,
-        ``to_generator_array()``, ``to_demand_array()`` and
-        ``to_converter_array()``:
+        Each entry contains all fields needed by ``to_battery_array()``:
 
           number, name, bus, busc, nc, nd, emin, emax,
           pmax_charge, pmax_discharge, annual_standing_loss, has_maintenance,
@@ -457,9 +473,8 @@ class BatteryWriter(BaseWriter):
         plant keeps its own grid bus and the coupling is emitted as a user
         constraint (``charge_coupling_constraints``).
 
-        Entries with DC-maintenance (``man_data`` containing ``dcmax``)
-        omit the ``bus`` field; the caller must create separate Generator,
-        Demand, and Converter elements for those batteries.
+        Every battery is unified; maintenance schedules are file
+        references (``emin`` / ``emax`` / ``pmax_*``) of the battery itself.
         """
         if entries is None:
             entries = self._all_entries()
@@ -468,9 +483,7 @@ class BatteryWriter(BaseWriter):
         for entry in entries:
             emax = entry["emax"]
             emin = entry["emin"]
-            has_man = entry.get("has_maintenance")
-            man = entry.get("man_data")
-            has_dc_man = man is not None and "dcmax" in man
+            has_man = entry.get("man_energy", False)
             nc = entry["nc"]
             nd = entry["nd"]
             bat_name = entry["name"]
@@ -520,93 +533,27 @@ class BatteryWriter(BaseWriter):
             annual_standing_loss = entry.get("annual_standing_loss")
             if annual_standing_loss is not None and annual_standing_loss > 0.0:
                 bat["annual_standing_loss"] = annual_standing_loss
-            # Unified fields: only when no DC maintenance
-            if not has_dc_man:
-                bat["bus"] = entry["bus"]
-                bat["pmax_charge"] = entry["pmax_charge"]
-                bat["pmax_discharge"] = entry["pmax_discharge"]
-                # `discharge_cost` (was `gcost` before the
-                # `e54b795a4` unified-battery rename) — per-MWh cost
-                # paid when discharging.  Forwarded to the synthetic
-                # discharge `Generator.gcost` by
-                # `System::expand_batteries()`.
-                bat["discharge_cost"] = 0.0
+            # Unified battery: System::expand_batteries() builds the
+            # discharge generator / charge demand / converter.  Maintenance
+            # (plpmance.dat, plpmaness.dat DCMax) → file-backed per-block
+            # schedules of the battery itself.
+            bat["bus"] = entry["bus"]
+            bat["pmax_charge"] = (
+                "pmax_charge" if entry.get("mance_charge") else entry["pmax_charge"]
+            )
+            bat["pmax_discharge"] = (
+                "pmax_discharge"
+                if entry.get("mance_discharge")
+                else entry["pmax_discharge"]
+            )
+            # `discharge_cost` (was `gcost` before the `e54b795a4`
+            # unified-battery rename) — per-MWh cost paid when
+            # discharging.  Forwarded to the synthetic discharge
+            # `Generator.gcost` by `System::expand_batteries()`.
+            bat["discharge_cost"] = 0.0
 
             batteries.append(bat)
         return batteries
-
-    def to_generator_array(
-        self, entries: Optional[List[Dict[str, Any]]] = None
-    ) -> List[Dict[str, Any]]:
-        """Build discharge-path generator entries."""
-        if entries is None:
-            entries = self._all_entries()
-        gens = []
-        for entry in entries:
-            pmax_d = entry["pmax_discharge"]
-            man = entry.get("man_data")
-            has_dc_man = man is not None and "dcmax" in man
-            pmax_val: Any = "pmax" if has_dc_man else pmax_d
-            gens.append(
-                {
-                    "uid": entry["number"],
-                    "name": f"{entry['name']}_disch",
-                    "bus": entry["bus"],
-                    "pmin": 0.0,
-                    "pmax": pmax_val,
-                    "gcost": 0.0,
-                    "capacity": pmax_d,
-                }
-            )
-        return gens
-
-    def to_demand_array(
-        self, entries: Optional[List[Dict[str, Any]]] = None
-    ) -> List[Dict[str, Any]]:
-        """Build charge-path demand entries."""
-        if entries is None:
-            entries = self._all_entries()
-        dems = []
-        for entry in entries:
-            man = entry.get("man_data")
-            has_dc_man = man is not None and "dcmax" in man
-            lmax_val: Any = "lmax" if has_dc_man else entry["pmax_charge"]
-            dems.append(
-                {
-                    "uid": entry["number"],
-                    "name": f"{entry['name']}_chrg",
-                    "bus": entry["busc"],
-                    "lmax": lmax_val,
-                    # Charging is dispatchable, not curtailable load:
-                    # pin fcost=0 so a positive global
-                    # ``demand_fail_cost`` (gtopt default 1000 $/MWh)
-                    # does not force the battery to charge at lmax.
-                    "fcost": 0.0,
-                }
-            )
-        return dems
-
-    def to_converter_array(
-        self, entries: Optional[List[Dict[str, Any]]] = None
-    ) -> List[Dict[str, Any]]:
-        """Build converter_array JSON list."""
-        if entries is None:
-            entries = self._all_entries()
-        convs = []
-        for entry in entries:
-            num = entry["number"]
-            name = entry["name"]
-            convs.append(
-                {
-                    "uid": num,
-                    "name": name,
-                    "battery": name,
-                    "generator": name,
-                    "demand": name,
-                    "capacity": entry.get("capacity", entry["pmax_discharge"]),
-                }
-            )
-        return convs
 
     # Central types that can host a regulation reservoir (hydro units
     # with a junction and turbine in the gtopt topology).
@@ -690,92 +637,200 @@ class BatteryWriter(BaseWriter):
 
         return reservoirs
 
-    def _write_lmax_parquet(
+    def _mance_rows(self, central: str) -> Optional[Dict[int, tuple[float, float]]]:
+        """``{block: (PotMin, PotMax)}`` of ``central`` in plpmance.dat."""
+        if self.mance_parser is None:
+            return None
+        item = self.mance_parser.get_item_by_name(central)
+        if not item or len(item.get("block", [])) == 0:
+            return None
+        return {
+            int(b): (float(lo), float(hi))
+            for b, lo, hi in zip(item["block"], item["pmin"], item["pmax"], strict=True)
+        }
+
+    def _blocks(self, extra: Optional[set[int]] = None) -> List[int]:
+        """All PLP block numbers (plpblo.dat), else the listed ones."""
+        if self.block_parser is not None and self.block_parser.items:
+            return [int(it["number"]) for it in self.block_parser.items]
+        return sorted(extra or set())
+
+    def _write_block_schedules(
+        self,
+        out_dir: Path,
+        blocks: List[int],
+        series: Dict[str, Dict[str, List[float]]],
+    ) -> None:
+        """Write ``{stem: {uid:N column: per-block values}}`` under ``out_dir``."""
+        import pandas as pd  # pylint: disable=import-outside-toplevel
+
+        for stem, cols in series.items():
+            if not cols or not blocks:
+                continue
+            data: Dict[str, Any] = {"block": blocks}
+            if self.block_parser is not None and self.block_parser.items:
+                data["stage"] = self.block_parser.get_stage_numbers(blocks)
+            data.update(cols)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            self.write_dataframe(pd.DataFrame(data), out_dir, stem)
+
+    @staticmethod
+    def _man_rows(man: Dict[str, Any], field: str) -> Dict[int, float]:
+        """``{block: value}`` of one plpmanbat / plpmaness field."""
+        return {
+            int(b): float(v)
+            for b, v in zip(man["block_index"], man[field], strict=True)
+        }
+
+    def _write_power_schedules(
         self, entries: List[Dict[str, Any]], output_dir: Path
     ) -> None:
-        """Write charge demand lmax values to Demand/lmax.parquet.
+        """Battery power schedules from plpmance.dat and plpmaness.dat.
 
-        When maintenance schedules are present, the per-stage pmax_charge
-        values are written as block-level columns.
+        PLP keeps a battery as two centrals: ``<battery>`` (discharge,
+        PotMax) and ``<battery>_LOAD`` (charge, a negative PotMin).  Their
+        plpmance.dat rows (battery entry dates, derates) become per-block
+        ``Battery/pmax_discharge`` (PotMax of ``<battery>``) and
+        ``Battery/pmax_charge`` (−PotMin of ``<battery>_LOAD``) schedules.
+        A plpmaness.dat row (ESS maintenance) sets ``DCMax`` as both the
+        discharge and the charge limit of its block and wins over a
+        plpmance.dat row of the same block.  Unlisted blocks keep the
+        nominal power (PLP: a maintenance file overrides only the listed
+        blocks); without a ``<battery>_LOAD`` central the nominal
+        ``pmax_charge`` fills the charge schedule.
+
+        Nothing goes to ``Generator/pmax`` or ``Demand/lmax``: those
+        files belong to the central / demand maintenance writers.
+
+        Sets ``entry["mance_discharge"]`` / ``entry["mance_charge"]`` so
+        ``to_battery_array`` references the files.
         """
-        # Placeholder: maintenance parquet writing is handled in process()
+        centrals = self._all_centrals_by_name()
+        series: Dict[str, Dict[str, List[float]]] = {
+            "pmax_discharge": {},
+            "pmax_charge": {},
+        }
+        pending = []
+        listed: set[int] = set()
+        for entry in entries:
+            name = entry["name"]
+            load_name = f"{name}_LOAD"
+            dis = self._mance_rows(name)
+            chg = self._mance_rows(load_name)
+            man = entry.get("man_data")
+            dc = self._man_rows(man, "dcmax") if man and "dcmax" in man else None
+            if man and "dcmin" in man and any(float(v) > 0 for v in man["dcmin"]):
+                _logger.warning(
+                    "Battery '%s': plpmaness.dat DCMin > 0 ignored (gtopt"
+                    " batteries have no minimum charge / discharge)",
+                    name,
+                )
+            if dis is None and chg is None and dc is None:
+                continue
+            listed |= set(dis or {}) | set(chg or {}) | set(dc or {})
+            pending.append((entry, dis, chg, dc))
+        blocks = self._blocks(listed)
+        for entry, dis, chg, dc in pending:
+            name = entry["name"]
+            col = self.pcol_name(name, entry["number"])
+            dc = dc or {}
+            fill_d = float(centrals.get(name, {}).get("pmax", entry["pmax_discharge"]))
+            if not fill_d:
+                fill_d = float(entry["pmax_discharge"])
+            load = centrals.get(f"{name}_LOAD")
+            fill_c = (
+                max(0.0, -float(load.get("pmin", 0.0)))
+                if load is not None
+                else float(entry["pmax_charge"])
+            )
+            if dis is not None or dc:
+                rows_d = {b: max(0.0, v[1]) for b, v in (dis or {}).items()}
+                rows_d.update({b: max(0.0, v) for b, v in dc.items()})
+                series["pmax_discharge"][col] = [rows_d.get(b, fill_d) for b in blocks]
+                entry["mance_discharge"] = True
+            if chg is not None or dc:
+                rows_c = {b: max(0.0, -v[0]) for b, v in (chg or {}).items()}
+                rows_c.update({b: max(0.0, v) for b, v in dc.items()})
+                series["pmax_charge"][col] = [rows_c.get(b, fill_c) for b in blocks]
+                entry["mance_charge"] = True
+        self._write_block_schedules(output_dir / "Battery", blocks, series)
 
     def _write_maintenance_parquet(
         self, entries: List[Dict[str, Any]], output_dir: Path
     ) -> None:
-        """Write maintenance-schedule parquet files for battery/ESS.
+        """Battery energy bounds from plpmanbat.dat / plpmaness.dat.
 
-        For entries with ``has_maintenance == True``, writes:
-
-        **plpmanbat.dat** (battery model, ``man_data`` has ``emin``/``emax``):
-        - ``Battery/emin.parquet`` with per-block emin values
-        - ``Battery/emax.parquet`` with per-block emax values
-
-        **plpmaness.dat** (ESS model, ``man_data`` has ``emin``/``emax``
-        + ``dcmin``/``dcmax``):
-        - ``Battery/emin.parquet`` + ``Battery/emax.parquet`` (energy bounds)
-        - ``Generator/pmax.parquet`` (dcmax → discharge gen pmax)
-        - ``Demand/lmax.parquet`` (dcmax → charge demand lmax)
+        ``Emin`` / ``Emax`` of the listed blocks → ``Battery/emin`` and
+        ``Battery/emax`` (one column per battery, every block; unlisted
+        blocks keep the battery's own ``emin`` / ``emax``).  Sets
+        ``entry["man_energy"]`` so ``to_battery_array`` references them.
+        The DC power bounds of plpmaness.dat are written by
+        :meth:`_write_power_schedules`.
         """
-        import pandas as pd  # pylint: disable=import-outside-toplevel
-
-        man_entries = [e for e in entries if e.get("has_maintenance")]
+        man_entries = [
+            e
+            for e in entries
+            if e.get("has_maintenance")
+            and e.get("man_data") is not None
+            and len(e["man_data"]["block_index"]) > 0
+            and e["emax"] > 0
+        ]
         if not man_entries:
             return
-
-        # --- Battery energy bounds → Battery/emin, Battery/emax ---
-        bat_dir = output_dir / "Battery"
-        bat_dir.mkdir(parents=True, exist_ok=True)
-        emin_data: Dict[str, Any] = {"block": []}
-        emax_data: Dict[str, Any] = {"block": []}
+        listed = {int(b) for e in man_entries for b in e["man_data"]["block_index"]}
+        blocks = self._blocks(listed)
+        series: Dict[str, Dict[str, List[float]]] = {"emin": {}, "emax": {}}
         for entry in man_entries:
             man = entry["man_data"]
-            col = f"uid:{entry['number']}"
-            block_idx = man["block_index"]
-            capacity = entry["emax"]
-            if len(block_idx) > 0 and capacity > 0:
-                emin_data["block"] = list(block_idx)
-                emax_data["block"] = list(block_idx)
-                emin_data[col] = list(man["emin"])
-                emax_data[col] = list(man["emax"])
-        if emin_data["block"]:
-            self.write_dataframe(pd.DataFrame(emin_data), bat_dir, "emin")
-            self.write_dataframe(pd.DataFrame(emax_data), bat_dir, "emax")
+            col = self.pcol_name(entry["name"], entry["number"])
+            for field in ("emin", "emax"):
+                rows = self._man_rows(man, field)
+                fill = float(entry[field])
+                series[field][col] = [rows.get(b, fill) for b in blocks]
+            entry["man_energy"] = True
+        self._write_block_schedules(output_dir / "Battery", blocks, series)
 
-        # --- DC power bounds (ESS only) → Generator/pmax, Demand/lmax ---
-        has_dc = any("dcmax" in e.get("man_data", {}) for e in man_entries)
-        if not has_dc:
+    def _write_regulation_maintenance(
+        self, reservoirs: List[Dict[str, Any]], output_dir: Path
+    ) -> None:
+        """plpmaness.dat rows of a DCMod=2 regulation tank → its Reservoir.
+
+        ``Emin`` / ``Emax`` become ``Reservoir/ess_emin`` / ``ess_emax``
+        (own stems: ``Reservoir/emin`` / ``emax`` belong to the
+        plpmanem.dat reservoir maintenance).  The tank's power is the
+        paired turbine's, so ``DCMin`` / ``DCMax`` are not mapped (warned
+        when they differ from the plpess.dat values).
+        """
+        man_parser = self._man_parser
+        if man_parser is None or not reservoirs:
             return
-
-        gen_dir = output_dir / "Generator"
-        gen_dir.mkdir(parents=True, exist_ok=True)
-        pmax_data: Dict[str, Any] = {"block": []}
-        for entry in man_entries:
-            man = entry["man_data"]
-            if "dcmax" not in man:
+        hits = []
+        listed: set[int] = set()
+        for rsv in reservoirs:
+            man = man_parser.get_item_by_name(rsv["name"])
+            if man is None or len(man.get("block_index", [])) == 0:
                 continue
-            col = f"uid:{entry['number']}"
-            block_idx = man["block_index"]
-            if len(block_idx) > 0:
-                pmax_data["block"] = list(block_idx)
-                pmax_data[col] = list(man["dcmax"])
-        if pmax_data["block"]:
-            self.write_dataframe(pd.DataFrame(pmax_data), gen_dir, "pmax")
-
-        dem_dir = output_dir / "Demand"
-        dem_dir.mkdir(parents=True, exist_ok=True)
-        lmax_data: Dict[str, Any] = {"block": []}
-        for entry in man_entries:
-            man = entry["man_data"]
-            if "dcmax" not in man:
-                continue
-            col = f"uid:{entry['number']}"
-            block_idx = man["block_index"]
-            if len(block_idx) > 0:
-                lmax_data["block"] = list(block_idx)
-                lmax_data[col] = list(man["dcmax"])
-        if lmax_data["block"]:
-            self.write_dataframe(pd.DataFrame(lmax_data), dem_dir, "lmax")
+            if "dcmax" in man:
+                _logger.warning(
+                    "Regulation tank '%s' (DCMod=2): plpmaness.dat DCMin /"
+                    " DCMax not mapped (the paired turbine limits its power)",
+                    rsv["name"],
+                )
+            listed |= {int(b) for b in man["block_index"]}
+            hits.append((rsv, man))
+        if not hits:
+            return
+        blocks = self._blocks(listed)
+        series: Dict[str, Dict[str, List[float]]] = {"ess_emin": {}, "ess_emax": {}}
+        for rsv, man in hits:
+            col = self.pcol_name(rsv["name"], rsv["uid"])
+            for field in ("emin", "emax"):
+                rows = self._man_rows(man, field)
+                fill = float(rsv[field])
+                series[f"ess_{field}"][col] = [rows.get(b, fill) for b in blocks]
+            rsv["emin"] = "ess_emin"
+            rsv["emax"] = "ess_emax"
+        self._write_block_schedules(output_dir / "Reservoir", blocks, series)
 
     def process(
         self,
@@ -785,17 +840,15 @@ class BatteryWriter(BaseWriter):
     ) -> Dict[str, Any]:
         """Produce all battery output arrays.
 
-        For entries **without** DC-maintenance schedules the unified battery
-        definition is used (``bus``, ``pmax_charge``, ``pmax_discharge``,
-        ``gcost`` set on the battery itself).
+        Every battery uses the unified definition (``bus``,
+        ``pmax_charge``, ``pmax_discharge``, ``discharge_cost`` set on the
+        battery itself).
         ``System::expand_batteries()`` will auto-generate the discharge
         Generator, charge Demand, and linking Converter at LP-construction
         time.
 
-        Entries **with** DC-maintenance (``plpmaness.dat`` providing per-block
-        ``DCMax`` overrides) fall back to the legacy multi-element approach
-        because the Generator/pmax and Demand/lmax parquet files must
-        reference the generator/demand UIDs that match the parquet columns.
+        Maintenance files (plpmanbat / plpmaness / plpmance rows of the
+        battery centrals) become the battery's own per-block schedules.
 
         Args:
             existing_gen: Generator array from CentralWriter to append to.
@@ -815,29 +868,17 @@ class BatteryWriter(BaseWriter):
                 "demand_array": existing_dem,
             }
 
-        # Write maintenance schedule parquet files if needed
+        # Maintenance → the battery's own schedules (Battery/emin, emax,
+        # pmax_discharge, pmax_charge) and the regulation tank's reservoir
         self._write_maintenance_parquet(entries, output_dir)
-
-        # Split entries: DC-maintenance needs legacy multi-element approach
-        dc_entries = [
-            e
-            for e in entries
-            if e.get("man_data") is not None and "dcmax" in e.get("man_data", {})
-        ]
+        self._write_power_schedules(entries, output_dir)
+        self._write_regulation_maintenance(reg_reservoirs, output_dir)
 
         result: Dict[str, Any] = {
             "battery_array": self.to_battery_array(entries),
             "generator_array": existing_gen,
             "demand_array": existing_dem,
         }
-
-        # Legacy fallback for DC-maintenance entries
-        if dc_entries:
-            result["converter_array"] = self.to_converter_array(dc_entries)
-            result["generator_array"] = existing_gen + self.to_generator_array(
-                dc_entries
-            )
-            result["demand_array"] = existing_dem + self.to_demand_array(dc_entries)
 
         # DCMod=1 ESS: charge bounded by the CenCarga plant output
         couplings = self.charge_coupling_constraints(

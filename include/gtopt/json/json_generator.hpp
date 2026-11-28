@@ -139,7 +139,13 @@ struct json_data_contract<Generator>
       json_array_null<"emissions", Array<EmissionSource>, EmissionSource>,
       json_array_null<"emission_captures",
                       Array<EmissionCapture>,
-                      EmissionCapture>>;
+                      EmissionCapture>,
+      json_variant_null<"outage_fraction",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
+      json_number_null<"qmin", OptReal>,
+      json_number_null<"qmax", OptReal>,
+      json_number_null<"power_factor", OptReal>>;
 
   constexpr static auto to_json_data(Generator const& generator)
   {
@@ -175,7 +181,11 @@ struct json_data_contract<Generator>
                                  generator.cogen_mode,
                                  generator.emission_rate,
                                  generator.emissions,
-                                 generator.emission_captures);
+                                 generator.emission_captures,
+                                 generator.outage_fraction,
+                                 generator.qmin,
+                                 generator.qmax,
+                                 generator.power_factor);
   }
 };
 

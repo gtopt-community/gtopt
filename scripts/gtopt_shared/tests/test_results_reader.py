@@ -108,3 +108,22 @@ def test_unknown_layout(tmp_path: Path) -> None:
     """The synthetic writer rejects an unknown layout."""
     with pytest.raises(ValueError, match="unknown layout"):
         write_tiny_results(tmp_path, "xml")
+
+
+def test_stage_stream_scenario_zero_is_shared(tmp_path: Path, grid: TimeGrid) -> None:
+    """Expansion columns are written with ``scenario = 0``: shared by all."""
+    d = tmp_path / "Line"
+    d.mkdir()
+    pd.DataFrame(
+        {
+            "scenario": [0, 0],
+            "stage": [1, 2],
+            "block": [0, 0],
+            "uid": [5, 5],
+            "value": [3.0, 4.0],
+        }
+    ).to_csv(d / "capainst_sol_s0_p0.csv", index=False)
+    res = GtoptResults(tmp_path, grid)
+    np.testing.assert_allclose(
+        res.stage_of("Line", "capainst_sol", 5), [[3.0, 4.0], [3.0, 4.0]]
+    )

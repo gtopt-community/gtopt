@@ -59,6 +59,20 @@ struct Bus
   OptReal reference_theta {};  ///< Fixed voltage angle for reference bus [rad]
   OptBool use_kirchhoff {};  ///< Override global Kirchhoff setting for this bus
 
+  /// @name LinDistFlow fields (`model_options.network_model =
+  /// "lindistflow"`; ignored by the DC model)
+  /// @{
+  OptReal vmin_pu {};  ///< Minimum voltage magnitude [p.u.] (unset: none)
+  OptReal vmax_pu {};  ///< Maximum voltage magnitude [p.u.] (unset: none)
+  /// Fixed voltage magnitude [p.u.] (slack / substation bus).  A bus with
+  /// `reference_theta` and no `reference_voltage` is held at 1 p.u.
+  OptReal reference_voltage {};
+  /// Shunt reactive injection at 1 p.u. [MVAr]; the LP injects
+  /// `shunt_q · |V|²` (positive = capacitive, e.g. line charging or a
+  /// fixed capacitor bank; negative = reactor).
+  OptReal shunt_q {};
+  /// @}
+
   /**
    * @brief Determines if Kirchhoff's law should be applied
    * @param v_threshold Minimum voltage threshold for application

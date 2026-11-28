@@ -259,3 +259,20 @@ def test_plexos_gen_cap_empty_entry(
     )
     gens = {g.name: g for g in P.extract_generators(kit.db, b)}
     assert gens["HYD"].pmax == pytest.approx(10.0)
+
+
+def test_heat_rate_base_is_not_a_per_mwh_heat_rate(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """``Heat Rate Base`` (no-load burn per hour) never becomes the
+    per-MWh ``heat_rate``; ``Heat Rate Incr`` does when no scalar."""
+    kit, ids = _two_gen_db()
+    kit.sysprop("Generator", ids["THERM"], "Heat Rate Base", 40.0)
+    kit.sysprop("Generator", ids["HYD"], "Heat Rate Base", 5.0)
+    kit.sysprop("Generator", ids["HYD"], "Heat Rate Incr", 9.0)
+    b = bundle(tmp_path, {"Gen_Rating.csv": _rating({"THERM": [10.0], "HYD": [5.0]})})
+    with caplog.at_level(logging.WARNING, logger=P.logger.name):
+        gens = {g.name: g for g in P.extract_generators(kit.db, b)}
+    assert gens["THERM"].heat_rate == pytest.approx(0.0)
+    assert "only 'Heat Rate Base'" in caplog.text
+    assert gens["HYD"].heat_rate == pytest.approx(9.0)

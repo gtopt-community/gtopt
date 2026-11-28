@@ -411,6 +411,11 @@ social rates make plans time-inconsistent when re-optimised.  Adding
 risk premia to the WACC and also to the scenarios counts risk twice;
 behavioural "hurdle rates" are not costs of capital.
 
+A review of the economics and finance literature on these points
+(Arrow–Lind, the private finance premium, hurdle rates in TIMES-type
+models, contracts and the WACC, risk-averse equilibrium) is in
+[private-investment-literature.md](private-investment-literature.md).
+
 ### 7.3 gtopt support
 
 Every expandable Generator, Line, Battery (energy), Converter (power),
@@ -463,11 +468,197 @@ When two candidates have identical annuities (e.g. same cost and the
 same rate) the LP is degenerate: the split between them is arbitrary and
 depends on the solver; only the total is determined.
 
+**Financing wedge.**  `gtopt_cost_recovery` reports, per built project,
+the part of its LP annuity due to the private rate: the annuity at the
+candidate's `wacc` minus the annuity at the social
+`annual_discount_rate`, over the same `economic_life`.  This is the
+quantity TIMES reports as "INV+" (see the
+[literature review](private-investment-literature.md#2-planning-models-that-mix-rates)).
+Per stage, with $A_t$ the annuity part of `capacost` (fixed O&M
+excluded), $r$ the social rate and $\rho$ the element's `wacc`:
+
+$$W = \sum_t A_t \left(1 - \frac{\mathrm{CRF}(r, n)}{\mathrm{CRF}(\rho, n)}\right) T_t \delta_t$$
+
+It is shown as the `fin. wedge` column with a total, and written as
+`financing_wedge` and `social_capex` (= capex − wedge) to the JSON and
+CSV output.  It is output only; the LP is unchanged.  The column reads
+`n/a` when the annuity is not built from `overnight_capcost` and
+`economic_life` (an explicit `annual_capcost` wins in gtopt).  It is 0
+when `wacc` is unset, and negative when `wacc` is below the social rate
+(e.g. a regulated line).  For a battery it covers both axes, and it is
+`n/a` if either axis is.  On the committed goldens:
+
+| Case | capex \$ | wedge \$ | wedge / capex |
+|------|--------:|--------:|------:|
+| `invest_wacc_1b` project (social 6 %; wacc 7 / 10 / 8 / 8 %) | 173,585,426 | 18,866,401 | 10.9 % |
+| `invest_screening_1b` private, as overnight + life + wacc (11 / 8 / 9 / 12 %) | 186,470,958 | 59,527,914 | 31.9 % |
+| `invest_multi_3b` lp (social 6 %) | 384,539 | 26,947 | 7.0 % |
+
+The screening `private` variant gives the annuity directly
+(`annual_capcost`), so its wedge is `n/a` as committed.  The row above
+uses an LP-identical planning file with `overnight_capcost`,
+`economic_life` and `wacc`, passed with `--planning`.  Its capex minus
+wedge, 126,943,044 \$, is the social-annuity capex of the private mix
+in §7.2.  In `invest_multi_3b` the line `north_city` has a negative
+wedge (−3,260 \$), because its `wacc` is below the 6 % social rate.
+
 **Recommendation.**  Keep `simulation.annual_discount_rate` at the
 social rate of the jurisdiction and give each candidate its
 `overnight_capcost`, `economic_life` and `wacc`.  Run the plan once with
 a uniform rate as well: the difference in objective and mix is the
 cost of the financing wedge (§7.2).
+
+### 7.4 Risk-averse planner: CVaR instead of a WACC premium
+
+**Two ways to put risk in a plan.**  A risk premium in each candidate's
+`wacc` raises the annuity of risky technologies by a fixed amount,
+whatever the scenarios say.  The alternative is to make the *planner*
+risk-averse over the scenarios it actually simulates: gtopt's
+`model_options.risk_measure = "cvar"` minimises
+
+```math
+\text{capex} + (1-\lambda)\,\mathbb{E}[\text{opex}] + \lambda\,\mathrm{CVaR}_\alpha[\text{opex}]
+```
+
+(formulation §4.5).  Use **one or the other, never both**: a merchant
+WACC that already prices the volatility of the margin plus a CVaR over
+the same scenarios counts the risk twice (literature review
+[§6](private-investment-literature.md#6-mixing-rates-annuities-and-revenues)).
+With the CVaR planner the candidates' `wacc` should be the rate of a
+*contracted* or regulated project (close to the cost of debt), not a
+merchant rate.
+
+**The social CVaR and the private CVaR are different measures.**  The
+option above is the **social CVaR**: the planner's or regulator's view.
+It ranks scenarios by *system* cost (`risk_rank_by = "cost"`) or by an
+exogenous supply-risk index (`risk_rank_by = "index"`,
+`Scenario.risk_index`, e.g. a hydrology index; `risk_tail` picks the
+side), and either weights that tail up (`cvar`) or trims it (`trim`).
+For a hydro-thermal system the regulator's bad tail is usually the dry
+hydrologies (supply shortage, high system cost), so the plan buys more
+firm capacity and storage for them; a planner may also *trim* a few
+extreme wet years so they do not distort the plan.
+
+A private investor's risk is the dispersion of **one project's profit**
+across the same scenarios.  Its bad tail is not known a priori from the
+hydrology: in a dry year a hydro plant sells less energy but at a higher
+marginal cost, so its revenue can go up or down; a thermal plant or a
+peaker sells more in dry years but may earn little in wet years with
+low prices.  The investor's tail must be identified from the project's
+own simulated profit per scenario (volume × price), and it can be a
+different set of scenarios — even the opposite hydrology tail — from
+the regulator's.  That is why the planner's risk measure must not be
+confused with, or substituted for, the investor's.
+
+**Plan with the social CVaR, verify with the private CVaR.**
+
+1. *Plan*: solve the expansion with the social CVaR.  The LP is a
+   complete-market risk-averse equilibrium [[L60]](private-investment-literature.md#lit60),
+   [[L61]](private-investment-literature.md#lit61): its duals are prices
+   under the risk-adjusted probabilities π̃_s (`risk_measure.csv`), and
+   every built project recovers its costs exactly under π̃ (below).
+2. *Verify*: evaluate each selected project ex post with the private
+   CVaR of its own profit (specification for `gtopt_private_eval`
+   below).  A project the social plan selects may fail that test.  The
+   gap is the risk the private investor bears that the system plan does
+   not pay for under the true probabilities — a signal for a contract
+   (PPA, CfD), a capacity payment or a regulated remuneration that moves
+   that risk to the system, where the social CVaR already accounts for
+   it.
+
+**Prices and zero profit under the risk-adjusted measure.**  The dual of
+the CVaR row of scenario s, μ_s, adds to (1 − λ)·p_s to form π̃_s
+(Σ π̃_s = 1).  The bus prices gtopt writes per scenario are divided by
+p_s, so they equal ζ_s = π̃_s / p_s times the scenario's own marginal
+cost m_s.  The complementary-slackness identity of §1.2 becomes
+
+```math
+\sum_s \tilde\pi_s \sum_{t,b} \delta_t \Delta_b (m_{s,b} - c)\, q_{s,b}
+= \text{annuity} + \text{fixed OM},
+```
+
+so a built project breaks even under π̃, not under p.  Valued under the
+true probabilities p its expected profit is negative: that deficit is
+the **risk premium** the risk-averse system pays it.
+`gtopt_cost_recovery` reads `risk_measure.csv`, divides every dual by
+ζ_s and weights the scenarios with π̃_s (`--risk-weights auto`, the
+default when the file exists), or with p_s (`--risk-weights
+probability`) to show that premium.
+
+**Results (HiGHS 1.16, `cases/invest_cvar_1b`; run with
+`gtopt <file>.json --solver highs --output-directory <dir>`; outputs
+kept in `cases/invest_cvar_1b/golden/`).**  A 400-MW free hydro unit is
+available 100 / 65 / 30 % in the wet / normal / dry hydrology
+(p = 0.3 / 0.5 / 0.2); the candidates are the screening-curve base,
+mid and peak units (§2).
+
+| Variant | base MW | mid MW | peak MW | objective \$ | π̃ wet / normal / dry |
+|---------|-------:|------:|-------:|-------------:|---------------------|
+| expected (risk neutral) | 280 | 160 | 390 | 160,250,489 | 0.3 / 0.5 / 0.2 |
+| cvar, α 0.8, λ 0.5, rank by cost | 280 | 300 | 320 | 182,290,744 | 0.15 / 0.25 / 0.60 |
+| cvar, α 0.8, λ 1 | 430 | 150 | 320 | 200,657,740 | 0 / 0 / 1 |
+| cvar, α 0.8, λ 0.5, rank by index, lower tail (driest) | 280 | 300 | 320 | 182,290,744 | 0.15 / 0.25 / 0.60 |
+| trim, α 0.7, λ 0.5, rank by index, upper tail (drop wettest) | 280 | 170 | 380 | 167,267,508 | 0.15 / 0.607 / 0.243 |
+| expected, integer modules | 200 | 250 | 400 | 160,957,965 | 0.3 / 0.5 / 0.2 |
+| cvar α 0.8 λ 0.5, integer modules | 300 | 300 | 300 | 183,224,068 | 0.15 / 0.25 / 0.60 |
+
+* The risk-neutral plan sheds load in the dry hydrology (bus price
+  10,000 \$/MWh in the top block); `gtopt_cost_recovery` warns that
+  32.8 M\$ of its revenue is failure rent.  The social CVaR buys
+  140 MW more mid capacity and no longer sheds load: the insurance
+  costs 22.0 M\$/yr of expected cost.
+* For this system the most expensive hydrology is the driest, so the
+  cost-ranked tail and the "driest 20 %" index tail give the same plan
+  and the same weights.  Trimming the wettest 30 % (the other
+  exogenous choice) is milder: it moves weight to normal and dry
+  without isolating the dry tail.
+* Prices.  The dry-hydrology top-block price is 13,061.5 \$/MWh
+  = ζ · 4,353.8 with ζ = 3, the wet-hydrology mid-block price
+  22.5 = 0.5 · 45: every dual is ζ_s times the scenario's own
+  marginal value.
+* Cost recovery of `golden/lp` under π̃ (`python -m gtopt_cost_recovery
+  cases/invest_cvar_1b/golden/lp`): base, mid and peak earn exactly
+  their annuities (profit ≤ 2 \$ on 74.6 / 30.9 / 16.3 M\$ of capex),
+  and the market residual is 0.  Valued under p
+  (`--risk-weights probability`) the same plan loses 20.8 M\$ (base,
+  −27.9 %), 16.6 M\$ (mid, −53.7 %) and 10.9 M\$ (peak, −66.7 %):
+  that 48.3 M\$ is the risk premium the social planner pays through
+  the risk-adjusted measure and that an energy-only market priced at
+  p would not pay.  The MIP keeps zero profit only up to the
+  integrality gap (fixed-integer prices; see §5).
+* Larger case: `cases/invest_multi_3b/invest_multi_scen_{expected,cvar}.json`
+  (three buses, solar availability 100 / 60 / 30 %, p 0.5 / 0.3 / 0.2).
+  Risk neutral: solar 661 MW, CCGT 115 MW, battery capainst 12.3, lines 526 /
+  175 MW (objective 613,554).  CVaR α 0.8 λ 0.5: solar 365 MW, CCGT
+  176 MW, no battery, lines 274 / 150 MW (objective 657,614); the
+  overcast hydrology carries π̃ = 0.6.
+
+**Specification for `gtopt_private_eval` (private CVaR; owned by the
+private-evaluation tool, not implemented here).**
+
+```yaml
+risk:                    # optional; absent = expected profit (today)
+  measure: cvar          # cvar | trim
+  alpha: 0.9             # tail mass 1 - alpha of the PROJECT's profit
+  weight: 0.5            # λ: (1 - λ)·E[profit] + λ·(tail mean)
+  rank_by: profit        # profit (default) | index (Scenario.risk_index)
+  tail: lower            # lower profit = the investor's bad tail
+  probabilities: true    # p_s from planning.json (true probabilities);
+                         # never the planner's π̃_s
+```
+
+* Per project and scenario, compute the profit from the scenario's own
+  prices (the gtopt duals divided by ζ_s when `risk_measure.csv` exists)
+  and dispatch: margin − annuity at the project's WACC.
+* Rank the scenarios by that profit (lower tail = losses); report
+  E[profit], VaR, CVaR (and the trimmed mean), and which scenarios form
+  the tail, so the user sees whether they are the regulator's tail or
+  not.
+* Pass / fail: CVaR of the profit ≥ 0 (or ≥ a user hurdle).  Report the
+  shortfall as the support (contract strike, capacity payment) that
+  would make the project bankable.
+* Use the true probabilities p_s, the private WACC and no risk premium
+  on top of the CVaR (risk counted once).
 
 ## 8. The `gtopt_cost_recovery` tool
 
@@ -484,7 +675,8 @@ It reads `planning.json` (written to the output directory) and the
 solution and dual CSV/Parquet files, and reports per expandable project:
 revenue at the bus prices (`Bus/balance_dual`), opex at `srmc_sol` or
 `gcost`, annualised capex $\sum_t \text{capacost}\cdot T_t\cdot\delta_t$,
-profit, profit/capex and make-whole uplift; its marginal value per unit
+profit, profit/capex, make-whole uplift and the financing wedge
+(§7.3); its marginal value per unit
 (generators: $\sum \max(\lambda - c, 0) \cdot a \cdot \Delta$ with $a$
 the profile factor; lines:
 $\sum \max(|\lambda_b - \lambda_a| - \tau, 0) \cdot \Delta$;

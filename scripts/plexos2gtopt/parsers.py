@@ -2616,13 +2616,20 @@ def extract_generators(
             #  2. ``Heat Rate Incr``  — linear marginal slope (118-Bus
             #     piecewise); the right scalar for gtopt's ``gcost``
             #     because it represents marginal cost per MW.
-            #  3. ``Heat Rate Base``  — no-load intercept; faithfully
-            #     honouring it needs a gtopt no-load-cost feature.
-            heat_rate = (
-                db.static_property("Generator", gen.object_id, "Heat Rate")
-                or db.static_property("Generator", gen.object_id, "Heat Rate Incr")
-                or db.static_property("Generator", gen.object_id, "Heat Rate Base")
-            )
+            # ``Heat Rate Base`` is the no-load burn per HOUR (fuel-unit/h,
+            # mapped to ``Commitment.noload_fuel`` / ``noload_cost``), not
+            # a per-MWh rate: it never stands in for the heat rate.
+            heat_rate = db.static_property(
+                "Generator", gen.object_id, "Heat Rate"
+            ) or db.static_property("Generator", gen.object_id, "Heat Rate Incr")
+            if not heat_rate and db.static_property(
+                "Generator", gen.object_id, "Heat Rate Base"
+            ):
+                logger.warning(
+                    "generator '%s': only 'Heat Rate Base' (no-load burn per"
+                    " hour) is set; no per-MWh heat rate",
+                    gen.name,
+                )
         # VOM: CSV-present (even 0) takes precedence; only fall back to
         # t_data when the generator is absent from the CSV.
         if gen.name in vom_csv:

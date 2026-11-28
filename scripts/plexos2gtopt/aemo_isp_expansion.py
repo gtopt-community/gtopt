@@ -35,6 +35,17 @@ with **monthly stages** on top of the weekly dispatch converter
   Effects Method`` = Free (set on every ISP battery): representative days
   are not consecutive days, so carrying charge from one to the next would
   move energy between unrelated days (and between months).
+  ``--battery-state-hours H`` (default ``inf``: all cyclic, as above)
+  writes the batteries with energy / discharge power >= H hours (PHES,
+  long-duration BESS) as state storages (``daily_cycle = false``,
+  ``use_state_variable = true``, raw ``eini``) carried across stages
+  and phases like a reservoir.
+  ``--periodic-storage`` sets gtopt's ``model_options.periodic_storage``
+  (state storages run ONE real cycle per typical period and move by n x
+  the cycle change; cyclic ones start every period free), and
+  ``--rep-day-periodic`` writes the hourly representative days with
+  ``period_hours = 24`` so they are periodic typical days (both
+  experimental, off by default).
   ``--fill-years N`` (CLI default 1) appends N unreported FYs to damp the
   end effect, e.g. FY31 for an FY28-FY30 study; the stats record
   ``report_years`` / ``fill_years``.
@@ -85,6 +96,7 @@ import argparse
 import calendar
 import json
 import logging
+import math
 import re
 import subprocess
 import sys
@@ -99,7 +111,11 @@ import numpy as np
 import pandas as pd
 from gtopt_shared.point_sampling import (
     POINT_STORAGE_INTEGRATION,
+    commitment_breaks_options,
+    parse_commitment_breaks,
     point_storage_options,
+    read_commitment_breaks_file,
+    stage_commitment_fields,
 )
 
 from gtopt_shared import safe_xml
@@ -512,7 +528,8 @@ def month_layout(  # pylint: disable=too-many-arguments,too-many-positional-argu
 
             reduce_d: Callable[..., np.ndarray] = reduce_c
             durations = np.asarray(dgrid.durations, dtype=float) * days
-            period, times = 24.0, np.asarray(dgrid.times, dtype=float)
+            period: float | None = 24.0
+            times = np.asarray(dgrid.times, dtype=float)
         else:
 
             def reduce_h(
@@ -524,7 +541,8 @@ def month_layout(  # pylint: disable=too-many-arguments,too-many-positional-argu
                 return rep_mean(arr, mk, spd)
 
             reduce_d = reduce_h
-            durations, period, times = np.full(24, float(days)), None, None
+            durations, times = np.full(24, float(days)), None
+            period = 24.0 if opts.rep_day_periodic else None
         out.append(
             StageSpec(
                 days=days,
@@ -674,6 +692,71 @@ class ExpansionOptions:
     #: samples per day the typical week is sampled from (48: the
     #: half-hourly AEMO traces, needed for Chebyshev N > 168; 24: hourly)
     week_steps_per_day: int = 48
+    #: daily commitment grid (hours of the day) written as
+    #: ``model_options.commitment_breaks`` (None: none)
+    commitment_breaks: list[float] | None = None
+    #: per-month daily grids (month 1..12 -> breaks) written as
+    #: ``Stage.commitment_breaks``; other months use ``commitment_breaks``
+    commitment_breaks_by_month: dict[int, list[float]] = field(default_factory=dict)
+    #: storage-duration threshold [h] (energy / discharge power): batteries
+    #: at or above it (pumped hydro, long-duration BESS) are STATE storages
+    #: (level carried across stages / phases, ``use_state_variable``);
+    #: shorter ones close their cycle per representative period
+    #: (``daily_cycle``).  ``inf`` (default) keeps every battery cyclic,
+    #: 0 makes all of them state storages.
+    battery_state_hours: float = math.inf
+    #: gtopt ``model_options.periodic_storage``: on periodic stages
+    #: (typical weeks / days with ``period_hours``) state storages run ONE
+    #: real cycle and move by n x the cycle change, cyclic ones start each
+    #: period free.  Off (default): gtopt's legacy storage rules.
+    periodic_storage: bool = False
+    #: hourly representative days are written as periodic typical days
+    #: (``period_hours = 24``, real 1 h steps for ramps / min up-down and
+    #: storages).  Off (default): the 24 blocks of ``days`` hours each are
+    #: a plain non-periodic stage.
+    rep_day_periodic: bool = False
+
+
+def battery_duration_hours(item: dict[str, Any]) -> float:
+    """Storage duration [h] = max energy / max discharge power of a
+    battery entry (scalars or per-stage tables); inf without power."""
+
+    def peak(val: Any) -> float:
+        if isinstance(val, list):
+            flat = [
+                float(v)
+                for row in val
+                for v in (row if isinstance(row, list) else [row])
+            ]
+            return max(flat, default=0.0)
+        return float(val or 0.0)
+
+    pmax = peak(item.get("pmax_discharge"))
+    if pmax <= 0.0:
+        return math.inf
+    return peak(item.get("emax")) / pmax
+
+
+def apply_battery_storage_mode(item: dict[str, Any], state_hours: float) -> bool:
+    """Set ``daily_cycle`` / ``use_state_variable`` of a battery entry by
+    its duration (see ``ExpansionOptions.battery_state_hours``); returns
+    True for a state storage.  ``state_hours = inf`` keeps it cyclic
+    (also when it has no discharge power)."""
+    is_state = (
+        math.isfinite(state_hours) and battery_duration_hours(item) >= state_hours
+    )
+    set_battery_storage_mode(item, is_state)
+    return is_state
+
+
+def set_battery_storage_mode(item: dict[str, Any], is_state: bool) -> None:
+    """Write the cyclic (``daily_cycle``) or state (``daily_cycle =
+    false``, ``use_state_variable``) flags of a battery entry."""
+    if is_state:
+        item["daily_cycle"] = False
+        item["use_state_variable"] = True
+    else:
+        item["daily_cycle"] = True
 
 
 @dataclass
@@ -1550,8 +1633,15 @@ def _build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,
             f: [[round(float(v), 6) for v in row] for row in bat_tb[(name, f)]]
             for f in _BATTERY_TB_FIELDS
         }
+        is_state = apply_battery_storage_mode(
+            {**item, **tables}, opts.battery_state_hours
+        )
         if b["_first"] == 0 and b["_eini"] is not None:
-            item["eini"] = _feasible_cycle_eini(name, b["_eini"], tables)
+            item["eini"] = (
+                float(b["_eini"])
+                if is_state
+                else _feasible_cycle_eini(name, b["_eini"], tables)
+            )
         for f in _BATTERY_TB_FIELDS:
             if f in _BATTERY_FILE_FIELDS:
                 # the level bounds go to Battery/<field>.parquet (inline
@@ -1562,15 +1652,17 @@ def _build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,
                 sched[("Battery", f)][item["uid"]] = np.asarray(tables[f], dtype=float)
             else:
                 item[f] = tables[f]
-        item["daily_cycle"] = True
+        set_battery_storage_mode(item, is_state)
+        stats["batteries_state" if is_state else "batteries_cycled"] += 1
         battery_array.append(item)
     for item in battery_candidates:
         if item["name"] in bats:
             logger.warning("battery candidate %s is also existing", item["name"])
             continue
-        battery_array.append(
-            {**item, "uid": len(battery_array) + 1, "daily_cycle": True}
-        )
+        cand = {**item, "uid": len(battery_array) + 1}
+        is_state = apply_battery_storage_mode(cand, opts.battery_state_hours)
+        stats["batteries_state" if is_state else "batteries_cycled"] += 1
+        battery_array.append(cand)
     flow_array: list[dict[str, Any]] = []
     for fl in hydro.get("flow_array", []):
         if fl["name"] in inflow:
@@ -1652,6 +1744,10 @@ def _build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,
     block_array: list[dict[str, Any]] = []
     stage_array: list[dict[str, Any]] = []
     all_specs = [sp for specs in month_specs for sp in specs]
+    spec_months = [
+        months[m].month for m, specs in enumerate(month_specs) for _ in specs
+    ]
+    daily = bool(opts.commitment_breaks or opts.commitment_breaks_by_month)
     for s, sp in enumerate(all_specs):
         stage: dict[str, Any] = {
             "uid": s + 1,
@@ -1666,6 +1762,18 @@ def _build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,
         if sp.cycle_group is not None:
             stage["cycle_group"] = sp.cycle_group
             stage["cycle_weight"] = sp.cycle_weight
+        if daily:
+            # daily commitment grid: the clock hour of the stage start
+            # (week windows: --week-start; days: midnight) and the
+            # month's own pattern
+            stage.update(
+                stage_commitment_fields(
+                    float(sp.window_start or 0),
+                    spec_months[s],
+                    opts.commitment_breaks_by_month,
+                    opts.commitment_breaks,
+                )
+            )
         stage_array.append(stage)
         for h in range(nb):
             blk: dict[str, Any] = {
@@ -1726,6 +1834,8 @@ def _build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,
                     if any(st.get("sampling") == "point" for st in stage_array)
                     else {}
                 ),
+                **commitment_breaks_options(opts.commitment_breaks),
+                **({"periodic_storage": True} if opts.periodic_storage else {}),
             },
         },
         "simulation": simulation,
@@ -1909,6 +2019,25 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         "envelope rows; none = gtopt's per-type defaults)",
     )
     p.add_argument(
+        "--commitment-breaks",
+        type=parse_commitment_breaks,
+        default=None,
+        metavar="H1,H2,...",
+        help="daily commitment grid: cell boundaries in hours of the day "
+        "(e.g. 3.5,7.5,10.5,14.5,17.5,23.5, or 'study'), written as "
+        "model_options.commitment_breaks with Stage.start_hour = the "
+        "--week-start hour (default: none)",
+    )
+    p.add_argument(
+        "--commitment-breaks-file",
+        type=Path,
+        default=None,
+        metavar="CSV",
+        help="per-month daily commitment grids (rows 'month,breaks', month "
+        "1..12 or jan..dec) written as Stage.commitment_breaks; months "
+        "missing from the file use --commitment-breaks",
+    )
+    p.add_argument(
         "--ramp-refine-width",
         type=float,
         default=1.0,
@@ -1951,6 +2080,32 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         action="append",
         default=[],
         help="keep candidates whose category starts with this (repeatable)",
+    )
+    p.add_argument(
+        "--battery-state-hours",
+        type=float,
+        default=math.inf,
+        metavar="H",
+        help="batteries with energy / discharge power >= H hours (pumped "
+        "hydro, long-duration BESS) are state storages carried across "
+        "stages (daily_cycle = false, use_state_variable); shorter ones "
+        "close their cycle per representative period (daily_cycle).  0 "
+        "makes all state storages (default: inf, all cyclic)",
+    )
+    p.add_argument(
+        "--periodic-storage",
+        action="store_true",
+        help="write model_options.periodic_storage: on periodic stages "
+        "state storages run one real cycle and move by n x the cycle "
+        "change, cyclic ones start every period free (experimental; "
+        "default off)",
+    )
+    p.add_argument(
+        "--rep-day-periodic",
+        action="store_true",
+        help="write hourly representative days as periodic typical days "
+        "(period_hours = 24: real 1 h steps for ramps, min up/down and "
+        "storages; experimental; default off)",
     )
     p.add_argument("-o", "--output-dir", type=Path, required=True)
     p.add_argument("-n", "--name", default=None)
@@ -1999,6 +2154,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         ramp_refine=args.ramp_refine,
         ramp_refine_width=args.ramp_refine_width,
         point_storage_integration=args.point_storage_integration,
+        commitment_breaks=args.commitment_breaks,
+        commitment_breaks_by_month=(
+            read_commitment_breaks_file(args.commitment_breaks_file)
+            if args.commitment_breaks_file
+            else {}
+        ),
         discount_rate=args.discount_rate,
         include_hydro=not args.no_hydro,
         include_batteries=not args.no_batteries,
@@ -2007,6 +2168,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         capacity_penalty=args.capacity_penalty,
         capacity_year_fleet=args.capacity_year_fleet,
         candidate_prefixes=tuple(args.candidate_prefix),
+        battery_state_hours=args.battery_state_hours,
+        periodic_storage=args.periodic_storage,
+        rep_day_periodic=args.rep_day_periodic,
     )
     case = build_expansion_case(opts)
     # provenance: the exact command and converter revision, so a published

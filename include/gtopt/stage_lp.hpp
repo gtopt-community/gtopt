@@ -246,6 +246,21 @@ public:
     return stage().period_hours;
   }
 
+  /// @return Clock time of the stage start [h after midnight, any value
+  ///         >= 0, taken modulo 24 by the daily commitment grid];
+  ///         0 when unset
+  [[nodiscard]] constexpr double start_hour() const noexcept
+  {
+    return stage().start_hour.value_or(0.0);
+  }
+
+  /// @return Daily commitment grid of this stage (`Stage.
+  ///         commitment_breaks`; empty = the planning default)
+  [[nodiscard]] std::span<const Real> commitment_breaks() const noexcept
+  {
+    return stage().commitment_breaks;
+  }
+
   /// @return True when block values are point samples at `Block.time`
   ///         (`Stage.sampling = "point"`)
   [[nodiscard]] bool point_sampling() const noexcept
@@ -255,8 +270,8 @@ public:
 
   /// @return True when the stage is a circular typical period
   ///         (`Stage.periodic`, default: `period_hours` set or point
-  ///         sampling): intra-period couplings wrap, only state
-  ///         variables are not periodic
+  ///         sampling); see Stage::periodic for the options that
+  ///         make its couplings wrap
   [[nodiscard]] bool is_periodic() const noexcept
   {
     return stage().is_periodic();

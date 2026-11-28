@@ -109,87 +109,14 @@ def test_battery_array_emin_from_emin_emax(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_generator_array(tmp_path):
-    """BatteryWriter produces correct discharge generator entry."""
-    bp = _make_battery_parser(
-        tmp_path,
-        " 1     1\n"
-        " 1     BESS1\n"
-        " 1\n"
-        " BESS1_NEG     0.95\n"
-        " 3     0.95     0.0     200.0\n",
-    )
-    writer = BatteryWriter(battery_parser=bp)
-    gens = writer.to_generator_array()
-
-    assert len(gens) == 1
-    g = gens[0]
-    # uid == battery central number (no offset)
-    assert g["uid"] == 1
-    assert g["name"] == "BESS1_disch"
-    assert g["bus"] == 3
-    assert g["pmin"] == pytest.approx(0.0)
-    assert "pmax" in g
-    assert g["gcost"] == pytest.approx(0.0)
-
-
 # ---------------------------------------------------------------------------
 # demand_array (charge path)
 # ---------------------------------------------------------------------------
 
 
-def test_demand_array(tmp_path):
-    """BatteryWriter produces correct charge demand entry."""
-    bp = _make_battery_parser(
-        tmp_path,
-        " 1     1\n"
-        " 1     BESS1\n"
-        " 1\n"
-        " BESS1_NEG     0.95\n"
-        " 2     0.95     0.0     200.0\n",
-    )
-    writer = BatteryWriter(battery_parser=bp)
-    dems = writer.to_demand_array()
-
-    assert len(dems) == 1
-    d = dems[0]
-    # uid == battery central number (no offset)
-    assert d["uid"] == 1
-    assert d["name"] == "BESS1_chrg"
-    assert d["bus"] == 2
-    # Without maintenance, lmax is a scalar (pmax_charge)
-    assert isinstance(d["lmax"], float)
-    # Charging is dispatchable: fcost pinned to 0 so a positive global
-    # demand_fail_cost cannot force charging at lmax.
-    assert d["fcost"] == 0.0
-
-
 # ---------------------------------------------------------------------------
 # converter_array
 # ---------------------------------------------------------------------------
-
-
-def test_converter_array(tmp_path):
-    """BatteryWriter produces correct converter entry linking bat/gen/dem."""
-    bp = _make_battery_parser(
-        tmp_path,
-        " 1     1\n"
-        " 1     BESS1\n"
-        " 1\n"
-        " BESS1_NEG     0.95\n"
-        " 1     0.95     0.0     200.0\n",
-    )
-    writer = BatteryWriter(battery_parser=bp)
-    convs = writer.to_converter_array()
-
-    assert len(convs) == 1
-    c = convs[0]
-    assert c["uid"] == 1
-    assert c["name"] == "BESS1"
-    assert c["battery"] == "BESS1"
-    # generator/demand names == battery name
-    assert c["generator"] == "BESS1"
-    assert c["demand"] == "BESS1"
 
 
 # ---------------------------------------------------------------------------
@@ -267,38 +194,6 @@ def test_battery_array_from_ess(tmp_path):
     assert b["pmax_discharge"] == pytest.approx(100.0)
     assert b["pmax_charge"] == pytest.approx(100.0)
     assert b["discharge_cost"] == pytest.approx(0.0)
-
-
-def test_ess_generator_array(tmp_path):
-    """BatteryWriter produces discharge generator from ESS (dcmax = pmax)."""
-    ep = _make_ess_parser(
-        tmp_path,
-        " 1\n  ESS1  0.95  0.95  0.0  200.0  60.0  0\n",
-    )
-    writer = BatteryWriter(ess_parser=ep)
-    gens = writer.to_generator_array()
-
-    assert len(gens) == 1
-    g = gens[0]
-    assert g["name"] == "ESS1_disch"
-    assert g["pmax"] == pytest.approx(60.0)  # dcmax from plpess.dat
-    assert g["gcost"] == pytest.approx(0.0)
-
-
-def test_ess_demand_array(tmp_path):
-    """BatteryWriter produces charge demand from ESS (dcmax = lmax)."""
-    ep = _make_ess_parser(
-        tmp_path,
-        " 1\n  ESS1  0.95  0.95  0.0  200.0  50.0  0\n",
-    )
-    writer = BatteryWriter(ess_parser=ep)
-    dems = writer.to_demand_array()
-
-    assert len(dems) == 1
-    d = dems[0]
-    assert d["name"] == "ESS1_chrg"
-    # Without maintenance, lmax is a scalar (pmax_charge = dcmax)
-    assert d["lmax"] == pytest.approx(50.0)
 
 
 def test_ess_takes_priority_over_battery(tmp_path):
@@ -441,7 +336,9 @@ def test_battery_maintenance_sets_emin_emax_reference(tmp_path):
         "1\nBESS1\n2\n1  0.0  180.0\n2  10.0  150.0\n",
     )
     writer = BatteryWriter(battery_parser=bp, manbat_parser=mp)
-    bats = writer.to_battery_array()
+    # before the files are written the battery keeps its scalar bounds
+    assert writer.to_battery_array()[0]["emin"] == pytest.approx(0.0)
+    bats = writer.process([], [], tmp_path)["battery_array"]
 
     assert len(bats) == 1
     b = bats[0]
@@ -453,104 +350,6 @@ def test_battery_maintenance_sets_emin_emax_reference(tmp_path):
     assert "pmax_discharge" in b
     assert "pmax_charge" in b
     assert "discharge_cost" in b
-
-
-def test_battery_maintenance_gen_pmax_is_scalar(tmp_path):
-    """plpmanbat.dat does NOT affect generator pmax (only Emin/Emax).
-
-    Discharge generator pmax should remain a scalar value.
-    """
-    bp = _make_battery_parser(
-        tmp_path,
-        " 1     1\n"
-        " 1     BESS1\n"
-        " 1\n"
-        " BESS1_NEG     0.95\n"
-        " 1     0.95     0.0     200.0\n",
-    )
-    mp = _make_manbat_parser(
-        tmp_path,
-        "1\nBESS1\n2\n1  0.0  180.0\n2  10.0  150.0\n",
-    )
-    writer = BatteryWriter(battery_parser=bp, manbat_parser=mp)
-    gens = writer.to_generator_array()
-
-    assert len(gens) == 1
-    g = gens[0]
-    # plpmanbat only modifies energy bounds, NOT pmax
-    assert isinstance(g["pmax"], float)
-
-
-def test_battery_maintenance_dem_lmax_is_scalar(tmp_path):
-    """plpmanbat.dat does NOT affect demand lmax (only Emin/Emax).
-
-    Charge demand lmax should remain a scalar value.
-    """
-    bp = _make_battery_parser(
-        tmp_path,
-        " 1     1\n"
-        " 1     BESS1\n"
-        " 1\n"
-        " BESS1_NEG     0.95\n"
-        " 1     0.95     0.0     200.0\n",
-    )
-    mp = _make_manbat_parser(
-        tmp_path,
-        "1\nBESS1\n2\n1  0.0  180.0\n2  10.0  150.0\n",
-    )
-    writer = BatteryWriter(battery_parser=bp, manbat_parser=mp)
-    dems = writer.to_demand_array()
-
-    assert len(dems) == 1
-    d = dems[0]
-    # plpmanbat only modifies energy bounds, NOT pmax/lmax
-    assert isinstance(d["lmax"], float)
-
-
-def test_ess_maintenance_sets_pmax_reference(tmp_path):
-    """When maness provides maintenance with DCMax, gen pmax is file ref.
-
-    DC-maintenance entries use the legacy multi-element approach, so the
-    battery does NOT have unified fields (bus, pmax_*, discharge_cost).
-    """
-    ep = _make_ess_parser(
-        tmp_path,
-        " 1\n  ESS1  0.95  0.95  0.0  200.0  50.0  0\n",
-    )
-    mp = _make_maness_parser(
-        tmp_path,
-        "1\n'ESS1'\n2\n1  0.0  200.0  0.0  40.0  1\n2  0.0  180.0  0.0  35.0  1\n",
-    )
-    writer = BatteryWriter(ess_parser=ep, maness_parser=mp)
-    gens = writer.to_generator_array()
-
-    assert len(gens) == 1
-    g = gens[0]
-    assert g["pmax"] == "pmax"
-
-    # Battery should NOT have unified fields (DC maintenance → legacy)
-    bats = writer.to_battery_array()
-    assert len(bats) == 1
-    assert "bus" not in bats[0]
-    assert "pmax_discharge" not in bats[0]
-
-
-def test_ess_maintenance_sets_lmax_reference(tmp_path):
-    """When maness provides maintenance with DCMax, dem lmax is file ref."""
-    ep = _make_ess_parser(
-        tmp_path,
-        " 1\n  ESS1  0.95  0.95  0.0  200.0  50.0  0\n",
-    )
-    mp = _make_maness_parser(
-        tmp_path,
-        "1\n'ESS1'\n2\n1  0.0  200.0  0.0  40.0  1\n2  0.0  180.0  0.0  35.0  1\n",
-    )
-    writer = BatteryWriter(ess_parser=ep, maness_parser=mp)
-    dems = writer.to_demand_array()
-
-    assert len(dems) == 1
-    d = dems[0]
-    assert d["lmax"] == "lmax"
 
 
 def test_maintenance_parquet_battery(tmp_path):
@@ -589,40 +388,6 @@ def test_maintenance_parquet_battery(tmp_path):
     # emax values are absolute (not normalized by capacity)
     assert emax1["value"].iloc[0] == pytest.approx(180.0)
     assert emax1["value"].iloc[1] == pytest.approx(150.0)
-
-
-def test_maintenance_parquet_ess(tmp_path):
-    """process() with ESS maintenance writes Battery+Generator+Demand parquet."""
-    ep = _make_ess_parser(
-        tmp_path,
-        " 1\n  ESS1  0.95  0.95  0.0  200.0  50.0  0\n",
-    )
-    mp = _make_maness_parser(
-        tmp_path,
-        "1\n'ESS1'\n2\n1  0.0  200.0  0.0  40.0  1\n2  0.0  180.0  0.0  35.0  1\n",
-    )
-    writer = BatteryWriter(ess_parser=ep, maness_parser=mp)
-    writer.process([], [], tmp_path)
-
-    # Battery energy bounds
-    emin_path = tmp_path / "Battery" / "emin.parquet"
-    assert emin_path.exists()
-    emax_path = tmp_path / "Battery" / "emax.parquet"
-    assert emax_path.exists()
-
-    # DC power bounds
-    pmax_path = tmp_path / "Generator" / "pmax.parquet"
-    assert pmax_path.exists(), "Generator/pmax.parquet not written"
-    df_pmax = pd.read_parquet(pmax_path)
-    # Long layout: [block, uid, value]. uid=0 because no central_parser.
-    assert "uid" in df_pmax.columns and "value" in df_pmax.columns
-    assert 0 in set(df_pmax["uid"])
-    assert len(df_pmax) == 2
-
-    lmax_path = tmp_path / "Demand" / "lmax.parquet"
-    assert lmax_path.exists(), "Demand/lmax.parquet not written"
-    df_lmax = pd.read_parquet(lmax_path)
-    assert len(df_lmax) == 2
 
 
 def test_no_maintenance_no_parquet(tmp_path):
@@ -819,7 +584,7 @@ def test_ess_maness_dcmod_restricts_coupling_blocks(tmp_path):
     ucs = writer.charge_coupling_constraints(writer._all_entries())  # noqa: SLF001
     assert len(ucs) == 1
     assert ucs[0]["expression"] == (
-        "demand('ESS1_chrg').load - generator('SOLAR1').generation <= 0"
+        "demand('ESS1_dem').load - generator('SOLAR1').generation <= 0"
         ", for(block in {2, 3})"
     )
 
@@ -928,7 +693,7 @@ def test_ess_dcmod1_empty_cenpc_no_source_generator(tmp_path):
 
 
 def test_source_generator_not_set_in_dc_maintenance(tmp_path):
-    """source_generator is not set for entries with DC-maintenance (legacy path)."""
+    """A DC-maintenance ESS stays a unified battery without source_generator."""
     ep = _make_ess_parser(
         tmp_path,
         " 1\n  ESS1  0.95  0.95  0.0  200.0  50.0  1  SOLAR1\n",
@@ -939,12 +704,9 @@ def test_source_generator_not_set_in_dc_maintenance(tmp_path):
     )
     writer = BatteryWriter(ess_parser=ep, maness_parser=mp)
     bats = writer.to_battery_array()
-
     assert len(bats) == 1
-    b = bats[0]
-    # DC-maintenance path → no unified fields → no source_generator in battery
-    assert "bus" not in b
-    assert "source_generator" not in b
+    assert bats[0]["bus"] == 1
+    assert "source_generator" not in bats[0]
 
 
 # ---------------------------------------------------------------------------

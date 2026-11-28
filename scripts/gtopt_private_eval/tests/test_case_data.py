@@ -55,6 +55,27 @@ def test_profile_and_srmc(gen_case: Callable[..., Path]) -> None:
     assert g.variable_cost() == pytest.approx(12 * 50 * 8760)
 
 
+def test_heat_rate_curve_cost_at_dispatch(gen_case: Callable[..., Path]) -> None:
+    """Thermal cash cost follows the declared curve at the dispatched point:
+    srmc (first slope) + fuel price × upper segments + no-load fuel."""
+    extra = {
+        "fuel_array": [{"uid": 1, "name": "gas", "price": 10.0}],
+        "commitment_array": [{"uid": 7, "generator": "g", "noload_fuel": 5.0}],
+    }
+    rdir = gen_case(
+        extra, fuel="gas", pmax_segments=[30.0, 60.0], heat_rate_segments=[1.0, 2.0]
+    )
+    write_stream(rdir, "Generator/srmc_sol", [(1, 1, 1, 1, 12.0), (1, 1, 2, 1, 12.0)])
+    write_stream(rdir, "Commitment/status_sol", [(1, 1, 1, 7, 1.0), (1, 1, 2, 7, 0.0)])
+    g = load_system(rdir).projects[0]
+    # 10 × (2 − 1) × (50 − 30) / 50 = 4 $/MWh; no-load 10 × 5 / 50 = 1 (u = 1)
+    assert [r.curve_cost for r in g.rows] == pytest.approx([5.0, 4.0])
+    assert g.variable_cost() == pytest.approx((17.0 + 16.0) * 50 * 4380)
+    # no fuel → no curve cost (the case gcost / srmc stands)
+    g0 = load_system(gen_case(pmax_segments=[30.0, 60.0], heat_rate_segments=[1, 2]))
+    assert all(r.curve_cost == 0.0 for r in g0.projects[0].rows)
+
+
 def test_reserve_revenue(gen_case: Callable[..., Path]) -> None:
     extra = {
         "reserve_zone_array": [{"uid": 1, "name": "csf"}],
@@ -73,6 +94,36 @@ def test_reserve_revenue(gen_case: Callable[..., Path]) -> None:
     assert sysd.has_reserves
     g = sysd.projects[0]
     assert g.reserve_revenue == pytest.approx(4 * 10 * 4380 + 2 * 5 * 4380)
+
+
+def test_reserve_revenue_uses_dispatched_provision_by_uid(
+    gen_case: Callable[..., Path],
+) -> None:
+    """SSCC revenue is dual × the provision the LP dispatched (not the
+    nameplate / urmax), and a provision may name its generator by uid."""
+    extra = {
+        "reserve_zone_array": [{"uid": 1, "name": "csf"}],
+        "reserve_provision_array": [
+            {
+                "uid": 1,
+                "name": "g_csf",
+                "generator": 1,
+                "reserve_zones": [1],
+                "urmax": 1000,
+            },
+        ],
+    }
+    rdir = gen_case(extra)
+    write_stream(rdir, "ReserveZone/urequirement_dual", [(1, 1, 1, 1, 4.0)])
+    write_stream(rdir, "ReserveZone/drequirement_dual", [(1, 1, 1, 1, 0.0)])
+    # gas-limited: the LP dispatched 0 in block 1 although urmax = 1000
+    write_stream(rdir, "ReserveProvision/uprovision_sol", [(1, 1, 1, 1, 0.0)])
+    write_stream(rdir, "ReserveProvision/dprovision_sol", [(1, 1, 1, 1, 0.0)])
+    sysd = load_system(rdir)
+    assert sysd.projects[0].reserve_revenue == pytest.approx(0.0)
+    write_stream(rdir, "ReserveProvision/uprovision_sol", [(1, 1, 1, 1, 3.0)])
+    sysd = load_system(rdir)
+    assert sysd.projects[0].reserve_revenue == pytest.approx(4 * 3 * 4380)
 
 
 def test_battery_and_line_goldens() -> None:

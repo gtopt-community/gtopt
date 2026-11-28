@@ -1,0 +1,17 @@
+# Archivo de mantenimientos de centrales (plpmance.dat)
+# numero de centrales con mantenimientos
+ 2
+# Nombre de la central
+'BESS1'
+#   Numero de Bloques e Intervalos
+   2                 01
+#   Mes    Bloque  NIntPot   PotMin   PotMax
+     01      001        1     0.00     0.00
+     01      002        1     0.00     0.00
+# Nombre de la central
+'BESS1_LOAD'
+#   Numero de Bloques e Intervalos
+   2                 01
+#   Mes    Bloque  NIntPot   PotMin   PotMax
+     01      001        1     0.00     0.00
+     01      002        1     0.00     0.00

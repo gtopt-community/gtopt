@@ -46,6 +46,17 @@ class EvalContext:
     wacc: dict[str, float] = field(default_factory=dict)
     #: pre-tax LCOE per project (filled before revenues; used by ``cfd``)
     lcoe: dict[str, float] = field(default_factory=dict)
+    #: fuel-cost trajectory (``evaluate.FuelPath``; None = flat costs)
+    fuel: Any = None
+    #: per-evaluation cache of market models (peak hours, pie factor, ...)
+    cache: dict[str, Any] = field(default_factory=dict)
+    #: storage type -> ``declared`` / ``shadow`` (:mod:`..storage_value`)
+    storage_modes: dict[str, str] = field(default_factory=dict)
+
+    def shadow(self, proj: ProjectData) -> bool:
+        """True when the storage the unit draws from is shadow-valued."""
+        kind = proj.storage_kind
+        return kind is not None and self.storage_modes.get(kind) == "shadow"
 
     def own_rate(self, proj: ProjectData) -> float:
         tech = self.tech.get(proj.name, "thermal")
@@ -85,6 +96,9 @@ class MarketModel:
     title: ClassVar[str] = ""
     #: keys of ``params.sources()`` this model's defaults rely on
     source_keys: ClassVar[tuple[str, ...]] = ()
+    #: component → stream defaults of this market for ``finance.stream_rates``
+    #: (on top of ``streams.DEFAULT_STREAM_OF``; a user ``map`` wins)
+    stream_map: ClassVar[dict[str, str]] = {}
 
     def __init__(self, params: Mapping[str, Any]) -> None:
         self.p = params
@@ -142,6 +156,43 @@ class MarketModel:
                 "regulated_coma": capex * fom,
             }
         return {"congestion_rent": proj.line_margin}
+
+    def details(self, ctx: EvalContext, proj: ProjectData) -> dict[str, float]:
+        """Physical quantities behind the revenues (reported, not cash):
+        time-weighted mean bus price, captured price, energy."""
+        hours = sum(r.hours for r in proj.rows)
+        out: dict[str, float] = {}
+        if hours > 0:
+            out["mean_bus_price"] = sum(r.price * r.hours for r in proj.rows) / hours
+        cap = proj.captured_price()
+        if cap is not None:
+            out["captured_price"] = cap
+        out["energy_mwh"] = proj.energy_mwh()
+        # spread over the scenarios (hydrologies) of the case: yearly
+        # energy and captured price of each scenario on its own
+        by: dict[int, list[float]] = {}
+        for r in proj.rows:
+            acc = by.setdefault(r.key[0], [0.0, 0.0])
+            h = r.hours / r.prob if r.prob > 0 else r.hours
+            acc[0] += r.gen * h
+            acc[1] += r.price * r.gen * h
+        if len(by) > 1:
+            energies = [e for e, _v in by.values()]
+            prices = [v / e for e, v in by.values() if e > 0]
+            out["energy_mwh_min_scenario"] = min(energies)
+            out["energy_mwh_max_scenario"] = max(energies)
+            if prices:
+                out["captured_price_min_scenario"] = min(prices)
+                out["captured_price_max_scenario"] = max(prices)
+        if proj.kind == "Battery":
+            out["charge_mwh"] = proj.charge_mwh()
+            charge = proj.charge_mwh()
+            if charge > 0:
+                out["charge_price"] = (
+                    sum(r.price * r.dem * r.hours for r in proj.rows) / charge
+                )
+        del ctx
+        return out
 
     def notes(self) -> list[str]:
         """Human-readable assumptions printed with the report."""

@@ -455,6 +455,9 @@ main entry points:
 - [Gas Network Guide](docs/gas-network.md): natural-gas network elements
   (Weymouth pipes, compressors, line pack, gas-fired units) and benchmark
   cases with their sources and licences.
+- [Distribution Expansion](docs/methods/distribution-expansion.md):
+  LinDistFlow feeders, distribution expansion practice and an OpenDSS AC
+  check.
 - [Comparison with other tools](docs/tools/comparison.md): PLP, pandapower,
   PyPSA and GenX.
 - [White paper](docs/white_paper/main.pdf) ([LaTeX source](docs/white_paper/)):

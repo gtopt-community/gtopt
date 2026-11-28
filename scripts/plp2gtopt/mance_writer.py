@@ -10,6 +10,7 @@ from .base_writer import BaseWriter
 from .mance_parser import ManceParser
 from .central_parser import CentralParser
 from .block_parser import BlockParser
+from .mance_split import maintenance_centrals_from_xlsm, split_mances
 
 
 class GeneratorMaintenance(TypedDict):
@@ -101,11 +102,103 @@ class ManceWriter(BaseWriter):
         except Exception as e:
             raise ValueError(f"Failed to create DataFrames: {str(e)}") from e
 
+    def split_outages(
+        self, items: Optional[List[Dict[str, Any]]] = None
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """Apply ``--mance-split`` (see :mod:`plp2gtopt.mance_split`).
+
+        Returns ``(pmin/pmax items, outage_fraction items)``; mode ``off``
+        (default) returns the items unchanged and no outages.
+        """
+        if items is None:
+            items = self.items or []
+        mode = str(self.options.get("mance_split", "off") or "off")
+        if mode == "off" or not items:
+            return list(items), []
+        if self.central_parser is None or self.block_parser is None:
+            raise ValueError("mance-split needs the central and block parsers")
+        maintained = None
+        if mode == "xlsm":
+            xlsm = self.options.get("mance_xlsm")
+            if not xlsm:
+                raise ValueError("--mance-split xlsm needs --mance-xlsm FILE")
+            maintained = maintenance_centrals_from_xlsm(Path(xlsm))
+        return split_mances(
+            items,
+            self.central_parser.items or [],
+            self.block_parser.get_stage_number,
+            mode,
+            maintained,
+        )
+
+    def outage_dataframe(self, outages: List[Dict[str, Any]]) -> pd.DataFrame:
+        """Per-block ``outage_fraction`` DataFrame (0 where not in outage)."""
+        if not outages:
+            return pd.DataFrame()
+        df = self._create_dataframe(
+            items=outages,
+            unit_parser=self.central_parser,
+            index_parser=self.block_parser,
+            value_field="outage_fraction",
+            index_field="block",
+            skip_types=("falla",),
+        )
+        if df.empty:
+            return df
+        df = df.fillna(0.0).copy()
+        if self.block_parser:
+            df["stage"] = df.index.map(self.block_parser.get_stage_number).astype(
+                "int32"
+            )
+        return df
+
+    def _without_battery_centrals(
+        self, items: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Drop the rows of battery centrals and their ``_LOAD`` phantoms.
+
+        No generator carries their uid: ``BatteryWriter`` maps those rows
+        to the battery's own ``pmax_discharge`` / ``pmax_charge``.
+        """
+        if self.central_parser is None:
+            return items
+        centrals = (
+            getattr(self.central_parser, "items", None)
+            or getattr(self.central_parser, "centrals", None)
+            or []
+        )
+        bats = {
+            str(c["name"])
+            for c in centrals
+            if str(c.get("type", "")).lower() == "bateria"
+        }
+        if not bats:
+            return items
+
+        def is_battery(name: str) -> bool:
+            return name in bats or (
+                name.endswith("_LOAD") and name[: -len("_LOAD")] in bats
+            )
+
+        return [it for it in items if not is_battery(str(it.get("name", "")))]
+
     def to_parquet(
         self, output_dir: Path, items: Optional[List[Dict[str, Any]]] = None
     ) -> Dict[str, List[str]]:
-        """Write maintenance data to Parquet/CSV files for pmin and pmax."""
-        cols: Dict[str, List[str]] = {"pmin": [], "pmax": []}
+        """Write maintenance data to Parquet/CSV files for pmin and pmax.
+
+        With ``--mance-split auto|xlsm`` also writes ``outage_fraction``.
+        Battery centrals are left out (see ``_without_battery_centrals``).
+        """
+        cols: Dict[str, List[str]] = {"pmin": [], "pmax": [], "outage_fraction": []}
+        if items is None:
+            items = self.items or []
+        items, outages = self.split_outages(self._without_battery_centrals(items))
+        df_out = self.outage_dataframe(outages)
+        if not df_out.empty:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            self.write_dataframe(df_out, output_dir, "outage_fraction")
+            cols["outage_fraction"] = df_out.columns.tolist()
         df_pmin, df_pmax = self.to_dataframe(items)
 
         cols["pmin"] = df_pmin.columns.tolist() if not df_pmin.empty else []

@@ -86,6 +86,8 @@ python -m tcheby2gtopt convert SYSTEM_DB --name NAME --out-dir DIR [options]
 | `--point-storage-integration RULE` | `cc` | `battery_storage_integration` and `reservoir_storage_integration` written for point stages: `cc` (Clenshaw–Curtis, the sparsest), `lg4_pos`, `trapezoid`, or any other rule GTOpt accepts; `none` writes nothing (GTOpt's per-type defaults) |
 | `--commitment-period-rule {class,none}` | `class` | point stages: per-unit `commitment_period` grids, or `none` (no `commitment_period`; the source UC resolution is dropped) |
 | `--commitment-period NAME=H` | — | point stages: commitment grid [h] of unit `NAME` (repeatable) |
+| `--commitment-breaks H1,H2,...` | — | daily commitment grid: cell boundaries in hours of the day (`study` = `3.5,7.5,10.5,14.5,17.5,23.5`) → `model_options.commitment_breaks` + `Stage.start_hour`; replaces the per-unit class grids (an explicit `--commitment-period NAME=H` still wins). See [typical-week-sampling §4c](../methods/typical-week-sampling.md) |
+| `--commitment-breaks-file CSV` | — | per-month daily grids (rows `month,breaks`, month 1..12 or `jan`..`dec`) → `Stage.commitment_breaks` by each stage's calendar month; months missing from the file use `--commitment-breaks` |
 
 The storage option is written only to the `_point` file; block cases keep
 GTOpt's per-type defaults.  The value is not checked by the converter;

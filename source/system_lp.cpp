@@ -46,6 +46,7 @@
 #include <gtopt/mip_start.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/pricing_mode.hpp>
+#include <gtopt/risk_measure_lp.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
@@ -515,11 +516,36 @@ constexpr auto flatten_from_collections(auto& collections,
   // operational row below can reference them.
   add_cell_cols_to_lp(collections, system_context, scene, phase, lp);
 
+  // Risk-averse objective (`model_options.risk_measure = cvar`): record
+  // the column range and objective-constant delta of every
+  // (scenario, stage) build call, so the CVaR pass below can read each
+  // scenario's cost off the coefficients the elements wrote.  Empty (no
+  // bookkeeping, LP untouched) for the default `expected`.
+  const bool use_cvar = sc_opts.risk_measure() != RiskMeasure::expected;
+  std::vector<CvarScenarioInput> cvar_inputs;
+  if (use_cvar) {
+    cvar_inputs.reserve(scene.scenarios().size());
+    for (const auto& scenario : scene.scenarios()) {
+      cvar_inputs.push_back({
+          .uid = scenario.uid(),
+          .probability = scenario.probability_factor(),
+      });
+    }
+  }
+
   // Process all active stages in phase
   for (auto&& stage : phase.stages()) {
     // Process all active scenarios in simulation
-    for (auto&& scenario : scene.scenarios()) {
+    for (auto&& [scenario_pos, scenario] : enumerate(scene.scenarios())) {
+      const auto cvar_col_begin = lp.get_numcols();
+      const auto cvar_constant_begin = lp.get_obj_constant();
       add_to_lp(collections, system_context, scenario, stage, lp);
+      if (use_cvar) {
+        auto& in = cvar_inputs[static_cast<std::size_t>(scenario_pos)];
+        in.col_ranges.emplace_back(static_cast<Index>(cvar_col_begin),
+                                   static_cast<Index>(lp.get_numcols()));
+        in.obj_constant += lp.get_obj_constant() - cvar_constant_begin;
+      }
 
       // cycle_basis: emit the per-cycle KVL rows now that every
       // LineLP::add_to_lp has finished creating its flow vars.  The
@@ -598,6 +624,61 @@ constexpr auto flatten_from_collections(auto& collections,
   // `add_to_phase_lp` / `add_to_global_lp` hooks.  See add_to_planning_lp.
   add_to_planning_lp(collections, system_context, scene, phase, lp);
 
+  std::optional<CvarLayout> cvar_layout;
+  if (use_cvar) {
+    if (sc_opts.method_type_enum() != MethodType::monolithic) {
+      throw std::invalid_argument(
+          "model_options.risk_measure is only supported by the monolithic "
+          "method");
+    }
+    if (sc_opts.risk_rank_by() == RiskRankBy::cost) {
+      // Endogenous tail: the costliest scenarios at the optimum.  Only the
+      // upper-tail CVaR is convex (validation rejects the rest).
+      if (sc_opts.risk_measure() != RiskMeasure::cvar
+          || sc_opts.risk_tail() != RiskTail::upper)
+      {
+        throw std::invalid_argument(
+            "risk_rank_by = 'cost' supports only risk_measure = 'cvar' with "
+            "risk_tail = 'upper'");
+      }
+      cvar_layout = add_cvar_to_lp(lp,
+                                   cvar_inputs,
+                                   sc_opts.cvar_alpha(),
+                                   sc_opts.cvar_weight(),
+                                   sc_opts.scale_objective(),
+                                   scene.uid(),
+                                   phase.uid());
+    } else {
+      std::vector<double> prob;
+      std::vector<double> index;
+      for (const auto& scenario : scene.scenarios()) {
+        const auto ri = scenario.risk_index();
+        if (!ri) {
+          throw std::invalid_argument(std::format(
+              "risk_rank_by = 'index': scenario uid {} has no risk_index",
+              scenario.uid().value()));
+        }
+        prob.push_back(scenario.probability_factor());
+        index.push_back(*ri);
+      }
+      const auto q = tail_risk_weights(prob,
+                                       index,
+                                       sc_opts.cvar_alpha(),
+                                       sc_opts.cvar_weight(),
+                                       sc_opts.risk_measure(),
+                                       sc_opts.risk_tail());
+      cvar_layout = apply_tail_weights_to_lp(lp,
+                                             cvar_inputs,
+                                             q,
+                                             sc_opts.risk_measure(),
+                                             sc_opts.risk_tail(),
+                                             sc_opts.cvar_alpha(),
+                                             sc_opts.cvar_weight(),
+                                             scene.uid(),
+                                             phase.uid());
+    }
+  }
+
   // Compute LP fingerprint before flattening (structured metadata is still
   // available in the raw cols/rows vectors).  Skipped unless the user
   // requested fingerprint output (--lp-fingerprint).
@@ -625,7 +706,10 @@ constexpr auto flatten_from_collections(auto& collections,
     system_context.simulation().release_ampl_cell(scene.index(), phase.index());
   }
 
-  return std::tuple {std::move(flat_lp), std::move(fingerprint), label_maker};
+  return std::tuple {std::move(flat_lp),
+                     std::move(fingerprint),
+                     label_maker,
+                     std::move(cvar_layout)};
 }
 
 constexpr auto create_linear_interface(auto& collections,
@@ -639,8 +723,9 @@ constexpr auto create_linear_interface(auto& collections,
   // Create the solver interface first so we can query its infinity value.
   LinearInterface li(flat_opts.solver_name);
 
-  auto [flat_lp, fingerprint, label_maker] = flatten_from_collections(
-      collections, system_context, phase, scene, flat_opts, li.infinity());
+  auto [flat_lp, fingerprint, label_maker, cvar_layout] =
+      flatten_from_collections(
+          collections, system_context, phase, scene, flat_opts, li.infinity());
 
   // Install the LabelMaker on the LinearInterface so labels on any
   // cols/rows added after load_flat() use the same LpNamesLevel as
@@ -769,7 +854,8 @@ constexpr auto create_linear_interface(auto& collections,
     // scip_repair (it self-skips when the snapshot is absent).
     li.save_snapshot(std::move(flat_lp));
   }
-  return std::tuple {std::move(li), std::move(fingerprint)};
+  return std::tuple {
+      std::move(li), std::move(fingerprint), std::move(cvar_layout)};
 }
 
 void create_collections(const auto& system_context,
@@ -1516,10 +1602,11 @@ void SystemLP::create_lp(const LpMatrixOptions& flat_opts_in)
   // create_linear_interface owns the snapshot installation: it either
   // load_flats + save_snapshots eagerly (low_memory off) or installs the
   // flat LP as a deferred snapshot via defer_initial_load (otherwise).
-  auto [li, fp] = create_linear_interface(
+  auto [li, fp, cvar] = create_linear_interface(
       collections(), system_context(), phase(), scene(), flat_opts);
   m_linear_interface_ = std::move(li);
   m_fingerprint_ = std::move(fp);
+  m_cvar_layout_ = std::move(cvar);
   m_fingerprint_was_set_ = true;
 }
 
@@ -1891,6 +1978,8 @@ SystemLP::SystemLP(SystemLP&& other) noexcept
     , m_scene_(std::move(other.m_scene_))
     , m_linear_interface_(std::move(other.m_linear_interface_))
     , m_fingerprint_(std::move(other.m_fingerprint_))
+    , m_cvar_layout_(std::move(other.m_cvar_layout_))
+    , m_cvar_solution_(std::move(other.m_cvar_solution_))
     , m_single_bus_id_(std::move(other.m_single_bus_id_))
     , m_flat_opts_(std::move(other.m_flat_opts_))
     , m_fingerprint_was_set_(other.m_fingerprint_was_set_)
@@ -1937,6 +2026,8 @@ SystemLP& SystemLP::operator=(SystemLP&& other) noexcept
   m_scene_ = std::move(other.m_scene_);
   m_linear_interface_ = std::move(other.m_linear_interface_);
   m_fingerprint_ = std::move(other.m_fingerprint_);
+  m_cvar_layout_ = std::move(other.m_cvar_layout_);
+  m_cvar_solution_ = std::move(other.m_cvar_solution_);
   m_single_bus_id_ = std::move(other.m_single_bus_id_);
   m_flat_opts_ = std::move(other.m_flat_opts_);
   m_fingerprint_was_set_ = other.m_fingerprint_was_set_;
@@ -1976,6 +2067,14 @@ void SystemLP::write_out()
   // and optimal).
   if (!linear_interface().is_optimal()) {
     return;
+  }
+
+  // Mean-CVaR objective: capture η, u_s, μ_s and the scenario costs now,
+  // while the primal / dual vectors are resident (`risk_measure.csv`).
+  if (m_cvar_layout_) {
+    auto& li = linear_interface();
+    m_cvar_solution_ =
+        evaluate_cvar(*m_cvar_layout_, li.get_col_sol(), li.get_row_dual());
   }
 
   // Early-exit when no output fields are requested.  Every per-element

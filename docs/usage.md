@@ -725,6 +725,27 @@ Example `Bus/balance_dual.csv`:
 The bus balance dual represents the marginal cost of energy at each bus
 (locational marginal price).
 
+### Usage accounting output (`output_usage_metrics`)
+
+With `options.output_usage_metrics = true` (default `false`; CLI
+`--set output_usage_metrics=true`) gtopt also writes the per-block streams
+that cannot be rebuilt from aggregates of the standard outputs.  The LP is
+not changed.
+
+| File | Value |
+|------|-------|
+| `Generator/usage_on_sol` | 1 when the unit generates in the block (`p > 1e-6` MW), else 0; × block hours = operating hours |
+| `Generator/usage_ramp_sol` | `|p_b − p_{b−1}|` [MW] on chronological stages (ramp mileage); the first block of a stage reads 0 |
+| `Commitment/usage_pmin_sol` | Committed floor `max(Generator.pmin, Commitment.pmin)` [MW] of every block with a status column |
+| `Commitment/usage_at_pmin_sol` | `u` when the unit sits at its floor (`p ≤ Pmin·u + 1e-6 + 1e-3·Pmin`), else 0 |
+
+Energy, starts / shutdowns (`Commitment/startup_sol`, `shutdown_sol`),
+reserve held (`ReserveProvision/uprovision_sol`, `dprovision_sol`) and
+battery throughput (`Battery/finp_sol`, `fout_sol`) come from the standard
+streams.  [`gtopt_usage`](scripts/gtopt_usage.md) aggregates all of them per
+stage / year, turns them into maintenance cost (EOH, HEOM, OEM intervals)
+and derives the SSCC wear cost θ from two runs.
+
 ## Advanced Usage
 
 ### Output in Parquet format

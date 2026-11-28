@@ -24,6 +24,7 @@
    - [5.4 bis Demand Profile Constraints](#54-bis-demand-profile-constraints)
    - [5.5 Transmission Line Constraints](#55-transmission-line-constraints)
    - [5.6 Kirchhoff Voltage Law (DC OPF)](#56-kirchhoff-voltage-law-dc-opf)
+   - [5.6 bis LinDistFlow Distribution Network](#56-bis-lindistflow-distribution-network)
    - [5.7 Battery / Energy Storage Constraints](#57-battery--energy-storage-constraints)
    - [5.8 Converter Constraints](#58-converter-constraints)
    - [5.9 Reserve Constraints](#59-reserve-constraints)
@@ -445,6 +446,176 @@ $$
 \min \quad z = z_{\text{OPEX}} + z_{\text{CAPEX}}
 $$
 
+### 4.5 Risk-Averse Objective: the Social CVaR (opt-in)
+
+`model_options.risk_measure = "cvar"` replaces the expectation over the
+scenarios of a (scene, phase) LP by the mean-CVaR blend of Rockafellar
+and Uryasev [R1].  It is the **social CVaR**: the risk measure of the
+planner or regulator, applied to the *system* cost, with the tail ranked
+by system cost or by an exogenous supply-risk index.  It is not the risk
+of a private investor (the profit of one project), which is measured
+ex post, project by project — see
+[investment economics §7.4](../methods/investment-economics.md#74-risk-averse-planner-cvar-instead-of-a-wacc-premium).  Write the objective of the default LP as
+
+```math
+z = F + \sum_{s} \pi_s O_s ,
+```
+
+with $F$ the scenario-independent (first-stage) part — the capacity
+annuities $`z_{\text{CAPEX}}`$ (`capacost` columns) and any column built
+outside the per-scenario loop — and $`O_s`$ the discounted operating cost of
+scenario $s$ *conditional on* $s$ (every OPEX coefficient divided by
+$`\pi_s`$, plus the scenario's share of the objective constant, e.g. the
+demand-failure baseline).  With weight $\lambda \in [0,1]$
+(`cvar_weight`, default 0.5) and tail level $\alpha \in [0,1)$
+(`cvar_alpha`, default 0.95) the LP solves
+
+```math
+\min\ F + (1-\lambda) \sum_s \pi_s O_s
+ + \lambda \Big( P\,\eta + \frac{1}{1-\alpha} \sum_s \pi_s u_s \Big)
+```
+
+```math
+u_s + \eta - O_s \ \ge\ 0 \quad (\mu_s), \qquad u_s \ge 0, \qquad \eta \text{ free},
+```
+
+$`P = \sum_s \pi_s`$ (1 for the single scene of a monolithic run).  At the
+optimum $\eta$ is the value-at-risk $`\mathrm{VaR}_\alpha`$ and
+$`\eta + \frac{1}{(1-\alpha)P}\sum_s \pi_s u_s = \mathrm{CVaR}_\alpha(O)`$,
+the mean of the worst $(1-\alpha)$ share of the scenario costs.
+
+**Why investment is not in the rows.**  $F$ is the same in every
+scenario, and CVaR is translation-equivariant:
+$\mathrm{CVaR}(F + O) = F + \mathrm{CVaR}(O)$.  So the capacity columns
+keep their coefficients and only the operating costs are risk-adjusted;
+the result is identical to putting the full scenario cost $`F + O_s`$ in
+the rows.  Scenario-dependent objective constants are not translation
+invariants and are moved into the row right-hand side.
+
+**Build.**  The construct is appended after the element build loop
+(`source/risk_measure_lp.cpp`): the per-(scenario, stage) build calls
+are tracked as column ranges; each costed column $j$ of scenario $s$
+gets the row coefficient $`-c_j/\pi_s`$ and its objective coefficient is
+scaled by $1-\lambda$; the capacity columns (`capainst`, `capacost`,
+`expmod`) are excluded; columns with a face-value (`raw`) cost are left
+risk-neutral with a warning.  $\eta$ and $`u_s`$ carry column and row
+scale `scale_objective`.  It adds $1 + |\mathcal{S}|$ columns and
+$|\mathcal{S}|$ rows.  `risk_measure = "expected"` (default) builds
+nothing: the LP is byte-identical.
+
+**Duals: risk-adjusted probabilities.**  Stationarity in $\eta$ and $`u_s`$
+gives
+
+```math
+\sum_s \mu_s = \lambda P, \qquad 0 \le \mu_s \le \frac{\lambda\,\pi_s}{1-\alpha},
+```
+
+so $`\tilde\pi_s = (1-\lambda)\pi_s + \mu_s`$ is a probability measure on
+the scenarios ($`\sum_s \tilde\pi_s = P`$) that puts extra weight on the
+costly ones: the risk envelope of CVaR [R2].  Every per-scenario dual
+gtopt reports is unfolded by $`\pi_s \delta_t \Delta_b`$ (§6.1), so it
+equals $`\zeta_s = \tilde\pi_s / \pi_s`$ times the scenario's own marginal
+value; e.g. the bus price written for scenario $s$ is
+$`\hat\lambda_{s,b} = \zeta_s\, m_{s,b}`$.  The zero-profit identity of an
+interior built project (complementary slackness on its capacity column)
+reads
+
+```math
+\sum_s \tilde\pi_s \sum_{t,b} \delta_t \Delta_b\,(m_{s,b} - c)\,q_{s,b}
+ = \text{annuity} ,
+```
+
+i.e. it holds under $\tilde\pi$, not under $\pi$.  The difference
+annuity $`-\ \mathbb{E}_\pi[\text{margin}]`$ is the risk premium the
+risk-averse planner pays the project.  `risk_measure.csv` (next to
+`solution.csv`) lists per (scene, phase, scenario) $`\pi_s`$, $`O_s`$,
+$\eta$, $`u_s`$, $`\mu_s`$, $`\tilde\pi_s`$, $`\zeta_s`$, $\alpha$, $\lambda$;
+`gtopt_cost_recovery` divides the duals by $`\zeta_s`$ and weights the
+scenarios by $`\tilde\pi_s`$.
+
+**Tail ranking (`risk_rank_by`, `risk_tail`) and trimming
+(`risk_measure = "trim"`).**  The rows above rank the scenarios by their
+own cost at the optimum (`risk_rank_by = "cost"`): the tail is
+endogenous.  Only the *upper* cost tail with CVaR weighting is convex;
+trimming the costliest scenarios or weighting up the cheapest would
+reward cost, so validation rejects those combinations.  A regulator
+often defines the supply-risk tail exogenously instead, e.g. the driest
+hydrologies, or the scenarios of highest expected unserved energy.
+`risk_rank_by = "index"` ranks the scenarios by `Scenario.risk_index`;
+`risk_tail = "upper" | "lower"` picks the side.  With $`t_s`$ the share of
+scenario $s$ in the first $(1-\alpha)P$ of probability mass along that
+ranking (the boundary scenario split), the risk-adjusted probabilities
+are fixed:
+
+```math
+\tilde\pi_s = (1-\lambda)\pi_s + \lambda \frac{t_s}{1-\alpha}
+\quad (\texttt{cvar}), \qquad
+\tilde\pi_s = (1-\lambda)\pi_s + \lambda \frac{\pi_s - t_s}{\alpha}
+\quad (\texttt{trim}),
+```
+
+both summing to $P$.  The LP needs no row: every OPEX coefficient and
+objective constant of scenario $s$ is multiplied by
+$`\tilde\pi_s/\pi_s`$ (`apply_tail_weights_to_lp`).  The duals carry the
+same factor $`\zeta_s`$, and `risk_measure.csv` reports $`\tilde\pi_s`$
+(with $`\eta = u_s = 0`$).  `cvar` weights the tail up (supply security:
+plan for the dry years); `trim` removes it (e.g. exclude a few extreme
+wet years that would distort the plan).
+
+**Special cases.**  $\lambda = 0$: expected cost (rows slack, $\mu = 0$).
+$\alpha = 0$: $`\mathrm{CVaR}_0 = \mathbb{E}`$ ($`\mu_s = \lambda\pi_s`$).
+$\alpha \to 1$: the worst scenario.  $\lambda = 1$: scenarios outside
+the tail get $`\tilde\pi_s = 0`$ — their dispatch is unpriced and not
+unique, which is why the default is $\lambda = 0.5$.
+
+**Scope.**  Monolithic, single-phase only; validation rejects
+`method = sddp | cascade` and more than one phase.  With several scenes
+each scene LP is risk-averse over its own scenarios (conditional
+probabilities $`\pi_s / P`$).  Integer expansion (MIP) is supported; the
+duals come from the pricing LP (`pricing_mode`), which keeps the rows.
+Use the risk measure **instead of** a risk premium in the candidates'
+`wacc`, never on top of one (risk counted twice; see
+[investment economics §7.4](../methods/investment-economics.md#74-risk-averse-planner-cvar-instead-of-a-wacc-premium)).
+
+**SDDP and cascade (design, not implemented).**  The end-of-horizon CVaR
+above couples all scenarios through $\eta$ and is not decomposable by
+(scene, phase).  The consistent decomposable form is the *nested*
+(time-consistent) CVaR of Shapiro [R3] and Philpott–de Matos [R4]: at
+every stage the cost-to-go is
+$`\mathcal{Q}_t(x) = (1-\lambda)\,\mathbb{E}[\cdot] + \lambda\,\mathrm{CVaR}_\alpha[\cdot]`$
+over the children (gtopt's backward-pass apertures).  In the backward
+pass this only changes the weights of the aperture cuts: sort the
+aperture objective values $`Q_k(\hat x)`$, give the worst $(1-\alpha)$ mass
+the extra weight $\lambda/(1-\alpha)$ and average the cut coefficients
+with $`q_k = (1-\lambda)p_k + \lambda\,p_k\,\mathbb{1}^{\text{tail}}_k/(1-\alpha)`$
+(splitting the boundary aperture).  The cuts stay valid outer
+approximations of the nested risk-averse cost-to-go.  Two parts of the
+current SDDP machinery do not carry over cleanly, so the option is
+rejected there for now: (i) the forward-pass mean is no longer an upper
+bound of the nested objective, so the gap-based stopping rule
+(`compute_iteration_bounds`, `sddp_iteration.cpp`) needs a different
+criterion (a fixed iteration count, the bound stabilisation, or the
+inner approximation of Philpott, de Matos and Finardi [R5]); (ii) the
+weights depend on the sorted aperture values, which the
+`dual_shared`, memoised-duplicate and chunked aperture modes
+(`sddp_aperture.cpp`) combine before the expected cut is formed, so the
+reweighting must happen after all apertures of a (scene, phase) are
+solved.  Investment in SDDP is first-stage: nested CVaR changes it only
+through the risk-averse cost-to-go of the first stage.
+
+[R1] R. T. Rockafellar and S. Uryasev, "Optimization of conditional
+value-at-risk," *J. Risk* 2(3), 21–41, 2000.
+[R2] P. Artzner, F. Delbaen, J.-M. Eber and D. Heath, "Coherent measures
+of risk," *Math. Finance* 9(3), 203–228, 1999.
+[R3] A. Shapiro, "Analysis of stochastic dual dynamic programming
+method," *Eur. J. Oper. Res.* 209(1), 63–72, 2011.
+[R4] A. B. Philpott and V. L. de Matos, "Dynamic sampling algorithms for
+multi-stage stochastic programs with risk aversion," *Eur. J. Oper. Res.*
+218(2), 470–483, 2012.
+[R5] A. Philpott, V. de Matos and E. Finardi, "On solving multistage
+stochastic programs with coherent risk measures," *Oper. Res.* 61(4),
+957–970, 2013.
+
 ---
 
 ## 5. Constraints by Component
@@ -514,6 +685,29 @@ p_{g,s,t,b} \;\leq\; \bar{C}_{g,t}
 
 This constraint links the operational variable to the investment variable
 (see [Section 5.11](#511-capacity-expansion-constraints)).
+
+#### Maintenance Outage (`outage_fraction`)
+
+With a maintenance schedule $f_{g,t,b} \in [0, 1]$ (`Generator.outage_fraction`,
+unset = 0) only the available fraction $a_{g,t,b} = 1 - f_{g,t,b}$ of the unit
+can run:
+
+```math
+a_{g,t,b}\,\underline{P}_{g,t,b} \;\leq\; p_{g,s,t,b} \;\leq\; a_{g,t,b}\,\overline{P}_{g,t,b},
+\qquad
+p_{g,s,t,b} \;\leq\; a_{g,t,b}\,\bar{C}_{g,t}
+```
+
+For a monthly block, $f = d/D$ ($d$ days out of $D$) reproduces PLP's
+average derate $\overline{P}(1 - d/D)$ while keeping maintenance apart from
+derates and entry / retirement.  The reserve headroom rows
+(§5.9) are built from these scaled bounds, so
+$`p + \sum r^{\uparrow} \le a\,\overline{P}`$ (or $`\le a\,\bar{C}`$) in every mode;
+`model_options.outage_reserve_mode` only changes the provision ceiling:
+`none` keeps $\overline{r}$, `proportional` uses $`a\,\overline{r}`$ (the unit
+offers reserve only for the share of the block it is in service), `exclude`
+sets $\overline{r} = 0$ (and clamps a floor $\underline{r}$ to it) whenever
+$f > 0$.
 
 ### 5.3 Generator Profile Constraints
 
@@ -1930,6 +2124,121 @@ LHS; either side is omitted when its bound is unset.  Mirrors
 PLEXOS's `Max Starts {Hour|Day|Week|...}` properties on the
 `Generator` class.
 
+**Cyclic line commitment (`LineCommitment.cycle = "stage"`).**  The
+stage is a typical period repeated $`n_t = D_t / H_t`$ times (1 without
+`period_hours`).  The first-block transition wraps to the last block,
+
+```math
+u_{l,0} - u_{l,N-1} - v_{l,0} + w_{l,0} = 0,
+```
+
+with no `initial_status` pin or right-hand side; the min up / down
+windows and the start-up tier walk are taken modulo the $N$ blocks on
+the real steps $`\Delta_b = d_b\,\kappa_t`$ (at most one full period);
+start-up, shut-down and tier costs are multiplied by $n_t$ (one cycle's
+transitions happen $n_t$ times).  The default `"none"` keeps the
+chronological rows above on every stage.
+
+### 5.6 bis LinDistFlow Distribution Network
+
+`model_options.network_model = "lindistflow"` replaces the DC angle rows
+of §5.6 by the linearised DistFlow model of radial distribution
+feeders (Baran & Wu, *IEEE Trans. Power Delivery* 4(2), 1989,
+[doi:10.1109/61.25627](https://doi.org/10.1109/61.25627)).  The default
+`"dc"` builds the LP of §5.6 unchanged.  The name states the physics,
+not the solver form: `"dc"` covers both transport and the DC power
+flow (`use_kirchhoff`, both `kirchhoff_mode`s), and later models can
+take sibling names (`"distflow_socp"`, `"ac_slp"`).
+
+**Variables** (per scenario $s$, stage $t$, block $b$):
+
+| Symbol | Column | Bounds |
+|--------|--------|--------|
+| $`w_{n}`$ | `Bus.vsq` — squared voltage $`\lvert V_n\rvert^2`$ [p.u.²] | $`[\underline{v}_n^2, \overline{v}_n^2]`$ (`vmin_pu`, `vmax_pu`); slack: $`w = v_{\text{ref}}^2`$ |
+| $`Q_{\ell}`$ | `Line.qflow` — reactive flow A→B [MVAr] | free |
+| $`q_{g}`$ | `Generator.qgen` [MVAr] | $`[\underline{q}_g, \overline{q}_g]`$ |
+| $`y_{\ell}`$ | `Line.vsqtap` — $`w_{a}/t_\ell^2`$ (optimised taps) | $\ge 0$ |
+
+$`P_\ell`$ is the line's signed active flow (the flow columns of §5.5).
+
+**Reactive balance** (`Bus.qbalance`, one row per bus and block):
+
+```math
+\sum_{g \in G_n} Q_g \;-\; \sum_{d \in D_n} \rho_d\, \ell_d
+\;+\; B_n\, w_n \;+\; \sum_{\ell:\, b(\ell)=n} Q_\ell
+\;-\; \sum_{\ell:\, a(\ell)=n} Q_\ell \;=\; 0
+```
+
+with $`Q_g = q_g`$ when the generator has `qmin`/`qmax`, else
+$`Q_g = \rho_g p_g`$;
+$\rho = \operatorname{sign}(\text{pf}) \tan(\arccos\lvert\text{pf}\rvert)$
+from the signed `power_factor`
+(unity when unset), $`\ell_d`$ the served load and $`B_n`$ the bus
+`shunt_q` (MVAr at 1 p.u.: line charging and capacitor banks).
+
+**Voltage drop** (`Line.vdrop`, per line and block), with $`r_\ell`$,
+$`x_\ell`$ in Ω and $`V_\ell`$ the line `voltage` [kV] (kV² = Ω·MW):
+
+```math
+\frac{w_{a}}{t_\ell^2} \;-\; w_{b} \;-\; \frac{2\,(r_\ell P_\ell + x_\ell Q_\ell)}{V_\ell^2} \;=\; 0
+```
+
+$`t_\ell`$ is the fixed `tap_ratio` (default 1).  A line with
+`tap_ratio_min`/`tap_ratio_max` replaces $`w_a/t_\ell^2`$ by $`y_\ell`$ and
+adds the `Line.tap` rows
+
+```math
+\frac{w_a}{\overline{t}_\ell^{\,2}} \;\le\; y_\ell \;\le\; \frac{w_a}{\underline{t}_\ell^{\,2}},
+```
+
+an exact linear change of variable for a continuous tap: every
+feasible $`(w_a, y_\ell)`$ gives
+$`t_\ell = \sqrt{w_a/y_\ell} \in [\underline{t}_\ell, \overline{t}_\ell]`$.  The optimal tap is reported
+through `Line.vsqtap` and `Bus.vsq`.
+
+**MVA polygon** (`Line.mva`, $k = 0,\dots,K-1$,
+$`\theta_k = 2\pi k / K`$, $K$ = `mva_polygon_sides`, default 8):
+
+```math
+\cos\theta_k\, P_\ell + \sin\theta_k\, Q_\ell \;\le\; S_\ell
+```
+
+$`S_\ell`$ is the expansion capacity column $`\bar{C}_\ell`$ (§5.11) when
+the line expands — reconductoring and transformer upgrades size the
+MVA rating — and otherwise the forward thermal limit of the flow
+columns.  The polygon circumscribes the circle
+$P^2 + Q^2 \le S^2$: it over-estimates the rating by at most
+$1/\cos(\pi/K) - 1$ (8.2 % for $K = 8$, 2.0 % for $K = 16$).
+
+**Candidate lines** (a line with no installed capacity and an
+expansion column $`C_\ell \in [0, \overline{C}_\ell]`$,
+$`\alpha_\ell = C_\ell/\overline{C}_\ell`$): the voltage law holds only
+when the circuit is built, so the drop row becomes two disjunctive rows
+(`Line.vdrop`) and two hull rows (`Line.vdropcap`), with
+$`z_\ell = 2(r_\ell P_\ell + x_\ell Q_\ell)/V_\ell^2`$:
+
+```math
+\Bigl\lvert \frac{w_a}{t_\ell^2} - w_b - z_\ell \Bigr\rvert \le M_\ell\,(1 - \alpha_\ell),
+\qquad
+\lvert z_\ell \rvert \le M_\ell\, \alpha_\ell
+```
+
+$`M_\ell`$ is the largest $`\lvert w_a/t^2 - w_b\rvert`$ the bus bounds and
+the tap range allow (bounds above 1.5 p.u. are capped there), so it
+comes from data, not from a tuning constant.  The pair is the McCormick
+hull of the bilinear "drop of a fraction $\alpha$ of the circuit",
+$`z = \alpha (w_a/t^2 - w_b)`$: exact for $\alpha \in \lbrace 0, 1\rbrace$
+(`integer_expmod`, MIP), and in the LP relaxation a fractional build
+carries only the flow its fraction of the voltage band allows.  The
+MVA polygon on $`C_\ell`$ forces $P = Q = 0$ when $`C_\ell = 0`$.
+
+**Scope.**  Balanced single-phase equivalent (see
+[opendss2gtopt](../scripts/opendss2gtopt.md) for the reduction of
+OpenDSS circuits).  The series losses $r(P^2+Q^2)/V^2$ are neglected in
+the voltage and reactive rows; the active-power loss modes of §5.5
+still apply.  Voltages are exact on a radial feeder up to that loss
+term (typically a few 0.1 % of $\lvert V\rvert$ on the IEEE test feeders).
+
 ### 5.7 Battery / Energy Storage Constraints
 
 Batteries model energy storage with charge/discharge efficiencies and
@@ -2163,6 +2472,81 @@ reported prices keep the weighted $d_b$, so duals stay in $/MWh.
 Non-uniform real steps (1 h / 2 h mixes, Chebyshev quadrature weights)
 are supported throughout; a stage without `period_hours` is unchanged.
 
+#### Periodic Stages: what wraps and what is a state (`Stage.periodic`)
+
+A stage is PERIODIC (a circular typical day / week) when `Stage.periodic`
+is true; unset, it is periodic when `period_hours` is set or
+`sampling = "point"`.  It stands for $n_t = D_t / H_t$ repetitions of its
+period (real, not necessarily integer; 1 without `period_hours`).  Each
+intra-period coupling wraps around the period (block $N-1 \to$ block 0)
+only where an option asks for it, so a case that sets none of them keeps
+the chronological / legacy rules:
+
+| Coupling | Option | Periodic stage, option on | Option off (default) |
+|---|---|---|---|
+| Commitment $u/v/w$, min up / down, start tiers, ramps | `Commitment.cycle = "stage"` | wrap, no `initial_*`, start / stop costs $`\times\,n_t`$ | chronological from `initial_status` |
+| LineCommitment C1, min up / down, start tiers | `LineCommitment.cycle = "stage"` | wrap, no `initial_status` pin, costs $`\times\,n_t`$ | chronological from `initial_status` |
+| User constraint `<attr>_prev` at block 0 | `model_options.prev_stage_link = "period"` | last block of the same stage | previous stage's last block (same phase), else `initial_<attr>` / 0 |
+| `daily_cycle` storage (cyclic) | `model_options.periodic_storage` | closes within the period; free start level per stage, `eini` / `efin` not applied | closes per stage; start chained to the previous stage, `eini` pins the first |
+| State storage | `model_options.periodic_storage` | NOT periodic: one-cycle balance, $`e^{\text{fin}} = s + n_t\,\Delta`$ | weighted blocks as one stretched sequence |
+
+**Cyclic or state is the user's choice per element.**  Every storage
+element (Battery, Reservoir, LngTerminal, Hydrogen / Ammonia / Thermal
+storage, AllowancePool, VolumeRight) is either *cyclic*
+(`daily_cycle = true`: the level closes within each stage / typical
+period and is not an SDDP state — short-duration storage, a 2–4 h
+battery, a small daily-regulation pond) or a *state storage*
+(`daily_cycle = false`, `use_state_variable = true`: the level is carried
+to the next stage / phase — reservoirs, LNG tanks, pumped hydro, large
+BESS).  Defaults: `daily_cycle` is true for a Battery and false for every
+other storage, so a long-duration battery needs both
+`"daily_cycle": false` and `"use_state_variable": true`.
+
+**State storage on a periodic stage** (`periodic_storage = true`,
+`period_hours` set, $n_t \ne 1$).  With $s = e^{\text{ini}}_t$ the stage
+start level (previous stage end, `sini` across phases), the balance runs
+on ONE cycle with real steps $`\Delta_b = d_b\,\kappa_t`$:
+
+```math
+x_{t,b} = x_{t,b-1}\,(1 - \ell\,\Delta_b) + \Delta_b\,\bigl(\eta_{in}\,f^{in}_b
+  - f^{out}_b/\eta_{out} - q^{drain}_b\bigr), \qquad x_{t,b_0 - 1} = s,
+```
+
+and the stage end is the level after $n_t$ cycles (row `cycle_scale`):
+
+```math
+e^{\text{fin}}_t = s + n_t\,(x_{t,b_{last}} - s) .
+```
+
+The level of repetition $j$ is $`x_{t,b} + j\,(x_{t,b_{last}} - s)`$,
+linear in $j$, so bounding the first repetition (column bounds) and the
+last one, $`m_t = \lceil n_t \rceil`$ (rows `cycle_shift`),
+
+```math
+\underline{E}_b \le x_{t,b} + (m_t - 1)\,(x_{t,b_{last}} - s)
+  \le \overline{E}_b \quad \forall b,
+\qquad \underline{E} \le e^{\text{fin}}_t \le \overline{E},
+```
+
+bounds every repetition (conservatively for a fractional $n_t$).  The
+stage-end column $`e^{\text{fin}}_t`$ — not $`x_{t,b_{last}}`$ — is the next
+stage's start, the SDDP state variable, the `efin` output, the target of
+the global `efin` row and the anchor of seepage / discharge-limit rows;
+`energy` reports the one-cycle levels.  Every flow into the balance
+carries $\Delta_b$, including terms written by other elements
+(VolumeRight extractions, LNG fuel burn, AllowancePool emission drawdown
+and auction purchases), so stage totals are $n_t$ times the cycle:
+inflows, deliveries, losses (self-discharge, boil-off) all scale by
+$n_t$.  Energy-balance duals are reported per stored unit (scaled by
+$\kappa_t$, as for `daily_cycle`).  With banded integration on point
+stages the node weights use the same real steps.
+
+**Cyclic storage on a periodic stage** (`periodic_storage = true`).  A
+`daily_cycle` storage closes within the period and starts every periodic
+stage from a fresh free level (no chain to the previous stage; `eini` /
+`efin` are not applied, `validate_planning` warns); inside a weighted
+cycle group the group chain still applies.
+
 #### Point-Sampled Stages (`Stage.sampling = "point"`)
 
 The typical-week samplers that produce these stages (uniform, peak /
@@ -2217,6 +2601,26 @@ changes:
   node carry no status of their own: the previous cell's status
   continues over them (so the binary count is the number of cells with a
   node, $H / P_g$ when the node spacing is below $P_g$).
+- **Daily commitment grid** (`commitment_breaks`, opt-in; unit >
+  `commitment_period` > `Stage.commitment_breaks` >
+  `model_options.commitment_breaks`).  Given daily boundaries
+  $b_1 < \dots < b_m$ in $[0, 24)$ h and the stage's clock start $s$
+  (`Stage.start_hour`), the stage-time boundaries are
+  $\tau_1 < \dots < \tau_K$, every $\tau \in (0, H)$ with
+  $(s + \tau) \bmod 24 \in \lbrace b_i \rbrace$; the cells are
+  $[0, \tau_1), [\tau_1, \tau_2), \dots, [\tau_K, H]$ (non-uniform,
+  wrapping around midnight).  Node $k$ (point stages: $t_k$; block
+  stages: the block midpoint) joins cell
+  $c(k) = \lvert \lbrace j : \tau_j \le t_k \rbrace \rvert$ (half-open: a node on a boundary
+  belongs to the later cell).  Everything else is the uniform grid's
+  rule: one $u$ per cell holding a node, $v, w$ only at cell
+  boundaries, empty cells continue the previous status, min up / down
+  and start windows count the real cell hours, the boundary ramp
+  allowance applies at cell boundaries.  On a cyclic stage whose length
+  is a whole number of days and that does not start on a break, the
+  first and last cells are two pieces of one daily cell: when both hold
+  a node, $v_1 = w_1 = 0$, so the wrap row gives $u_1 = u_P$ (one status
+  for the straddling cell).
 - On block stages, blocks may carry `Block.commitment_cell` labels
   (refined sun-window blocks point at the base block they split): units
   without a `commitment_period` then keep one status per labelled cell,
@@ -3034,6 +3438,51 @@ the marginal 60 \$/MWh unit; 0 in the exogenous case.
   per MW of up-reserve provided
 - **Down-reserve provision cost**: $c_{p,t}^{\text{dr}} \cdot \omega_{s,t,b}$
   per MW of down-reserve provided
+- $`c^{\text{ur}}_{p,t}, c^{\text{dr}}_{p,t} \ge 0`$ are **direct provision
+  costs** (wear and regulation VOM per MW·h held).  They exclude the
+  opportunity cost, which the co-optimisation prices endogenously
+  ($\mu_z = c^{\text{ur}}_p + (\lambda - c_g)^+$ for a unit whose headroom
+  binds), and the fuel / CVNC already charged on $p$.  Negative values are
+  rejected by `validate_planning` and by the LP builder.
+- **Per-service pricing.**  A unit $g$ offering services $s \in \mathcal{S}_g$
+  (CPF, CSF, CTF) with different costs is written with one provision $p_s$
+  per service, each in its own zone and flagged `shared_headroom`:
+
+```math
+p_{g} + \sum_{s \in \mathcal{S}_g} r^{\text{up}}_{p_s} \le \bar{P}_g\,u_g ,\qquad
+p_{g} - \sum_{s \in \mathcal{S}_g} r^{\text{dn}}_{p_s} \ge \underline{P}_g\,u_g ,\qquad
+\text{cost} = \sum_{s} \big(c^{\text{ur}}_{p_s} r^{\text{up}}_{p_s}
+                       + c^{\text{dr}}_{p_s} r^{\text{dn}}_{p_s}\big)\,\omega
+```
+
+  When the shared headroom binds, every service of the unit carries the same
+  opportunity cost and the zone prices differ exactly by the cost gap
+  ($\mu_{\text{CSF}} - \mu_{\text{CPF}} = c_{\text{CSF}} - c_{\text{CPF}}$;
+  test `SSCC per-service cost: services share one headroom`).  A single
+  provision listing several zones has one column counted in all of them
+  (nested products) and pays its cost once.
+- **Known SSCC variable-cost adders** (all optional, default off).  The
+  objective coefficient of a provision column is
+
+```math
+\tilde c^{\text{ur}}_{p,t,b} = c^{\text{ur}}_{p,t,b} + c^{\text{pl,ur}}_{p,t,b}
+  + \gamma^{\text{ur}}_{p,t,b}\,\big(c^{\text{act,ur}}_{p,t,b} + c^{\text{deg,ur}}_{p,t,b}\big),
+\qquad 0 \le \gamma \le 1
+```
+
+  (down alike) with $c^{\text{pl}}$ = `ur_partload_cost` (part-load
+  efficiency penalty), $\gamma$ = `ur_activation_factor` (MWh deployed per
+  MW·h held), $c^{\text{act}}$ = `ur_activation_cost` (default: the
+  generator SRMC $c_g$ for up reserve, 0 for down reserve — the fuel saved
+  by deploying down reserve is not credited, so no coefficient is
+  negative) and $c^{\text{deg}}$ = `ur_degradation_cost` (BESS
+  degradation per MWh of deployed throughput).  The deployment is an
+  expectation priced in the objective; the deployed energy is not
+  dispatched.  Each term $\times r$ is written separately
+  (`{up,dn}_{partload,activation,degradation}_cost_sol`, \$/h) so that
+  $\theta = $ known variable costs $+$ derived maintenance delta
+  (`gtopt_usage`).  With the adders, the zone price of a unit with slack
+  headroom is $\mu_z = \tilde c_p$.
 - **Reserve failure cost**: $c_z^{\text{rfail}} \cdot \omega_{s,t,b}$
   per MW of unserved reserve (applies to both up and down shortages)
 
@@ -3781,8 +4230,14 @@ d_{\tau,s,t,b}^{\text{lng}} \;=\; \frac{D_{\tau,t}}{T_t}
 #### Bounds, Vent and Costs
 
 The deliveries are data: the column is fixed at the constant rate above
-(none when $D\_{\tau,t} = 0$) and carries no cost, so the purchase cost
-of a scheduled cargo is a constant outside the objective.  The vent
+(none when $D\_{\tau,t} = 0$).  With `delivery_cost`
+$c^{\text{del}}\_{\tau,t}$ [\$/m³] set, it is priced at
+$`\pi_s \delta_t \Delta_b c^{\text{del}}_{\tau,t} d^{\text{lng}}_{\tau,s,t,b}`$
+— a constant of the objective (the must-take contract cost: the total
+cost is right, the dispatch unchanged); unset, the cargo is costless
+(the former behaviour).  The linked generators' `gcost` must then hold
+only their non-fuel VOM: the tank gas they burn is priced by the tank
+balance dual (below), and a fuel cost in `gcost` would count it twice.  The vent
 column exists only when `spillway_cost` $c^{\text{vent}}\_\tau$ is set,
 with $0 \le \text{vent} \le \overline{\text{vent}}\_\tau$
 (`spillway_capacity`, default 1000 m³/h).  The volume stays within the
@@ -3811,11 +4266,122 @@ $$
 
 The soft-floor row exists only when `soft_emin` and `soft_emin_cost`
 are both positive; the final-target slack only when `efin_cost` > 0
-(otherwise the `efin` row is hard).  `sendout_min` / `sendout_max` are
-part of the JSON schema but are **not** written into the LP: the
-send-out $\sum_g \eta^{hr}_g p_g$ is bounded only by the generator limits.
-<!-- source: source/lng_terminal_lp.cpp:66-136,
+(otherwise the `efin` row is hard).
+<!-- source: source/lng_terminal_lp.cpp,
 include/gtopt/storage_lp.hpp:835-1060 -->
+
+#### Send-out Limits
+
+With `sendout_max` $\overline{S}\_\tau$ and/or `sendout_min`
+$\underline{S}\_\tau$ [m³/h] set, one row per block bounds the
+regasified draw of the linked generators:
+
+```math
+\underline{S}_\tau \;\le\; \sum_{g \in \mathcal{G}_\tau} \eta^{hr}_g\, p_{g,s,t,b}
+  \;\le\; \overline{S}_\tau \qquad \forall\; s,t,b
+```
+
+(an unset bound is open; no row when neither is set, or when
+`enforce_sendout` is false, which restores the former behaviour of
+ignoring both fields).  A block where no linked generator has a column
+gets no row.  The row dual is reported as `LngTerminal/sendout_dual`.
+
+#### Generator Fuel Curve
+
+By default a linked generator draws $\eta^{hr}\_g p\_g$ from the tank
+(the link's scalar `heat_rate`).  With `use_generator_fuel_curve` and a
+generator that has its own fuel curve, the draw is its fuel burn — the
+same legs as a `Fuel` offtake — times the link factor
+$\eta^{hr}\_g$ (m³ LNG per fuel unit; 1 when the curve is in m³/MWh):
+
+```math
+\eta^{hr}_g \Bigl(h_{g,1}\, p_{g} + \sum_{k \ge 1} (h_{g,k+1} - h_{g,k})\, s_{g,k}
+  + F^{nl}_g\, u_g\Bigr), \qquad s_{g,k} \ge p_g - \overline{P}_{g,k},\; s_{g,k} \ge 0
+```
+
+with `pmax_segments` $\overline{P}\_{g,k}$ / `heat_rate_segments`
+$h\_{g,k}$ (convex, increasing), or a scalar `Generator.heat_rate`, and
+the committed no-load burn `Commitment.noload_fuel` $F^{nl}\_g$.  The
+tank balance, the send-out rows and the PAMPL `fuel` reference use it,
+so part load costs gas: the specific consumption
+$(F^{nl} + h p) / p$ rises as $p$ falls.  The up-reserve backing below
+values $r^{up}\_g$ at the top slope $\eta^{hr}\_g h\_{g,K}$, the most a
+deployed MW can burn on a convex curve.  The segment slacks carry no
+cost of their own unless the generator has a `Fuel`; the tank balance
+dual prices them (a linked unit should not also reference a priced
+`Fuel`, or its gas is paid twice).
+
+#### Gas Backing of Reserves
+
+A gas unit can only offer reserve it has gas to deliver.  With
+`reserve_sustain_hours` $T\_\tau$ [h] set (unset = no rows, the LP is
+unchanged), and $r^{up}\_{g}$ / $r^{dn}\_{g}$ the sum of the up / down
+provisions of linked generator $g$ (`ReserveProvision`), per block:
+
+```math
+v_{\tau,s,t,b} \;-\; f_\tau\, T_\tau \sum_{g \in \mathcal{G}_\tau}
+  \eta^{hr}_g\, r^{up}_{g,s,t,b} \;\ge\; \underline{V}_{\tau,t,b}
+  \qquad (T_\tau > 0)
+```
+
+```math
+\sum_{g \in \mathcal{G}_\tau} \eta^{hr}_g \left(p_{g,s,t,b} + r^{up}_{g,s,t,b}\right)
+  \;\le\; \overline{S}_\tau
+  \qquad (\overline{S}_\tau \text{ set and enforced})
+```
+
+$v$ is the end-of-block tank level, which already nets the block's
+deliveries and burn: an empty tank offers no up reserve, and the
+regasification capacity caps generation plus up reserve
+(`LngTerminal/reserve_up_energy_dual`, `reserve_up_sendout_dual`).
+`reserve_gas_usage` $a\_\tau$ [MWh/MW/h] adds the expected deployment
+$+f\_\tau a\_\tau \eta^{hr}\_g \Delta\_b r^{up}\_g$ to the tank
+balance (default 0).
+
+Down reserve is gas-limited too: a gas unit lowers its output only from
+what it generates, so the generic provision row
+$r^{dn}\_g \le p\_g - \underline{P}\_g$ (with commitment
+$r^{dn}\_g \le p\_g$) applies, and $p\_g$ is gas-backed through the
+tank balance: with no gas $p\_g = 0$ and $r^{dn}\_g = 0$.  It needs no
+gas beyond the generation it reduces.  A battery, by contrast, can also
+offer down reserve by charging (more): native BESS rows
+(`Battery.reserve_sustain_hours`) give
+$r^{dn} \le (\overline{P}^{c} - p^{c}) + \kappa p^{d}$ ($\kappa = 1$ with
+`reserve_discharge_credit`) and SoC room
+$e + T \eta^{c} r^{dn} \le \overline{E}$: an idle battery below `emax` offers down reserve, an idle
+full one none, a discharging full one up to its discharge.
+
+#### Spot Cargoes
+
+With `spot_cargo_volume` $V^{\text{sp}}\_\tau$ [m³] and
+`spot_cargo_max` $\overline{n}\_{\tau,t}$ (cargoes per stage) both
+positive, one column per (scenario, stage) buys optional cargoes:
+
+```math
+0 \le n_{\tau,s,t} \le \overline{n}_{\tau,t}
+  \quad (n \in \mathbb{Z} \text{ when spot_integer}),
+\qquad
+\text{cost } \pi_s\delta_t\, c^{\text{sp}}_{\tau,t}\, V^{\text{sp}}_\tau\, n_{\tau,s,t}
+```
+
+($c^{\text{sp}}$ = `spot_cost`, \$/m³; a per-cargo cost, no block
+duration).  The cargo arrives in the stage's **first block**: the term
+$+\rho_\tau V^{\text{sp}}\_\tau n\_{\tau,s,t}$ enters that block's
+tank balance, so the bound $e^{\text{lng}} \le \overline{V}$ on the
+block's closing level only admits a cargo the tank has room for (net of
+the block's own draw).  `spot_annual_max` $N\_\tau$ adds per planning
+year $y$ (the 8760-h windows of the horizon; a stage belongs to the
+window of its midpoint) and LP
+
+```math
+\sum_{t \in y} n_{\tau,s,t} \le N_\tau
+```
+
+(per phase in SDDP: a year that spans phases is capped in each).  The
+column is the PAMPL variable `lng_terminal("X").spot`; outputs
+`LngTerminal/spot_sol`, `spot_cost` (reduced cost, \$/cargo) and
+`spot_annual_dual` (\$/cargo).  Integer slots make the case a MIP
+(HiGHS / CPLEX, never CLP); unset fields leave the LP unchanged.
 
 #### State Variable
 
@@ -3897,8 +4463,19 @@ leftover is worth nothing, and the LP burns or vents it before the end.
   short.
 - **Purchasable gas** at price $c^{\text{sp}}$ through a priced inflow
   $x \ge 0$ of the tank: $\rho\vartheta \le c^{\text{sp}}$, with
-  equality while $x > 0$.  `LngTerminal` has no such column; the
-  converter band tanks below do.
+  equality while $x > 0$.  Continuous spot cargoes are such an inflow
+  ($x = V^{\text{sp}} n$ in the stage's first block); with integer
+  slots the dual of the fixed-integer LP prices only the marginal
+  burn.
+- **Refill vs operation.**  The contracted cargoes (`delivery_cost`)
+  and the spot cargoes (`spot_cost`) are charged at their purchase
+  price; the dispatch of the linked units uses $\vartheta$, the
+  opportunity cost of the gas already in the tank.  The vent /
+  diversion cost $c^{\text{vent}}$ should then hold only the loss of
+  diverting a surplus cargo beyond its purchase price (resale netback
+  shortfall, penalty), not the price itself: a must-take cargo is paid
+  in full whether it is burnt or vented, and
+  $\vartheta \ge -c^{\text{vent}}/\rho$ is the value of a surplus m³.
 - **Priced `Fuel` with offtake rows**: for a unit strictly between its
   bounds,
   $\lambda^{\text{bus}} = c^0_g + h_g(P_f - \hat\nu^{\min}_f + \hat\nu^{\max}_f)$
@@ -4336,6 +4913,42 @@ The objective contribution of a committed unit is:
 (no-load cost scales with period duration $T_p$; startup/shutdown are
 per-event).
 <!-- source: source/commitment_lp.cpp:216-267 -->
+
+**Operation wear adders** (SSCC maintenance signal; every term is off by
+default).  They let the wear cost act on dispatch and expansion, not only
+on reserve:
+
+```math
+\omega_{s,t}\,\text{SW}_g\,v_{g,s,t,p}
+\;+\; \sum_{b \in p} \omega_{s,t,b}\,\Bigl[
+  a_g\,u_{g,s,t,p} + b_g\,\bigl(p_{g,s,t,b} - \underline{P}_g\,u_{g,s,t,p}\bigr)
+\Bigr]
+```
+
+Here $\omega_{s,t}$ has no block duration (a per-event cost) and
+$\omega_{s,t,b}$ includes it.  The three parameters are:
+
+- $\text{SW}_g$ = `startup_wear_cost` [\$/start].  It is added to the
+  startup column apart from $\text{SU}_g$, and also with hot / warm /
+  cold tiers.
+- $a_g$ = `wear_hour_cost` [\$/h], the wear of one committed hour.
+- $b_g$ = `wear_load_cost` [\$/MWh] above the committed floor
+  $\underline{P}_g$.  $b_g$ may be negative: wear then falls with load,
+  a low-load penalty.  For example,
+  $`b_g = -a_g/(\overline{P}_g - \underline{P}_g)`$ charges $a_g$ at
+  Pmin and nothing at Pmax.
+
+Validation requires $\text{SW}_g \ge 0$, $a_g \ge 0$ and
+$`a_g + b_g(\overline{P}_g - \underline{P}_g) \ge 0`$, with
+$\overline{P}_g$ the generator column's upper bound (the expanded
+bound with capacity expansion).  The hourly wear is therefore
+non-negative on the whole operating range.  The terms are linear, so
+they hold unchanged for a relaxed $u$.  They also apply on
+non-chronological stages, but only the hourly terms there: the block
+formulation has no startup column.  The costs are written as
+`Commitment/startup_wear_cost_sol` ($`\text{SW}_g\,v`$, \$ per start)
+and `Commitment/operation_wear_cost_sol`
+($`a_g u + b_g(p - \underline{P}_g u)`$, \$/h).
 
 #### Pricing of a Unit-Commitment MIP (`pricing_mode`)
 
@@ -6009,6 +6622,9 @@ mathematical symbols used in this formulation.
 | `commitment_array[].startup_cost` | $\text{SU}_g$ | Startup cost (\$/start) |
 | `commitment_array[].shutdown_cost` | $\text{SD}_g$ | Shutdown cost (\$/stop) |
 | `commitment_array[].noload_cost` | $\text{NL}_g$ | No-load cost while committed (\$/hr) |
+| `commitment_array[].startup_wear_cost` | $\text{SW}_g$ | Wear part of a start (\$/start) |
+| `commitment_array[].wear_hour_cost` | $a_g$ | Operation wear per committed hour (\$/h) |
+| `commitment_array[].wear_load_cost` | $b_g$ | Operation wear per MWh above Pmin (\$/MWh, any sign) |
 | `commitment_array[].min_up_time` | $T_g^{\text{up}}$ | Minimum up time (hours) |
 | `commitment_array[].min_down_time` | $T_g^{\text{dn}}$ | Minimum down time (hours) |
 | `commitment_array[].ramp_up` | — | Ramp-up limit while online (MW/hr) |

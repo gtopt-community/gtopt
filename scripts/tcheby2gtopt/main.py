@@ -20,6 +20,11 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 
+from gtopt_shared.point_sampling import (
+    parse_commitment_breaks,
+    read_commitment_breaks_file,
+)
+
 from .convert import ConvertOptions, convert
 from .library import build_library, write_json
 from .tcheby_db import parse_date, read_simulation, read_system
@@ -77,6 +82,25 @@ def _parser() -> argparse.ArgumentParser:
         help="point stages: commitment grid [h] of unit NAME (repeatable); "
         "default by class: min(MUT, MDT) >= 8 h -> 4 h, >= 4 h -> 3 h, else 1 h",
     )
+    cv.add_argument(
+        "--commitment-breaks",
+        type=parse_commitment_breaks,
+        default=None,
+        metavar="H1,H2,...",
+        help="daily commitment grid: cell boundaries in hours of the day "
+        "(e.g. 3.5,7.5,10.5,14.5,17.5,23.5, or 'study' for that pattern); "
+        "u on these cells, v / w at their boundaries (model_options."
+        "commitment_breaks, replaces the per-unit class grids)",
+    )
+    cv.add_argument(
+        "--commitment-breaks-file",
+        type=Path,
+        default=None,
+        metavar="CSV",
+        help="per-month daily grids (rows 'month,breaks', month 1..12 or "
+        "jan..dec) written as Stage.commitment_breaks; months missing from "
+        "the file use --commitment-breaks",
+    )
     cv.add_argument("--pmin", choices=("hard", "drop"), default="hard")
     cv.add_argument(
         "--line-losses", action="store_true", help="emit line resistance (losses)"
@@ -110,6 +134,13 @@ def main(argv: list[str] | None = None) -> int:
             k: float(v)
             for k, _, v in (s.partition("=") for s in args.commitment_period)
         },
+        commitment_breaks=args.commitment_breaks,
+        commitment_breaks_by_month=(
+            read_commitment_breaks_file(args.commitment_breaks_file)
+            if args.commitment_breaks_file
+            else {}
+        ),
+        time_zero=tz,
     )
     for mode in ("block", "point"):
         grid = TimeGrid(mode, hours, nodes=args.nodes, point_values=args.point_values)

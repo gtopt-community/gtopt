@@ -1,0 +1,11 @@
+# Archivo de mantenimiento de ESS (plpmaness.dat)
+# Numero de ESS con mantenimiento
+ 1
+# Nombre del ESS
+'BESS1'
+# Numero de bloques con mantenimiento
+ 3
+# IBind  Emin   Emax   DCMin  DCMax  DCMod
+  001    0.0    200.0  0.0    0.0    0
+  002    0.0    200.0  0.0    0.0    0
+  005    0.0    100.0  0.0    50.0   0

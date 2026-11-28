@@ -1,0 +1,17 @@
+{
+  "_comment": "cases/invest_bat_1b, contracted battery (tolling agreement): the same arbitrage revenue is a contract stream at 5 % (map energy -> contract). Compare with invest_bat_streams_merchant.json.",
+  "finance": {
+    "wacc": 0.08,
+    "stream_rates": {
+      "method": "rate",
+      "rates": {"energy": 0.10, "contract": 0.05, "om": 0.05, "fuel": 0.04},
+      "map": {"energy": "contract"}
+    }
+  },
+  "projects": {
+    "bess": {"technology": "bess", "overnight_capcost": 200000, "power_overnight_capcost": 100000, "economic_life": 15},
+    "solar": {"technology": "solar_pv"},
+    "coal": {"technology": "coal"},
+    "gas": {"technology": "ocgt"}
+  }
+}

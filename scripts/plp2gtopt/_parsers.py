@@ -1647,6 +1647,32 @@ def add_tech_arguments(parser: argparse.ArgumentParser, _conf: dict[str, str]) -
         ),
     )
     parser.add_argument(
+        "--mance-split",
+        dest="mance_split",
+        choices=("off", "auto", "xlsm"),
+        default="off",
+        help=(
+            "separate maintenance derates from plpmance.dat into "
+            "Generator.outage_fraction (f = 1 - Pmax/Pnom) with pmax/pmin "
+            "back at the nominal unit: 'auto' = heuristic on thermal "
+            "centrals (stage-uniform Pmax < Pnom, entry/retirement zero "
+            "runs excluded), 'xlsm' = same rule on the centrals listed in "
+            "the PLP workbook's maintenance sheet (--mance-xlsm). Pair with "
+            "model_options.outage_reserve_mode. (default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "--mance-xlsm",
+        dest="mance_xlsm",
+        metavar="FILE",
+        type=Path,
+        default=None,
+        help=(
+            "PLP input workbook (.xlsm) whose 'Mant.Mayor…' (or 'MantCEN') "
+            "sheet lists the maintained centrals; used by --mance-split xlsm"
+        ),
+    )
+    parser.add_argument(
         "--tech-overrides",
         dest="tech_overrides",
         metavar="SPEC",

@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <cmath>
 #include <optional>
 #include <span>
 
@@ -181,6 +182,10 @@ public:
   static constexpr std::string_view CycleCloseName {"cycle_close"};
   static constexpr std::string_view CycleShiftName {"cycle_shift"};
   static constexpr std::string_view CycleShiftCapName {"cycle_shift_cap"};
+  /// Stage-end state of a state storage on a periodic stage standing for
+  /// n repetitions of its typical period: `efin = s + n·(x_{N−1} − s)`
+  /// (`model_options.periodic_storage`).
+  static constexpr std::string_view CycleScaleName {"cycle_scale"};
 
   [[nodiscard]] constexpr auto&& storage(this auto&& self) noexcept
   {
@@ -314,6 +319,19 @@ public:
                                                     const StageLP& stage) const
   {
     return drain_cols.at({scenario.uid(), stage.uid()});
+  }
+
+  /// Time scale of the energy-balance rows of (scenario, stage): the
+  /// factor an external term `fcr · rate · duration_b` (block weight)
+  /// must carry to enter the balance in the units of the storage's own
+  /// flows.  1 except on periodic stages under
+  /// `model_options.periodic_storage`, where the balance runs on ONE
+  /// typical period (real Δt = duration_b · period_hours / duration).
+  [[nodiscard]] double balance_time_scale_at(const ScenarioLP& scenario,
+                                             const StageLP& stage) const
+  {
+    const auto it = balance_time_scale.find({scenario.uid(), stage.uid()});
+    return it != balance_time_scale.end() ? it->second : 1.0;
   }
 
   /// Per-(scenario, stage) factor applied to the energy-balance dual at
@@ -592,9 +610,25 @@ public:
             || (stage.duration() > 24.0
                 && (stage.duration() / static_cast<double>(blocks.size()))
                     > 1.0));
+    // Periodic stage (typical day / week, `Stage.periodic`) standing for
+    // n = duration / period_hours repetitions, under the opt-in
+    // `model_options.periodic_storage` (off: the legacy rules below).
+    //  * A STATE storage (not daily_cycle) is not periodic: its balance
+    //    runs on ONE cycle with real time steps (levels x_k, bounds of
+    //    one cycle) and the stage-end state is efin = s + n·(x_{N−1} − s)
+    //    (see `CycleScaleName`).
+    //  * A daily_cycle storage wraps within the period: its start level
+    //    is free per stage (no chain to the previous stage, no `eini` /
+    //    `efin`), except inside a weighted cycle group.
+    const bool periodic_mode =
+        sc.options().periodic_storage() && stage.is_periodic();
+    const double n_rep = stage.repetitions();
+    const bool cycle_scaled = periodic_mode && !opts.daily_cycle
+        && period_hours.has_value() && std::abs(n_rep - 1.0) > 1e-12;
+    const bool free_cycle_start = periodic_mode && opts.daily_cycle;
     const double dc_stage_scale = use_daily_cycle
         ? (period_hours ? stage.time_scale() : 24.0 / stage.duration())
-        : 1.0;
+        : (cycle_scaled ? stage.time_scale() : 1.0);
 
     const auto is_last_stage =
         stage.uid() == sc.simulation().stages().back().uid();
@@ -704,11 +738,14 @@ public:
       // Global initial condition (first stage of the first phase) keeps the
       // historical [emin, emax] range when eini is unset; a commissioning
       // stage pins the column at eini (default emin).
-      // eini bounds are in LP (scaled) units.
-      const double eini_lowb = storage().eini.value_or(stage_emin);
-      const double eini_uppb = commissioning
-          ? storage().eini.value_or(stage_emin)
-          : storage().eini.value_or(stage_emax);
+      // eini bounds are in LP (scaled) units.  A daily_cycle storage on
+      // a periodic stage (`periodic_storage`) has a free start level
+      // (`eini` ignored).
+      const auto eini_pin =
+          free_cycle_start ? std::optional<Real> {} : storage().eini;
+      const double eini_lowb = eini_pin.value_or(stage_emin);
+      const double eini_uppb = commissioning ? eini_pin.value_or(stage_emin)
+                                             : eini_pin.value_or(stage_emax);
       eicol = lp.add_col({
           .lowb = eini_lowb,
           .uppb = eini_uppb,
@@ -749,6 +786,20 @@ public:
         chain_row[eini_col_at(scenario, *prev_stage)] += w_prev - 1.0;
         chain_row[efin_cols.at(prev_ctx)] += -w_prev;
         cycle_chain_rows[stg_ctx] = lp.add_row(std::move(chain_row));
+      } else if (free_cycle_start && !opts.break_stage_chain) {
+        // daily_cycle storage on a periodic stage (`periodic_storage`):
+        // the period wraps, the start level is a fresh free column (not
+        // the previous stage's end level — the storage is not a state).
+        eicol = lp.add_col({
+            .lowb = sini_lowb,
+            .uppb = stage_emax,
+            .cost_scale_type = ConstraintScaleType::Energy,
+            .scale = energy_scale,
+            .class_name = opts.class_name,
+            .variable_name = EiniName,
+            .variable_uid = opts.variable_uid,
+            .context = stg_ctx,
+        });
       } else if (opts.break_stage_chain) {
         // Reset stage inside a shared LP: decouple from the previous
         // stage's efin — a fresh eini column becomes the chain start
@@ -975,10 +1026,9 @@ public:
     for (const auto& block : blocks) {
       const auto k = block_pos++;
       const auto buid = block.uid();
-      // is_last_block identifies the terminal block for the global efin
-      // condition.  The eini column feeds into the first block automatically
-      // via prev_vc = eicol, so no explicit is_first_block guard is needed.
-      const auto is_last_block = is_last_stage && (buid == blocks.back().uid());
+      // The eini column feeds into the first block automatically via
+      // prev_vc = eicol; the global efin condition is added after the
+      // loop on the stage-end level.
 
       // Hoisted once per block: every per-block LP col / row in this
       // loop body shares the same (scenario, stage, block) context.
@@ -1170,69 +1220,148 @@ public:
         }
       }
 
-      // Global final condition: for the last block of the last stage only,
-      // add a named ">=" constraint row enforcing vol_last >= storage().efin.
-      // Counterpart of the global "eini" equality column (first block, first
-      // stage):
-      //
-      //   eini col   (1st phase, 1st stage, 1st block): vol_start  = eini [=]
-      //   efin row   (last phase, last stage, last block): vol_end >= efin [>=]
-      //
-      // Named "efin" so it appears as rsv_efin_uid_scen_stage (or
-      // bat_soc_efin_uid_scen_stage) in the LP file.
-      const auto& efin_opt = storage().efin;
-      if (is_last_block && efin_opt.has_value()) {
-        const double lp_efin = *efin_opt;
-        auto efin_row =
+      prev_vc = ec;
+    }
+
+    // Bounds of the LAST of `reps` repetitions of the stage's cycle:
+    // emin ≤ x_b + (reps − 1)·(x_{N−1} − s) ≤ emax for every block (the
+    // level of repetition j is x_b + j·Δ, linear in j, so the first
+    // repetition — the column bounds — and the last bound them all).
+    const auto add_shift_rows =
+        [&](double shift, ColIndex start_col, ColIndex end_col)
+    {
+      BIndexHolder<RowIndex> shift_rows;
+      for (const auto& block : blocks) {
+        const auto buid = block.uid();
+        const auto [block_emax, block_emin] =
+            sc.block_maxmin_at(stage, block, emax, emin, stage_capacity);
+        const bool last_blk = (buid == blocks.back().uid());
+        const double lowb =
+            strict_volume ? (last_blk ? efin_block_lowb : block_emin) : 0.0;
+        auto shift_row =
             SparseRow {
-                // Terminal-volume target `vol_end >= efin` — its dual is a
-                // $/stored-unit shadow price (Energy time-basis).
                 .cost_scale_type = ConstraintScaleType::Energy,
                 .class_name = cname,
-                .constraint_name = EfinName,
+                .constraint_name = CycleShiftName,
                 .variable_uid = opts.variable_uid,
-                .context = stg_ctx,
+                .context =
+                    make_block_context(scenario.uid(), stage.uid(), buid),
             }
-                .greater_equal(lp_efin);
-        efin_row[ec] = 1.0;
-        // Soft-`efin` slack: when ``Reservoir.efin_cost`` is set (and
-        // > 0), make the hard ``vol_end >= efin`` row soft by adding a
-        // slack column priced at `efin_cost`.  The row becomes
-        // ``vol_end + slack >= efin`` so the LP can miss the
-        // end-of-horizon target at a cost rather than going infeasible
-        // when upstream Benders cuts have clamped `sini` below what one
-        // stage of inflows can recover.  Mirrors PLP's per-stage
-        // rebalse-cost slack on the volume target.  When `efin_cost`
-        // is unset / zero, the historical hard `>=` behaviour
-        // is preserved.
-        const auto& efin_cost_opt = storage().efin_cost;
-        if (efin_cost_opt.has_value() && *efin_cost_opt > 0.0) {
-          // Penalty cost per LP unit of slack: physical cost.  Apply
-          // scenario probability and discount via scenario_stage_ecost,
-          // then remove the duration factor (state penalty, not flow).
-          // flatten() applies col_scale (energy_scale) to the objective.
-          const double slack_cost =
-              sc.scenario_stage_ecost(scenario, stage, *efin_cost_opt)
-              / stage.duration();
-          const auto efin_slack_col = lp.add_col({
-              .lowb = 0,
-              .uppb = LinearProblem::DblMax,
-              .cost = slack_cost,
-              // STOCK state penalty: $/stored-unit (Energy time-basis).
+                .bound(lowb, block_emax);
+        shift_row[ecols.at(buid)] += 1.0;
+        shift_row[end_col] += shift;
+        shift_row[start_col] += -shift;
+        if (capacity_col) {
+          // capacity_col ≥ x_b + shift·Δ  (expandable storage)
+          auto cap_row = shift_row;
+          cap_row.constraint_name = CycleShiftCapName;
+          cap_row.bound(-LinearProblem::DblMax, 0.0);
+          cap_row[*capacity_col] += -1.0;
+          [[maybe_unused]] const auto cap_idx = lp.add_row(std::move(cap_row));
+        }
+        shift_rows[buid] = lp.add_row(std::move(shift_row));
+      }
+      return shift_rows;
+    };
+
+    // ── State storage on a periodic stage (`periodic_storage`) ──
+    //   efin = s + n·(x_{N−1} − s)     (n = duration / period_hours)
+    // with x the one-cycle levels above.  efin (not x_{N−1}) is the
+    // stage-end level: next stage's start, SDDP state and `efin` output.
+    if (cycle_scaled) {
+      const auto last_x = prev_vc;
+      const auto last_emax = std::get<0>(
+          sc.block_maxmin_at(stage, blocks.back(), emax, emin, stage_capacity));
+      const auto efc = lp.add_col({
+          .lowb = strict_volume ? efin_block_lowb : 0.0,
+          .uppb = last_emax,
+          .cost_scale_type = ConstraintScaleType::Energy,
+          .scale = energy_scale,
+          .class_name = opts.class_name,
+          .variable_name = EfinName,
+          .variable_uid = opts.variable_uid,
+          .context = stg_ctx,
+      });
+      auto scale_row =
+          SparseRow {
               .cost_scale_type = ConstraintScaleType::Energy,
-              .scale = energy_scale,
-              .class_name = opts.class_name,
-              .variable_name = EfinSlackName,
+              .class_name = cname,
+              .constraint_name = CycleScaleName,
               .variable_uid = opts.variable_uid,
               .context = stg_ctx,
-          });
-          efin_row[efin_slack_col] = 1.0;
-          efin_slack_cols[stg_ctx] = efin_slack_col;
-        }
-        efin_rows[stg_ctx] = lp.add_row(std::move(efin_row));
+          }
+              .equal(0);
+      scale_row[efc] += 1.0;
+      scale_row[eicol] += n_rep - 1.0;
+      scale_row[last_x] += -n_rep;
+      cycle_scale_rows[stg_ctx] = lp.add_row(std::move(scale_row));
+      const double reps = std::ceil(n_rep - 1e-9);
+      if (reps > 1.0) {
+        cycle_shift_rows[stg_ctx] = add_shift_rows(reps - 1.0, eicol, last_x);
       }
+      prev_vc = efc;
+    }
 
-      prev_vc = ec;
+    // Global final condition: for the last block of the last stage only,
+    // add a named ">=" constraint row enforcing vol_last >= storage().efin.
+    // Counterpart of the global "eini" equality column (first block, first
+    // stage):
+    //
+    //   eini col   (1st phase, 1st stage, 1st block): vol_start  = eini [=]
+    //   efin row   (last phase, last stage, last block): vol_end >= efin [>=]
+    //
+    // Named "efin" so it appears as rsv_efin_uid_scen_stage (or
+    // bat_soc_efin_uid_scen_stage) in the LP file.
+    const auto& efin_opt = storage().efin;
+    if (is_last_stage && efin_opt.has_value() && !free_cycle_start) {
+      const double lp_efin = *efin_opt;
+      auto efin_row =
+          SparseRow {
+              // Terminal-volume target `vol_end >= efin` — its dual is a
+              // $/stored-unit shadow price (Energy time-basis).
+              .cost_scale_type = ConstraintScaleType::Energy,
+              .class_name = cname,
+              .constraint_name = EfinName,
+              .variable_uid = opts.variable_uid,
+              .context = stg_ctx,
+          }
+              .greater_equal(lp_efin);
+      efin_row[prev_vc] = 1.0;
+      // Soft-`efin` slack: when ``Reservoir.efin_cost`` is set (and
+      // > 0), make the hard ``vol_end >= efin`` row soft by adding a
+      // slack column priced at `efin_cost`.  The row becomes
+      // ``vol_end + slack >= efin`` so the LP can miss the
+      // end-of-horizon target at a cost rather than going infeasible
+      // when upstream Benders cuts have clamped `sini` below what one
+      // stage of inflows can recover.  Mirrors PLP's per-stage
+      // rebalse-cost slack on the volume target.  When `efin_cost`
+      // is unset / zero, the historical hard `>=` behaviour
+      // is preserved.
+      const auto& efin_cost_opt = storage().efin_cost;
+      if (efin_cost_opt.has_value() && *efin_cost_opt > 0.0) {
+        // Penalty cost per LP unit of slack: physical cost.  Apply
+        // scenario probability and discount via scenario_stage_ecost,
+        // then remove the duration factor (state penalty, not flow).
+        // flatten() applies col_scale (energy_scale) to the objective.
+        const double slack_cost =
+            sc.scenario_stage_ecost(scenario, stage, *efin_cost_opt)
+            / stage.duration();
+        const auto efin_slack_col = lp.add_col({
+            .lowb = 0,
+            .uppb = LinearProblem::DblMax,
+            .cost = slack_cost,
+            // STOCK state penalty: $/stored-unit (Energy time-basis).
+            .cost_scale_type = ConstraintScaleType::Energy,
+            .scale = energy_scale,
+            .class_name = opts.class_name,
+            .variable_name = EfinSlackName,
+            .variable_uid = opts.variable_uid,
+            .context = stg_ctx,
+        });
+        efin_row[efin_slack_col] = 1.0;
+        efin_slack_cols[stg_ctx] = efin_slack_col;
+      }
+      efin_rows[stg_ctx] = lp.add_row(std::move(efin_row));
     }
 
     // Soft minimum energy constraint (PLP "holgura" / slack):
@@ -1334,40 +1463,7 @@ public:
       }
       if (w_d > 1.0) {
         // Bounds of the last repetition: emin ≤ e_b + (w_d−1)·Δ_d ≤ emax.
-        const double shift = w_d - 1.0;
-        BIndexHolder<RowIndex> shift_rows;
-        for (const auto& block : blocks) {
-          const auto buid = block.uid();
-          const auto [block_emax, block_emin] =
-              sc.block_maxmin_at(stage, block, emax, emin, stage_capacity);
-          const bool last_blk = (buid == blocks.back().uid());
-          const double lowb =
-              strict_volume ? (last_blk ? efin_block_lowb : block_emin) : 0.0;
-          auto shift_row =
-              SparseRow {
-                  .cost_scale_type = ConstraintScaleType::Energy,
-                  .class_name = cname,
-                  .constraint_name = CycleShiftName,
-                  .variable_uid = opts.variable_uid,
-                  .context =
-                      make_block_context(scenario.uid(), stage.uid(), buid),
-              }
-                  .bound(lowb, block_emax);
-          shift_row[ecols.at(buid)] += 1.0;
-          shift_row[prev_vc] += shift;
-          shift_row[eicol] += -shift;
-          if (capacity_col) {
-            // capacity_col ≥ e_b + (w_d−1)·Δ_d  (expandable storage)
-            auto cap_row = shift_row;
-            cap_row.constraint_name = CycleShiftCapName;
-            cap_row.bound(-LinearProblem::DblMax, 0.0);
-            cap_row[*capacity_col] += -1.0;
-            [[maybe_unused]] const auto cap_idx =
-                lp.add_row(std::move(cap_row));
-          }
-          shift_rows[buid] = lp.add_row(std::move(shift_row));
-        }
-        cycle_shift_rows[stg_ctx] = std::move(shift_rows);
+        cycle_shift_rows[stg_ctx] = add_shift_rows(w_d - 1.0, eicol, prev_vc);
       }
     } else {
       // No cross-stage/phase state coupling: add efin == eini constraint so
@@ -1425,6 +1521,9 @@ public:
     // always finds the negative factor and never falls back to the
     // absent-key default of 1.0.
     output_dual_scale[stg_ctx] = -dc_stage_scale;
+    if (periodic_mode && dc_stage_scale != 1.0) {
+      balance_time_scale[stg_ctx] = dc_stage_scale;
+    }
 
     // Daily energy-throughput limit (PLEXOS `Max Cycles Day`).  HARD
     // constraint, NOT an objective cost:
@@ -1695,6 +1794,10 @@ private:
   STIndexHolder<RowIndex> cycle_chain_rows;
   STIndexHolder<RowIndex> cycle_close_rows;
   STBIndexHolder<RowIndex> cycle_shift_rows;
+  /// `efin = s + n·(x_{N−1} − s)` rows (state storages, periodic stages).
+  STIndexHolder<RowIndex> cycle_scale_rows;
+  /// Balance time scale of periodic stages (see balance_time_scale_at).
+  STIndexHolder<double> balance_time_scale;
 
   /// Combined dual correction factor per (scenario, stage):
   ///   dual_physical = dual_LP * output_dual_scale[{suid, tuid}]

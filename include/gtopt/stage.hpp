@@ -24,6 +24,7 @@
 #pragma once
 
 #include <span>  // For std::dynamic_extent
+#include <vector>
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/stage_enums.hpp>
@@ -118,15 +119,34 @@ struct Stage
 
   /// Circular typical period: the blocks of this stage sample ONE period
   /// (typical day / week) that repeats `duration / period_hours` times.
-  /// Every intra-period coupling wraps around the period (block N−1 →
-  /// block 0: commitment transitions and windows, ramps, line
-  /// commitment, `<attr>_prev` user-constraint terms, the start level of
-  /// `daily_cycle` storages); only the inter-stage state variables
-  /// (storages carried to the next stage / phase) are not periodic —
-  /// they move by `n · Δ_cycle` across the stage.
+  /// The intra-period couplings wrap around the period (block N−1 →
+  /// block 0) where an option asks for it: `model_options.
+  /// periodic_storage` (start level of `daily_cycle` storages; state
+  /// storages run one cycle and move by `n · Δ_cycle` across the stage),
+  /// `model_options.prev_stage_link = "period"` (`<attr>_prev`
+  /// user-constraint terms).  `Commitment.cycle` / `LineCommitment.cycle
+  /// = "stage"` wrap a unit / line on any chronological stage.
   /// Unset (default): periodic when `period_hours` is set or
   /// `sampling = "point"`.
   OptBool periodic {};
+
+  /// Clock time of the stage start [h after midnight], e.g. 12 for a
+  /// typical week that starts on Wednesday at 12:00 (any value >= 0 is
+  /// accepted and taken modulo 24, so 60 = Wednesday 12:00 counted from
+  /// Monday 00:00 works too).  Only read by the daily commitment grid
+  /// (`commitment_breaks`), which places its cell boundaries at the
+  /// clock times `start_hour + t` of the stage time `t`.  Unset = 0:
+  /// the stage starts at midnight.
+  OptReal start_hour {};
+
+  /// Daily commitment grid of this stage (cell boundaries in hours of
+  /// the day, [0, 24), strictly increasing; see
+  /// `Commitment::commitment_breaks`), e.g. a different sunrise /
+  /// sunset pattern per month.  Overrides `model_options.
+  /// commitment_breaks` on this stage for the units without their own
+  /// `commitment_breaks` / `commitment_period` / legacy point grid.
+  /// Empty (default) = the planning default.
+  std::vector<Real> commitment_breaks {};
 
   static constexpr std::string_view class_name = "stage";
 

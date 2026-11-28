@@ -372,6 +372,26 @@ struct Generator
   /// AND adds `rate × (combustion + upstream) × cost` to the
   /// generator's dispatch-column cost (paid per MWh generated).
   Array<EmissionCapture> emission_captures {};
+
+  /// Maintenance outage schedule [p.u. of the unit, 0..1] per (stage,
+  /// block), kept apart from `pmax` (derates / profiles) and from
+  /// `active` / `capacity` (entry / retirement).  A fraction `f` of the
+  /// unit (or of the block's hours, for a monthly average such as PLP
+  /// `plpmance`: `f = d/D` days out) is in maintenance: the available
+  /// output is `(1 − f)·[pmin, pmax]` (and `(1 − f)·capacity` on the
+  /// expansion row).  How reserve offers react is chosen globally by
+  /// `model_options.outage_reserve_mode` (`none` | `proportional` |
+  /// `exclude`).  Unset = no outage (legacy behaviour).
+  OptTBRealFieldSched outage_fraction {};
+  /// @name LinDistFlow reactive power (`network_model = "lindistflow"`)
+  /// `qmin`/`qmax` make the reactive output a variable in that range;
+  /// otherwise `power_factor` fixes `Q = sign(pf)·tan(acos|pf|)·P`
+  /// (negative = absorbing); neither → unity power factor.
+  /// @{
+  OptReal qmin {};  ///< Minimum reactive output [MVAr]
+  OptReal qmax {};  ///< Maximum reactive output [MVAr]
+  OptReal power_factor {};  ///< Fixed signed power factor [p.u.]
+  /// @}
 };
 
 }  // namespace gtopt

@@ -1369,6 +1369,16 @@ bool LineLP::add_to_lp(SystemContext& sc,
   accumulate_flow(flowp_seg_cols, +1.0);
   accumulate_flow(flown_seg_cols, -1.0);
   accumulate_flow(flows_cols, +1.0);
+  if (sc.options().use_lindistflow()) {
+    add_lindistflow(sc,
+                    scenario,
+                    stage,
+                    lp,
+                    bus_a_lp,
+                    bus_b_lp,
+                    flow_weighted,
+                    capacity_col);
+  }
   if (!flow_weighted.empty()) {
     sc.add_ampl_variable(
         ampl_name, uid(), FlowName, scenario, stage, flow_weighted);
@@ -1859,6 +1869,17 @@ bool LineLP::add_to_output(OutputContext& out) const
   if (!overloadn_cols.empty()) {
     out.add_col_sol_extras(cname, OverloadnName, pid, overloadn_cols);
     out.add_col_cost_extras(cname, OverloadnName, pid, overloadn_cols);
+  }
+
+  // LinDistFlow (`network_model = "lindistflow"`): reactive flow, the
+  // tapped sending voltage `y = w_a/t²` of optimised taps (the tap is
+  // `sqrt(w_a / y)`) and the voltage-drop dual.
+  if (!qflow_cols.empty()) {
+    out.add_col_sol(cname, QflowName, pid, qflow_cols);
+    out.add_row_dual(cname, VdropName, pid, vdrop_rows);
+  }
+  if (!vsqtap_cols.empty()) {
+    out.add_col_sol(cname, VsqTapName, pid, vsqtap_cols);
   }
 
   return CapacityBase::add_to_output(out);

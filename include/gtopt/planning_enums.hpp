@@ -417,6 +417,9 @@ inline constexpr auto constraint_mode_entries =
  *   stay continuous across stage boundaries.
  * - `none`: the legacy behaviour — ``x_prev`` is the constant 0 at the
  *   first block of every stage except the horizon start.
+ * - `period`: like `stage`, except on a PERIODIC stage (`Stage.periodic`,
+ *   a typical day / week repeated in a cycle, ≥ 2 blocks) the first
+ *   block wraps to the LAST block of the same stage (the period repeats).
  *
  * Independent of this option: the first block of the HORIZON reads the
  * element's ``initial_<attr>`` (``Generator.initial_generation``), and
@@ -427,12 +430,14 @@ enum class PrevStageLink : uint8_t
 {
   none = 0,  ///< 0 at every stage start (legacy)
   stage = 1,  ///< previous stage's last block, same phase (default)
+  period = 2,  ///< periodic stage: own last block; else as `stage`
 };
 
 inline constexpr auto prev_stage_link_entries =
     std::to_array<EnumEntry<PrevStageLink>>({
         {.name = "none", .value = PrevStageLink::none},
         {.name = "stage", .value = PrevStageLink::stage},
+        {.name = "period", .value = PrevStageLink::period},
     });
 
 [[nodiscard]] constexpr auto enum_entries(PrevStageLink /*tag*/) noexcept

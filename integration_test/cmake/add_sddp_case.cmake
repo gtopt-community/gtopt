@@ -121,12 +121,10 @@ function(add_sddp_case case_name system_json)
   )
 
   # ── Validate step (Python) ─────────────────────────────────────────────
-  find_package(Python3 COMPONENTS Interpreter QUIET)
-  if(Python3_Interpreter_FOUND)
-    set(_python "${Python3_EXECUTABLE}")
-  else()
-    set(_python "python3")
-  endif()
+  # Same interpreter as every other validator (gtopt_select_test_python()
+  # in integration_test/CMakeLists.txt picks one that imports pandas).
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  set(_python "${Python3_EXECUTABLE}")
   set(_validator "${CMAKE_SOURCE_DIR}/tools/validate_sddp_output.py")
   # When built standalone from integration_test/, CMAKE_SOURCE_DIR points
   # at integration_test itself rather than the repo root.  Fall back to

@@ -518,6 +518,8 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
           cname.full_name(), uid(), "parent-right debit", vr_lp.uid());
     } else {
       const double dir = volume_right().direction.value_or(-1);
+      // one-cycle balance on periodic stages (see balance_time_scale_at)
+      const double vr_ts = vr_lp.balance_time_scale_at(scenario, stage);
       for (auto&& block : blocks) {
         const auto buid = block.uid();
         // The parent's energy row follows the storage convention
@@ -527,7 +529,8 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
         // `+fcr·dur` and a supply (`direction = +1`) with `−fcr·dur`,
         // i.e. `coef = −direction·fcr·dur`.
         // flatten() applies col_scale to both flow and energy columns.
-        const auto coeff = -flow_conversion_rate() * block.duration() * dir;
+        const auto coeff =
+            -flow_conversion_rate() * block.duration() * vr_ts * dir;
         lp.row_at(vr_erows->at(buid))[extraction_cols.at(buid)] = coeff;
       }
     }
@@ -555,9 +558,10 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
                               "active",
               });
     } else {
+      const double r_ts = r_lp.balance_time_scale_at(scenario, stage);
       for (auto&& block : blocks) {
         const auto buid = block.uid();
-        const auto coeff = +flow_conversion_rate() * block.duration();
+        const auto coeff = +flow_conversion_rate() * block.duration() * r_ts;
         lp.row_at(r_erows->at(buid))[extraction_cols.at(buid)] = coeff;
       }
     }

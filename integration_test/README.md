@@ -31,6 +31,27 @@ which creates three CTest tests:
 | `e2e_<name>_validate_solution` | Checks `solution.csv` exists with `status=0` and all expected output files are present |
 | `e2e_<name>_compare_<csv>` | Compares one CSV output file against the golden reference (one test per file) |
 
+## Python interpreter for the validators
+
+The validator steps (`*_validate_solution`, `*_sddp_validate`, `numstab_*`,
+conditioning / expected-values checks) run Python that imports `pandas`,
+`pyarrow` and `numpy`.  At configure time
+`cmake/SelectTestPython.cmake` sets `Python3_EXECUTABLE` to the first
+interpreter that imports them: `-DGTOPT_TEST_PYTHON=<python>` (or the
+`GTOPT_TEST_PYTHON` environment variable; a configure error if it lacks the
+deps), a cached `Python3_EXECUTABLE`, `$VIRTUAL_ENV/bin/python`,
+`<repo>/.venv` / `<repo>/scripts/.venv`, then `python3` on `PATH`.  With
+none of them it warns and those tests fail (they are never skipped).
+The pytest CTest entries of `scripts/` (`-DGTOPT_REGISTER_PYTHON_TESTS=ON`:
+`scripts-*-unit`, `scripts-all-unit`, `scripts-ucjl2gtopt-integration`, ...)
+use the same interpreter; `cmake --install` of the scripts keeps the
+`python3` found on `PATH`:
+
+```bash
+uv venv ~/venv-gtopt && VIRTUAL_ENV=~/venv-gtopt uv pip install -e "./scripts[dev]"
+cmake -S all -B build -DGTOPT_TEST_PYTHON=$HOME/venv-gtopt/bin/python ...
+```
+
 ## Golden files
 
 Golden reference files are stored under `cases/<name>/output/`.  Each golden

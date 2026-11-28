@@ -390,3 +390,32 @@ def test_524_pattern_match_beats_fallback(tmp_path):
     writer = CentralWriter(parser, options=options)
     result = writer.to_json_array()
     assert result[0]["type"] == "solar"  # _FV suffix detection wins
+
+
+def test_mance_split_outage_reference(tmp_path, monkeypatch):
+    """``--mance-split``: a central with an outage column references the
+    ``outage_fraction`` schedule; the others carry no such field."""
+    centrals = [
+        {
+            "name": f"GAS_{k}",
+            "number": k,
+            "bus": 1,
+            "type": "termica",
+            "pmax": 100.0,
+            "pmin": 0.0,
+            "gcost": 50.0,
+        }
+        for k in (1, 2)
+    ]
+    parser: typing.Any = _make_central_parser_from_list(centrals)
+    writer = CentralWriter(parser, options={"output_dir": tmp_path})
+    pcol = writer.pcol_name("GAS_1", 1)
+    monkeypatch.setattr(
+        writer,
+        "_write_parquet_files",
+        lambda: {"gcost": [], "pmin": [], "pmax": [], "outage_fraction": [pcol]},
+    )
+    result = {g["name"]: g for g in writer.to_json_array()}
+    assert result["GAS_1"]["outage_fraction"] == "outage_fraction"
+    assert result["GAS_1"]["pmax"] == 100.0
+    assert "outage_fraction" not in result["GAS_2"]

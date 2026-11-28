@@ -11,7 +11,8 @@ view (gtopt's annuity and margin from ``gtopt_cost_recovery``).
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -19,8 +20,21 @@ from .capex_trajectory import capex_factor
 from .case_data import ProjectData, SystemData
 from .emissions import co2_tonnes, marginal_emission_factors, read_mef_csv
 from .finance import CashFlowResult, build_cash_flows, crf
-from .markets import Components, EvalContext, MarketModel, get_market
+from .storage_value import notes as storage_notes, valuation_modes
+from .fuel_trajectory import (
+    IEA_WEO,
+    DeclaredCost,
+    declared_cost,
+    fuel_of,
+    fuel_ratio,
+    index_table,
+    scenarios,
+    trajectory_config,
+)
+from .markets import Component, Components, EvalContext, MarketModel, get_market
 from .params import Params
+from .risk import RiskResult, measure, risk_config
+from .streams import StreamResult, evaluate_streams, stream_config
 
 
 @dataclass
@@ -44,6 +58,14 @@ class ProjectEvaluation:
     co2_avoided_t: float = 0.0
     co2_own_t: float = 0.0
     sensitivity: dict[str, dict[str, float]] = field(default_factory=dict)
+    #: stream-specific discounting (``finance.stream_rates``; None = off)
+    streams: StreamResult | None = None
+    #: risk across scenarios (``risk``; None = off)
+    risk: RiskResult | None = None
+    #: an existing unit evaluated as a whole (``--existing``)
+    existing: bool = False
+    #: physical quantities behind the revenues (market ``details``)
+    details: dict[str, float] = field(default_factory=dict)
 
     @property
     def planning_profit(self) -> float:
@@ -103,8 +125,12 @@ class ProjectEvaluation:
             "private_annuity": self.private_annuity,
             "co2_avoided_t": self.co2_avoided_t,
             "co2_own_t": self.co2_own_t,
+            "existing": self.existing,
+            "details": self.details,
             "bridge": self.bridge(),
             "sensitivity": self.sensitivity,
+            "streams": None if self.streams is None else self.streams.to_dict(),
+            "risk": None if self.risk is None else self.risk.to_dict(),
             **self.cash.to_dict(),
         }
 
@@ -121,9 +147,13 @@ class EvalReport:
     scale: float
     projects: list[ProjectEvaluation] = field(default_factory=list)
     sources: dict[str, Any] = field(default_factory=dict)
+    #: storage accounts of the shadow-valued storage types
+    #: (:mod:`.storage_value`)
+    storages: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "storages": self.storages,
             "results_dir": self.results_dir,
             "market": self.market,
             "market_title": self.market_title,
@@ -186,13 +216,22 @@ def resolve_capex(params: Params, proj: ProjectData, life: int) -> float:
     rate = float(params.finance.get("wacc", 0.08))
     unit = _num(over.get("overnight_capcost"))
     if unit is None:
-        unit = proj.planning_overnight(life, fallback_rate=rate) or 0.0
+        unit = proj.planning_overnight(life, fallback_rate=rate)
+    punit = None
     if proj.kind == "Battery":
         punit = _num(over.get("power_overnight_capcost"))
         if punit is None:
-            punit = proj.planning_overnight(life, power=True, fallback_rate=rate) or 0.0
-        return unit * proj.new_mwh + punit * proj.new_mw
-    return unit * proj.new_mw
+            punit = proj.planning_overnight(life, power=True, fallback_rate=rate)
+    if proj.existing and unit is None and punit is None:
+        # an existing unit without costs: replacement cost of its
+        # technology (``capex_usd_kw`` / ``capex_usd_kwh``, CNE ICTGA)
+        tech = params.technology(proj.name, proj.kind, proj.elem_type)
+        kw = _num(params.tech(tech).get("capex_usd_kw")) or 0.0
+        kwh = _num(params.tech(tech).get("capex_usd_kwh")) or 0.0
+        return 1000.0 * (kw * proj.new_mw + kwh * proj.new_mwh)
+    if proj.kind == "Battery":
+        return (unit or 0.0) * proj.new_mwh + (punit or 0.0) * proj.new_mw
+    return (unit or 0.0) * proj.new_mw
 
 
 def trajectory_factor(
@@ -302,7 +341,13 @@ def risk_costs(ctx: EvalContext, proj: ProjectData, capex: float) -> Components:
         return float(params.value(proj.name, tech, key, 0.0) or 0.0)
 
     out: Components = {}
-    if val("insurance_pct_capex") and capex:
+    # ``insurance_in_fom``: the fixed O&M % (CNE ICTGA 1-3 % of capex)
+    # already pays the insurance -> no separate line (no double count)
+    if (
+        val("insurance_pct_capex")
+        and capex
+        and not params.value(proj.name, tech, "insurance_in_fom", False)
+    ):
         out["insurance"] = val("insurance_pct_capex") * capex
     kw = (proj.new_mw or 0.0) * 1000.0
     warranty = val("warranty_pct_capex") * capex + val("warranty_usd_kw_year") * kw
@@ -324,7 +369,9 @@ def _costs(
     tech = ctx.tech[proj.name]
     out: Components = {}
     if proj.kind != "Line":
-        var = proj.variable_cost()
+        var: Component = proj.variable_cost(ctx.shadow(proj))
+        if ctx.fuel is not None:
+            var = ctx.fuel.variable(proj) or var
         if var:
             out["variable"] = var
         vom = float(params.value(proj.name, tech, "vom", 0.0) or 0.0)
@@ -357,6 +404,178 @@ def _cash(
     )
 
 
+class FuelPath:
+    """Fuel-cost trajectory of one evaluation (``finance.fuel_trajectory``).
+
+    Variable cost of a fuel-burning project in operating year ``y``:
+    base × factor(y), with the factor applied to the fuel component of
+    the declared cost (:mod:`fuel_trajectory`).  With ``price_scaling =
+    thermal_marginal`` the bus price of every period whose marginal unit
+    burns fuel is scaled by that unit's factor.
+    """
+
+    def __init__(self, ctx: EvalContext, market: str, cfg: Mapping[str, Any]) -> None:
+        self.ctx = ctx
+        self.market = market
+        self.cfg = cfg
+        self.table = index_table(cfg)
+        self.scenario = str(cfg.get("scenario", IEA_WEO.get("default_scenario")))
+        self.base_year = float(cfg.get("base_year", IEA_WEO.get("base_year", 2024)))
+        self.scale_prices = cfg.get("price_scaling", "thermal_marginal") != "none"
+        self._decl: dict[str, DeclaredCost | None] = {}
+        self.unsplit: list[str] = []
+
+    # ── units ───────────────────────────────────────────────────────
+    def unit(self, name: str, kind: str, case_cost: float) -> DeclaredCost | None:
+        """Declared cost of a fuel-burning unit (None: no fuel)."""
+        if name not in self._decl and name in self._shadow_units():
+            # unit valued at a storage shadow value: its gcost is VOM
+            # only and the fuel / water is not a declared / indexed cost.
+            self._decl[name] = None
+        if name not in self._decl:
+            params = self.ctx.params
+            tech = params.technology(name, kind)
+            fuel = fuel_of(params, name, tech) if kind == "Generator" else None
+            dc = None
+            if fuel is not None and fuel in self.table:
+                dc = declared_cost(params, self.market, name, tech, case_cost)
+                if dc.fuel is None and dc.total > 0.0:
+                    self.unsplit.append(name)
+            self._decl[name] = dc
+        return self._decl[name]
+
+    def ratios(
+        self, name: str, kind: str, start: float, life: int, scen: str
+    ) -> list[float]:
+        """Fuel-price ratio of each operating year."""
+        params = self.ctx.params
+        fuel = fuel_of(params, name, params.technology(name, kind))
+        return [
+            fuel_ratio(str(fuel), scen, start + y, self.base_year, self.table)
+            for y in range(life)
+        ]
+
+    def cod(self, name: str) -> float:
+        """First operating year: project, trajectory, capex trajectory, base."""
+        params = self.ctx.params
+        cap = params.finance.get("capex_trajectory", {}) or {}
+        for v in (
+            params.project(name).get("cod_year"),
+            self.cfg.get("cod_year"),
+            cap.get("cod_year"),
+        ):
+            if v is not None:
+                return float(v)
+        return self.base_year
+
+    def _shadow_units(self) -> set[str]:
+        return {p.name for p in self.ctx.sysd.projects if self.ctx.shadow(p)}
+
+    # ── per project ─────────────────────────────────────────────────
+    def variable(self, proj: ProjectData, scen: str | None = None) -> Component | None:
+        """Yearly variable cost of a fuel-burning project, None otherwise."""
+        shadow = self.ctx.shadow(proj)
+        var = proj.variable_cost(shadow)
+        energy = proj.energy_mwh()
+        case_cost = var / energy if energy > 1e-9 else 0.0
+        if proj.kind != "Generator":
+            return None
+        dc = self.unit(proj.name, proj.kind, case_cost)
+        if dc is None:
+            return None
+        if dc.source.startswith("declared") or dc.source.startswith("heat_rate"):
+            var = dc.total * energy
+        life = self.ctx.life[proj.name]
+        rs = self.ratios(
+            proj.name, proj.kind, self.cod(proj.name), life, scen or self.scenario
+        )
+        return [var * dc.factor(r) for r in rs]
+
+    def _setter(self, key: Any, price: float) -> tuple[str, DeclaredCost] | None:
+        """Name and declared cost of the fuel-burning unit setting ``price``."""
+        tol = 1e-6 * max(1.0, abs(price))
+        for _uid, name, _bus, gen, srmc in self.ctx.sysd.dispatch.get(key, []):
+            if gen > 1e-6 and abs(srmc - price) <= tol:
+                dc = self.unit(name, "Generator", srmc)
+                if dc is not None:
+                    return name, dc
+        return None
+
+    def energy(self, proj: ProjectData, scen: str | None = None) -> list[float] | None:
+        """Yearly energy revenue with thermal-marginal prices scaled."""
+        if not self.scale_prices or proj.kind == "Line":
+            return None
+        life = self.ctx.life[proj.name]
+        start = self.cod(proj.name)
+        sc = scen or self.scenario
+        out = [0.0] * life
+        cache: dict[str, list[float]] = {}
+        for r in proj.rows:
+            base = r.price * r.net * r.hours
+            found = self._setter(r.key, r.price)
+            if found is None:
+                for y in range(life):
+                    out[y] += base
+                continue
+            setter, dc = found
+            if setter not in cache:
+                cache[setter] = self.ratios(setter, "Generator", start, life, sc)
+            for y, ratio in enumerate(cache[setter]):
+                out[y] += base * dc.factor(ratio)
+        return out
+
+    def notes(self) -> list[str]:
+        src = IEA_WEO.get("edition", "user index")
+        out = [
+            f"fuel cost: declared base x {src} index, scenario {self.scenario},"
+            f" base year {self.base_year:g}"
+            + (
+                "; CMg scaled in thermal-marginal hours (approximation: base-year"
+                " dispatch -- rerun gtopt with 'fuel-trajectory --planning' for a"
+                " consistent dispatch)"
+                if self.scale_prices
+                else "; CMg kept at the base year (price_scaling none)"
+            )
+        ]
+        if self.unsplit:
+            out.append(
+                "fuel index applied to the whole declared cost (not split into"
+                f" fuel / non-fuel): {', '.join(sorted(set(self.unsplit)))}"
+            )
+        return out
+
+
+def _apply_fuel(
+    fp: FuelPath,
+    proj: ProjectData,
+    revenues: Components,
+    costs: Components,
+    scen: str | None = None,
+) -> tuple[Components, Components]:
+    """Revenues and costs with the fuel trajectory of scenario ``scen``."""
+    rv, cs = dict(revenues), dict(costs)
+    var = fp.variable(proj, scen)
+    if var is not None:
+        cs["variable"] = var
+    energy = fp.energy(proj, scen)
+    if energy is not None and "energy" in rv:
+        base = proj.energy_revenue()
+        rv["energy"] = energy
+        cfd = rv.get("cfd_difference")
+        if cfd is not None:
+            # a CfD pays strike − price: the hedged total stays strike × energy
+            vals = (
+                [float(cfd)] * len(energy)
+                if isinstance(cfd, (int, float))
+                else [float(v) for v in cfd]
+            )
+            rv["cfd_difference"] = [
+                (v - (energy[y] - base)) if abs(v) > 1e-12 else v
+                for y, v in enumerate(vals[: len(energy)])
+            ]
+    return rv, cs
+
+
 def system_warnings(sysd: SystemData) -> list[str]:
     """Flags on the solved case that change how its prices can be read."""
     out: list[str] = []
@@ -382,10 +601,11 @@ def evaluate(
     market = get_market(market_name, params.market(market_name))
     bat_gens = {f"{p.name}_gen" for p in sysd.projects if p.kind == "Battery"}
     rate_of: dict[str, float] = {}
+    types = {u.name: u.elem_type for u in sysd.units}
     for key_rows in sysd.dispatch.values():
         for _uid, name, _bus, _q, _c in key_rows:
             if name not in rate_of:
-                tech = params.technology(name, "Generator")
+                tech = params.technology(name, "Generator", types.get(name))
                 rate_of[name] = float(
                     params.value(name, tech, "emission_rate", 0.0) or 0.0
                 )
@@ -399,16 +619,29 @@ def evaluate(
             tol=float(params.co2.get("mef_tolerance", 1e-4)),
             exclude=bat_gens,
         )
-    ctx = EvalContext(sysd=sysd, params=params, mef=mef)
+    ctx = EvalContext(
+        sysd=sysd,
+        params=params,
+        mef=mef,
+        storage_modes=valuation_modes(params.cfg.get("storage_valuation"), market.name),
+    )
     chosen = [p for p in sysd.projects if p.built or include_unbuilt]
     for proj in chosen:
-        tech = params.technology(proj.name, proj.kind)
+        tech = params.technology(proj.name, proj.kind, proj.elem_type)
         ctx.tech[proj.name] = tech
         ctx.life[proj.name] = resolve_life(params, proj, tech)
         ctx.wacc[proj.name] = resolve_wacc(params, proj, tech)
         ctx.capex[proj.name] = resolve_capex(
             params, proj, ctx.life[proj.name]
         ) * trajectory_factor(params, proj.name, tech)
+    fcfg = trajectory_config(params.finance)
+    if fcfg is not None:
+        ctx.fuel = FuelPath(ctx, market.name, fcfg)
+    if market.name == "cl":
+        # validate: every fuel-burning project has a declared cost
+        check = ctx.fuel or FuelPath(ctx, "cl", {"enabled": True})
+        for proj in chosen:
+            check.variable(proj)
     report = EvalReport(
         results_dir=sysd.results_dir,
         market=market.name,
@@ -418,6 +651,14 @@ def evaluate(
         scale=sysd.scale,
         sources=params.sources(),
     )
+    shadow_kinds = {k for k, m in ctx.storage_modes.items() if m == "shadow"}
+    if sysd.storage is not None:
+        # cash (default): the LNG terminal / owner account of the cargo
+        # purchases; shadow (diagnostic): the accounts of those types
+        accounts = sysd.storage.accounts(shadow_kinds | {"lng_terminal"})
+        report.storages = [a.to_dict() for a in accounts]
+        if accounts or shadow_kinds:
+            report.notes.extend(storage_notes(shadow_kinds, accounts))
     # LCOE first (cost side only) — the cfd model may strike at it.
     costs_of: dict[str, Components] = {}
     for proj in chosen:
@@ -427,7 +668,27 @@ def evaluate(
         if lcoe is not None:
             ctx.lcoe[proj.name] = lcoe
     for proj in chosen:
-        report.projects.append(_evaluate_one(ctx, market, proj, costs_of[proj.name]))
+        ev = _evaluate_one(ctx, market, proj, costs_of[proj.name])
+        report.projects.append(ev)
+        if ev.streams is not None:
+            report.notes.extend(f"{ev.name}: {w}" for w in ev.streams.warnings)
+        if ev.risk is not None:
+            report.notes.extend(f"{ev.name}: risk: {n}" for n in ev.risk.notes)
+            if not ev.risk.passes_cvar:
+                report.notes.append(
+                    f"{ev.name}: FAILS the private-CVaR check (NPV CVaR"
+                    f" {ev.risk.cvar / 1e6:,.1f} M$ < 0"
+                    + (
+                        ", although its expected NPV is positive"
+                        if ev.risk.passes_expectation
+                        else ""
+                    )
+                    + "): unpaid private risk -- a contract, sufficiency /"
+                    " capacity payment or regulated remuneration would be"
+                    " needed to finance it"
+                )
+    if ctx.fuel is not None:
+        report.notes.extend(ctx.fuel.notes())
     return report
 
 
@@ -438,6 +699,8 @@ def _evaluate_one(
     tech = ctx.tech[proj.name]
     capex = ctx.capex[proj.name]
     revenues = market.revenues(ctx, proj)
+    if ctx.fuel is not None:
+        revenues, costs = _apply_fuel(ctx.fuel, proj, revenues, costs)
     cash = _cash(ctx, proj, capex, revenues, costs)
     rec = proj.planning
     avoided, own = (0.0, 0.0)
@@ -460,6 +723,8 @@ def _evaluate_one(
         planning_rate=proj.planning_rate(),
         co2_avoided_t=avoided,
         co2_own_t=own,
+        existing=proj.existing,
+        details=market.details(ctx, proj),
     )
     if proj.kind != "Line":
         sens: dict[str, float] = {}
@@ -471,6 +736,21 @@ def _evaluate_one(
             sens[f"{float(price):g}"] = _cash(ctx, proj, capex, rv, cs).npv
         ev.sensitivity["npv_vs_co2_price"] = sens
     _scenario_sensitivity(ctx, proj, ev, revenues, costs)
+    if ctx.fuel is not None and proj.kind != "Line":
+        fp = ctx.fuel
+        base_rv = market.revenues(ctx, proj)
+        ev.sensitivity["npv_vs_fuel_scenario"] = {
+            sc: _cash(ctx, proj, capex, *_apply_fuel(fp, proj, base_rv, costs, sc)).npv
+            for sc in scenarios(fp.table)
+        }
+    scfg = stream_config(params.finance, params.project(proj.name))
+    if scfg is not None:
+        ev.streams = evaluate_streams(
+            cash,
+            scfg,
+            risk_adjusted_prices=bool(params.finance.get("risk_adjusted_prices")),
+            market_map=market.stream_map,
+        )
     rng = params.tech(tech).get("capex_range")
     if rng and proj.new_mw > 0:
         out: dict[str, float] = {}
@@ -484,7 +764,74 @@ def _evaluate_one(
                 ctx, proj, cx, revenues, cs
             ).npv
         ev.sensitivity["npv_vs_capex"] = out
+    rcfg = risk_config(params.cfg, params.project(proj.name))
+    if rcfg is not None and proj.kind != "Line":
+        ev.risk = _risk(ctx, market, proj, capex, rcfg, ev)
     return ev
+
+
+def hydrology_index(
+    ctx: EvalContext, cfg: Mapping[str, Any]
+) -> dict[int, float] | None:
+    """Wetness per scenario: the user's ``hydrology_index``, else the
+    energy of the case's hydro units; None when neither exists."""
+    user = cfg.get("hydrology_index")
+    if isinstance(user, Mapping) and user:
+        return {int(k): float(v) for k, v in user.items()}
+    sysd = ctx.sysd
+    dur = {
+        (p.scenario, p.stage, p.block): p.duration
+        for periods in sysd.case.periods.values()
+        for p in periods
+    }
+    out: dict[int, float] = {}
+    for key, rows in sysd.dispatch.items():
+        for _uid, name, _bus, gen, _cost in rows:
+            if ctx.params.technology(name, "Generator") == "hydro":
+                out[key[0]] = out.get(key[0], 0.0) + gen * dur.get(key, 0.0)
+    return out if any(v > 0.0 for v in out.values()) else None
+
+
+def _risk(
+    ctx: EvalContext,
+    market: MarketModel,
+    proj: ProjectData,
+    capex: float,
+    cfg: Mapping[str, Any],
+    ev: ProjectEvaluation,
+) -> RiskResult:
+    """NPV of each scenario evaluated on its own, then the risk measures."""
+    weights = ctx.sysd.case.scenario_weight
+    present = sorted({r.key[0] for r in proj.rows})
+    total = sum(weights.get(sc, 1.0) for sc in present) or 1.0
+    probs = {sc: weights.get(sc, 1.0) / total for sc in present}
+    npvs: dict[int, float] = {}
+    irrs: dict[int, float | None] = {}
+    for sc in present:
+        view = replace(
+            proj,
+            rows=[
+                replace(r, hours=r.hours / (probs[sc] * total))
+                for r in proj.rows
+                if r.key[0] == sc
+            ],
+        )
+        rv = market.revenues(ctx, view)
+        cs = _costs(ctx, market, view, capex)
+        if ctx.fuel is not None:
+            rv, cs = _apply_fuel(ctx.fuel, view, rv, cs)
+        cash = _cash(ctx, view, capex, rv, cs)
+        npvs[sc] = cash.npv
+        irrs[sc] = cash.irr
+    res = measure(cfg, probs, npvs, irrs, ev.cash.irr, hydrology_index(ctx, cfg))
+    if ev.streams is not None:
+        res.notes.append(
+            "combined with finance.stream_rates: a risk premium in the stream"
+            " rates and this measure across scenarios both price the"
+            " hydrology risk -- count it once (risk-free / contract-level"
+            " rates with the risk measure, or premia without it)"
+        )
+    return res
 
 
 def _scenario_sensitivity(

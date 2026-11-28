@@ -1,0 +1,59 @@
+! Hand-made test feeder for opendss2gtopt (written for gtopt, not an
+! IEEE case).  12.47 kV main, a 4.16 kV branch behind a substation
+! transformer and a regulator bank, a single-phase lateral, DER.
+Clear
+Set DefaultBaseFrequency=60
+New Circuit.tiny basekv=12.47 pu=1.02 phases=3 bus1=src
+~ MVAsc3=2000 2100       ! positional: MVAsc1
+
+Redirect tiny_codes.dss
+
+/* block comment
+   ignored */
+New Line.l1 bus1=src bus2=b1 linecode=lc3 length=1.5 units=km
+New Line.l2 bus1=b1.1.2.3 bus2=b2.1.2.3 linecode=lc3 length=800 units=m
+New Line.lat bus1=b2.2 bus2=b3.2 phases=1 linecode=lc1 length=0.5 units=km
+New Line.sw bus1=b2 bus2=b4 switch=y r1=1e-4 x1=0
+New Line.lm bus1=b4 bus2=b5 phases=3 rmatrix=(0.3 | 0.1 0.3 | 0.1 0.1 0.3)
+~ xmatrix=[0.6 | 0.2 0.6 | 0.2 0.2 0.6] units=km length=2 normamps=250
+
+New Transformer.sub Phases=3 Windings=2 XHL=(6 2 /)
+~ wdg=1 bus=b1 conn=delta kv=12.47 kva=3000 %r=0.5
+~ wdg=2 bus=c1 conn=wye kv=4.16 kva=3000 %r=0.5
+
+New Transformer.rega phases=1 bank=reg buses=[c1.1 c2.1] kVs="2.4 2.4" kVAs=[1000 1000]
+~ XHL=0.01 %LoadLoss=0.01
+New Transformer.regb like=rega buses=[c1.2 c2.2]
+New Transformer.regc like=rega buses=[c1.3 c2.3]
+New RegControl.ra transformer=rega winding=2 vreg=122 band=2 ptratio=20
+New RegControl.rb like=ra transformer=regb
+New RegControl.rc like=ra transformer=regc
+
+New Line.c2c3 bus1=c2 bus2=c3 r1=0.3 x1=0.6 r0=0.9 x0=1.8 c1=10 c0=5 units=km length=1
+
+New LoadShape.day npts=24 interval=1
+~ mult=(0.5 0.45 0.4 0.4 0.45 0.55 0.7 0.85 0.95 1 1 1 0.95 0.95 0.95 0.95 1 1 0.95 0.9 0.8 0.7 0.6 0.55)
+New LoadShape.sun npts=24 interval=1
+~ mult=[0 0 0 0 0 0.05 0.2 0.4 0.6 0.8 0.95 1 1 0.95 0.8 0.6 0.4 0.2 0.05 0 0 0 0 0]
+
+New Load.d1 bus1=b2 phases=3 kV=12.47 kW=900 kvar=300 model=1 daily=day
+New Load.d2 bus1=b3.2 phases=1 kV=7.2 kW=150 pf=0.9 daily=day
+New Load.d3 bus1=c3 phases=3 kV=4.16 kW=1200 pf=-0.95
+New Load.d4 bus1=b5 phases=3 kV=12.47 kVA=300 pf=0.8
+Load.d4.vminpu=0.85
+
+New Generator.g1 bus1=b5 phases=3 kV=12.47 kW=200 pf=0.95
+New Generator.g2 bus1=c3 phases=3 kV=4.16 kW=100 model=3 maxkvar=80 minkvar=-60
+New PVSystem.pv1 phases=3 bus1=c3 kV=4.16 irradiance=0.9 Pmpp=500 kVA=550 daily=sun
+New PVSystem.pv2 phases=3 bus1=b5 kV=12.47 Pmpp=100 kVA=100 kvarMax=40
+New Storage.bess phases=3 bus1=c2 kV=4.16 kWrated=300 kWhrated=1200 %stored=50
+~ %reserve=10 %EffCharge=95 %EffDischarge=95
+
+New Capacitor.cfix bus1=b5 phases=3 kvar=300 kV=12.47
+New Capacitor.csw bus1=c3 phases=3 kvar=[150 150 150] kV=4.16 states=[1 0 0]
+New CapControl.cc element=Line.c2c3 capacitor=csw type=voltage onsetting=118 offsetting=124
+New Capacitor.c1ph bus1=b3.2 phases=1 kvar=50 kV=7.2
+
+Set VoltageBases=[12.47, 4.16]
+CalcVoltageBases
+Solve

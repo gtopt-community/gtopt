@@ -51,6 +51,8 @@ PLP.  All are written for GTOpt.
 | `plp_min_1bus` | One bus, thermal units and a demand: the minimal complete PLP case | `plp2gtopt/tests/test_integration.py` and the writer, Excel and round-trip tests |
 | `plp_min_2bus` | Two buses joined by a line | `test_integration.py`, `test_integration_solver.py` |
 | `plp_min_battery` | One bus with a battery declared in `plpcenbat.dat` | `test_integration.py` |
+| `plp_min_battery_entry` | One bus, three stages; a `plpcenbat.dat` battery whose `plpmance.dat` rows (central and `_LOAD` phantom) keep it out of service in stage 1 | `plp2gtopt/tests/test_battery_entry_mance.py` |
+| `plp_min_ess_maness` | One bus, three stages; a `plpess.dat` ESS whose `plpmaness.dat` rows switch DC off in stage 1 and derate Emax in block 5, plus a `plpmance.dat` row of a thermal unit (kept in `Generator/pmax`) | `plp2gtopt/tests/test_battery_maness.py` |
 | `plp_min_bess` | One bus with a BESS (`plpcenbat.dat` path, converted to a single GTOpt battery) | `test_integration.py`, `test_gtopt_writer.py` |
 | `plp_min_ess` | One bus with an ESS declared in `plpess.dat` | `test_integration.py` |
 | `plp_min_hydro` | A run-of-river hydro plant with two hydrologies (two scenarios) | `test_integration_hydro.py` |

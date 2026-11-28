@@ -1,0 +1,6 @@
+// line codes for tiny_feeder.dss
+New LineCode.lc3 nphases=3 units=km normamps=300 emergamps=400
+~ rmatrix=[0.25 | 0.08 0.25 | 0.08 0.08 0.25]
+~ xmatrix=[0.55 | 0.25 0.55 | 0.25 0.25 0.55]
+~ cmatrix=[9 | -2 9 | -2 -2 9]
+New LineCode.lc1 nphases=1 units=km r1=0.6 x1=0.5 c1=6 normamps=150

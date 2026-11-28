@@ -1,0 +1,175 @@
+{
+  "options": {
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "model_options": {
+      "use_single_bus": true,
+      "scale_objective": 1000,
+      "demand_fail_cost": 10000
+    }
+  },
+  "simulation": {
+    "annual_discount_rate": 0.0,
+    "block_array": [
+      {
+        "uid": 1,
+        "duration": 20
+      },
+      {
+        "uid": 2,
+        "duration": 60
+      },
+      {
+        "uid": 3,
+        "duration": 400
+      },
+      {
+        "uid": 4,
+        "duration": 1500
+      },
+      {
+        "uid": 5,
+        "duration": 3000
+      },
+      {
+        "uid": 6,
+        "duration": 3780
+      }
+    ],
+    "stage_array": [
+      {
+        "uid": 1,
+        "first_block": 0,
+        "count_block": 6,
+        "active": 1
+      }
+    ],
+    "scenario_array": [
+      {
+        "uid": 1,
+        "name": "wet",
+        "probability_factor": 0.3,
+        "risk_index": 3.0
+      },
+      {
+        "uid": 2,
+        "name": "normal",
+        "probability_factor": 0.5,
+        "risk_index": 2.0
+      },
+      {
+        "uid": 3,
+        "name": "dry",
+        "probability_factor": 0.2,
+        "risk_index": 1.0
+      }
+    ]
+  },
+  "system": {
+    "name": "invest_cvar_expected_mip",
+    "bus_array": [
+      {
+        "uid": 1,
+        "name": "b1"
+      }
+    ],
+    "generator_array": [
+      {
+        "uid": 1,
+        "name": "base",
+        "bus": "b1",
+        "gcost": 10.0,
+        "capacity": 0,
+        "expcap": 100,
+        "expmod": 20,
+        "annual_capcost": 266482.3,
+        "integer_expmod": true
+      },
+      {
+        "uid": 2,
+        "name": "mid",
+        "bus": "b1",
+        "gcost": 45.0,
+        "capacity": 0,
+        "expcap": 50,
+        "expmod": 40,
+        "annual_capcost": 103046.66,
+        "integer_expmod": true
+      },
+      {
+        "uid": 3,
+        "name": "peak",
+        "bus": "b1",
+        "gcost": 110.0,
+        "capacity": 0,
+        "expcap": 50,
+        "expmod": 40,
+        "annual_capcost": 50926.1,
+        "integer_expmod": true
+      },
+      {
+        "uid": 5,
+        "name": "hydro",
+        "bus": "b1",
+        "gcost": 0.0,
+        "capacity": 400
+      }
+    ],
+    "demand_array": [
+      {
+        "uid": 1,
+        "name": "load",
+        "bus": "b1",
+        "lmax": [
+          [
+            1020,
+            950,
+            850,
+            700,
+            550,
+            400
+          ]
+        ]
+      }
+    ],
+    "generator_profile_array": [
+      {
+        "uid": 1,
+        "name": "hydro_avail",
+        "generator": "hydro",
+        "profile": [
+          [
+            [
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ]
+          ],
+          [
+            [
+              0.65,
+              0.65,
+              0.65,
+              0.65,
+              0.65,
+              0.65
+            ]
+          ],
+          [
+            [
+              0.3,
+              0.3,
+              0.3,
+              0.3,
+              0.3,
+              0.3
+            ]
+          ]
+        ]
+      }
+    ]
+  }
+}

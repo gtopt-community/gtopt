@@ -117,6 +117,7 @@ LP_VARIABLES = {
     "power",
     "served",
     "delivery",
+    "spot",
 }
 
 COMPARISON_OPERATORS = {"<=", ">=", "="}

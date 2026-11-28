@@ -100,6 +100,7 @@ can be checked by hand.
 | [`invest_bat_1b`](invest_bat_1b/) | One bus, 24 h with solar: battery expansion with separate energy and power annuities; arbitrage revenue = energy + power capex. |
 | [`invest_wacc_1b`](invest_wacc_1b/) | Many small base-load modules vs one large block, with a uniform rate and with a private rate per candidate (`overnight_capcost`, `economic_life`, `wacc`); LP and MIP. |
 | [`invest_wacc_2c`](invest_wacc_2c/) | Two candidates differing in cost and `wacc`, one 8760-h block: the small end-to-end check of the per-candidate annuity. |
+| [`ldf_tiny`](ldf_tiny/) | 12.47/4.16 kV radial feeder converted from OpenDSS, `network_model = "lindistflow"`: squared voltages, reactive balance, optimised regulator taps, capacitor and line-charging shunts over 24 hours ([distribution expansion](../docs/methods/distribution-expansion.md)). |
 | [`uc_small`](uc_small/) | One bus, three units with unit commitment over six hours: minimum output, no-load and start-up costs, minimum up and down times and initial status. |
 | [`uc_power_based`](uc_power_based/) | One bus, three units over eight hours with the power-based unit commitment (`uc_formulation = "power_based"`): boundary powers, trapezoid energies, ramp limits on the instantaneous power, start-up and shut-down trajectories. |
 | [`uc_power_based_philipsen2019`](uc_power_based_philipsen2019/) | Power-based schedule from the literature: Philipsen et al., Applied Energy 2019, Scenario 2 — two ramp-limited units, published optimum 12 570 (Table 9) and schedule (Table 8). |

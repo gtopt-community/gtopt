@@ -78,12 +78,15 @@ The table lists the commonly used ones; the full list is in
 | `loss_cost_eps`        | number  | `0.1`     | $/MWh         | Cost on the line-loss columns: breaks bidirectional-flow degeneracy and blocks loss arbitrage under negative LMPs. Per-line `Line.loss_cost_eps` overrides; `0` disables. Inert for `none`/`linear`/`piecewise_direct` |
 | `loss_flow_abs_cost`   | number  | `0.001`   | $/MWh         | Pin on the `tangent_signed_flow` abs-flow proxy columns (Σv ≥ \|f\|): forces Σv = \|f\| at the optimum. Shifts LMP differences by at most ≈ its value per lossy line. Only when `loss_cost_eps > 0`. Per-line `Line.loss_flow_abs_cost` overrides; `0` disables; `1e-6` = legacy internal pin |
 | `loss_overflow_cost`   | number  | `demand_fail_cost` | $/MWh         | Price on the loss carried by the overflow tier past a decoupled `Line.loss_envelope` (flow between the envelope and `tmax`): closes the overflow energy sink under negative bus prices; genuine overloads pay it on their loss above `R·env²/V²`. Per-line `Line.loss_overflow_cost` overrides; `0` disables. Unset default: the case's `demand_fail_cost` (global `model_options` value; per-demand `fcost` is not consulted), itself 1000 when unset; 1000 with a warning when it is an explicit 0. |
-| `prev_stage_link` | string | `stage` | —        | `<attr>_prev` at the first block of a stage whose previous stage is in the same phase: `stage` = that stage's last block, `none` = 0 (legacy) |
+| `prev_stage_link` | string | `stage` | —        | `<attr>_prev` at the first block of a stage whose previous stage is in the same phase: `stage` = that stage's last block, `none` = 0 (legacy), `period` = on a periodic stage the stage's own last block (the typical period wraps), else as `stage` |
 | `overload_slack_bound` | string | `thermal` | — | Default `Line.overload_slack_bound`: `thermal` = `min(hard − normal, max_overload_ratio × normal)`, `ratio`, `unbounded` |
 | `max_overload_ratio` | number | 1.5 | — | Default `Line.max_overload_ratio` (slack ≤ ratio × normal). A guard rail above reported DLR gains (+10–25 % typical, ~40 % at windy sites, 50–72 % outliers; see the formulation refs [39]–[44]) |
+| `periodic_storage` | boolean | `false` | — | Storages on periodic stages (`Stage.periodic`): `true` = a `daily_cycle` storage starts every periodic stage free and closes on itself (no chain, `eini` / `efin` not applied); a state storage runs ONE real cycle and moves by `n · Δ_cycle` across the stage (`n = duration / period_hours`; rows `cycle_scale` / `cycle_shift`). `false` = legacy rules. See formulation §5.7 |
 | `use_line_dlr` | boolean | `true` | — | Global DLR switch: `false` ignores every `Line.dlr` block (static `tmax` applies), for static-vs-DLR comparisons. Also `--set model_options.use_line_dlr=false` |
 | `line_thermal_limit_mode` | string | `flow` | —        | Default for `Line.line_thermal_limit_mode`: `flow` limits the flow variable only (no extra row); `sending` limits the sending-end power `f + a·ℓ`; `full` adds `f + ℓ ≤ tmax` per direction. Per-line value overrides |
 | `line_direction_mode` | string | `off` | — | Radial-line flow-direction certificate: `off` = today's LP; `report` = log the radial / one-way / dead-end classification only; `structural` = drop the impossible direction of certified one-way radial lines and drop dead-end lines. Lines named in user constraints are left untouched. Per-line `Line.flow_direction` overrides. See the formulation, §5.5 "Radial Lines and One-Way Flow" |
+| `network_model` | string | `dc` | — | Network power-flow model: `dc` = today's transport / DC power flow; `lindistflow` = linearised DistFlow for radial feeders (squared voltages, reactive power, taps, MVA polygons; [§5.6 bis](formulation/mathematical-formulation.md#56-bis-lindistflow-distribution-network)) |
+| `mva_polygon_sides` | integer | `8` | — | Sides of the line MVA polygon under `lindistflow` (0 = only the active-power limit) |
 | `use_kirchhoff`        | boolean | `true`    | --            | Enable DC Kirchhoff voltage-law constraints |
 | `use_single_bus`       | boolean | `false`   | --            | Collapse network to a single bus (copper-plate model) |
 | `kirchhoff_threshold`  | number  | `0`       | kV            | Minimum bus voltage below which Kirchhoff is not applied |
@@ -102,6 +105,7 @@ The table lists the commonly used ones; the full list is in
 | `storage_integration` | string | per type | -- | Point-sampled stages only (block stages always use `block`). Storage balance time integration: `block` (`e_b = e_{b−1} + f_b·Δt_b`), `trapezoid` / `lg4` / `lg6` (banded 2- / 4- / 6-point Lagrange rule on `Block.time`, level at the node; rows balanced so interval sums = interval lengths and column sums = block weights), `lg4_pos` / `lg6_pos` (nonnegative weights; `lg4_pos` is the recommended high-order rule — plain `lg4` / `lg6` have negative weights and are not recommended for LP); every banded rule adds charge-only / discharge-only envelope rows (`max(D_kj, 0)`). Resolution: element `storage_integration` → `reservoir_storage_integration` / `battery_storage_integration` → this value → `lg4_pos` (reservoirs) / `block` (others) |
 | `reservoir_storage_integration` | string | `"lg4_pos"` | -- | Point-stage rule of reservoirs (see `storage_integration`) |
 | `battery_storage_integration` | string | `"block"` | -- | Point-stage rule of batteries and the other energy storages (see `storage_integration`) |
+| `commitment_breaks` | number[] | unset | -- | Planning default of the daily commitment grid (cell boundaries in hours of the day, e.g. `[3.5, 7.5, 10.5, 14.5, 17.5, 23.5]`) for units without their own `commitment_breaks` / `commitment_period` / `commitment_grid` `"block"` / `"cells"`; `Stage.commitment_breaks` overrides it per stage. See `Commitment.commitment_breaks` |
 
 > **Note**: `annual_discount_rate` has moved to the `simulation`
 > section (see [Section 2](#2-simulation)).  For backward
@@ -647,7 +651,10 @@ A stage groups consecutive blocks into a planning/investment period.
 | `cycle_group`    | integer | —     | No       | Storage cycle group: consecutive stages of one phase with the same id form one weighted cycle for `daily_cycle` storages (Σ w·ΔSoC = 0, see formulation §5.7). Default: unset (each stage closes its own day) |
 | `cycle_weight`   | number  | —     | No       | Repetitions of the stage inside its `cycle_group` (e.g. days per typical week). Must be > 0. Default: duration / 24 |
 | `period_hours`   | number  | —     | No       | Real length (h) of the chronological period sampled by the stage (168 typical week, 24 day). Block durations become weights; real step Δt = duration · period_hours / stage duration drives `daily_cycle` storage cycles, ramps and min up/down. Default: unset |
+| `periodic`       | boolean | —     | No       | Circular typical period: the blocks sample ONE period repeated `duration / period_hours` times. Default: periodic when `period_hours` is set or `sampling = "point"`. Wrapping is opt-in per coupling: `Commitment.cycle = "stage"`, `LineCommitment.cycle = "stage"`, `model_options.periodic_storage`, `model_options.prev_stage_link = "period"` |
 | `sampling`       | string  | —     | No       | `"block"` (default: a value holds constant over its block) or `"point"` (values are samples AT `Block.time`, required and increasing; durations are quadrature weights). Point stages integrate storage between nodes (`storage_integration`: `lg4_pos` for reservoirs, `block` for batteries by default), use interval-slope (`backward`) ramps scaled by `h_k = t_k − t_{k−1}`, floor commitment periods at 1 h, and count min up/down, commitment periods and `max_cycles_day` days on the quadrature cells; a periodic grid has N nodes (node N ≡ node 0 dropped, its weight added to node 0); duals ÷ duration are prices AT `t_k`; `block_time.csv` is written to the output directory |
+| `start_hour`     | number  | h     | No       | Clock time of the stage start (hours after midnight, taken modulo 24; e.g. 12 for a typical week from Wednesday 12:00). Only read by the daily commitment grid (`commitment_breaks`). Default: 0 |
+| `commitment_breaks` | number[] | h | No       | Daily commitment grid of this stage (cell boundaries in hours of the day, see `Commitment.commitment_breaks`), e.g. a seasonal sunrise / sunset pattern per month. Overrides `model_options.commitment_breaks` on this stage for units without their own `commitment_breaks` / `commitment_period` / legacy grid. Default: unset |
 
 ### 2.3 Scenario
 
@@ -658,6 +665,7 @@ A scenario represents a possible future realization (hydrology, demand level, et
 | `uid`               | integer | —     | Yes      | Unique identifier |
 | `name`              | string  | —     | No       | Optional name |
 | `probability_factor`| number  | p.u.  | No       | Probability weight (values are normalised to sum to 1) |
+| `risk_index`       | number  | —     | No       | Ranking index for an exogenous social-risk tail (`model_options.risk_rank_by = "index"`), e.g. a hydrology index; `risk_tail` picks the side. Unused otherwise |
 | `active`            | boolean | —     | No       | Whether the scenario is active |
 
 `probability_factor` values are **global** probabilities: a scene's weight
@@ -784,6 +792,9 @@ An electrical bus (node) in the network.
 | `voltage`         | number  | kV    | No       | Nominal voltage level |
 | `reference_theta` | number  | rad   | No       | Fixed voltage angle (reference bus: set to 0) |
 | `use_kirchhoff`   | boolean | —     | No       | Override global Kirchhoff setting for this bus |
+| `vmin_pu` / `vmax_pu` | number | p.u. | No | LinDistFlow voltage limits (unset = none) |
+| `reference_voltage` | number | p.u. | No | LinDistFlow fixed voltage of the slack bus (1.0 when only `reference_theta` is set) |
+| `shunt_q` | number | MVAr | No | LinDistFlow shunt injection at 1 p.u. (`shunt_q·V²`; capacitive > 0: line charging, capacitor banks) |
 
 ### 3.2 Generator
 
@@ -813,8 +824,11 @@ A generation unit connected to a bus.
 | `emission_rate`  | number\|array\|string| tCO₂/MWh   | No       | **Legacy** CO₂ emission rate (scalar only), folded into a `co2` `EmissionSource`. Prefer `emissions` or `emission_source_array`; see [Emissions](#325-emissions) |
 | `emissions`      | array                | —            | No       | Inline `EmissionSource` rows (`zone`, `emission`, `rate`, `upstream_rate`) for this generator |
 | `emission_captures` | array             | —            | No       | CCS per pollutant: `emission`, capture fraction `rate` [p.u.], `cost` [$/t captured] |
+| `qmin` / `qmax` | number | MVAr | No | LinDistFlow reactive output range (makes Q a variable) |
+| `power_factor` | number | p.u. | No | LinDistFlow fixed signed power factor `Q = sign·tan(acos\|pf\|)·P` (negative = absorbing); ignored with `qmin`/`qmax` |
 | `initial_generation` | number           | MW           | No       | Dispatch at `t = 0⁻` (PLEXOS *Initial Generation*). Value of `generation_prev` at the first block of the horizon, so ramp user constraints `gen − gen_prev ≤ R` see the real starting point. Also the native `Commitment` ramp `p_prev` there when `initial_power` is unset. Never applied past the horizon start. Unset → 0 (cold start) |
 | `cogen_mode`       | string              | —            | No       | Cogeneration tag: `"dispatched"` or `"must_run"` (unset = not a cogeneration unit) |
+| `outage_fraction` | number\|array\|string | p.u. | No | Maintenance outage schedule f ∈ [0, 1] per (stage, block): `pmin`, `pmax` and the expansion capacity row scale by `1 − f` (for a monthly block, `f = d/D` days out). Reserve reaction: `model_options.outage_reserve_mode`. Written back as `Generator/outage_fraction`. Unset = no outage |
 | `uini`             | number              | —            | No       | Units online at t = 0 (informational, written by `plexos2gtopt`; commitment state comes from `Commitment.initial_status`) |
 
 > **Note:** Fields that accept `number|array|string` can be a numeric constant,
@@ -848,6 +862,7 @@ An electrical demand (load) connected to a bus.
 | `economic_life`    | number\|array\|string| years       | No       | Life of the annuity of `overnight_capcost` (unset: perpetuity, CRF = `wacc`) |
 | `wacc`             | number\|array\|string| p.u./year   | No       | Rate of the annuity; unset = `simulation.annual_discount_rate` (a public project at the social rate) |
 | `fixed_om_cost`    | number\|array\|string| $/MW-year   | No       | Fixed O&M of the expansion capacity, charged on the capacity built next to the annuity, with the same stage discounting; unset = none ([investment economics](methods/investment-economics.md#73-gtopt-support)) |
+| `power_factor` | number | p.u. | No | LinDistFlow signed power factor of the served load (negative = leading); unset = unity |
 | `annual_derating`  | number\|array\|string| p.u./year   | No       | Annual capacity derating factor |
 
 #### Stepwise failure curve (`fail_segments`)
@@ -911,6 +926,7 @@ A transmission line connecting two buses.
 | `type`             | string              | —            | No       | Element type tag; use `"transformer"` for transformers |
 | `tap_ratio`        | number\|array\|string| p.u.        | No       | Off-nominal tap ratio τ (default 1.0). A tap-changing transformer with τ ≠ 1 has effective susceptance $B/\tau$. Supports per-stage schedule. |
 | `phase_shift_deg`  | number\|array\|string| degrees     | No       | Phase-shift angle φ in degrees (default 0). Models a Phase-Shifting Transformer (PST); shifts the Kirchhoff constraint RHS by $-\sigma_\theta \cdot \phi_{\text{rad}}$. |
+| `tap_ratio_min` / `tap_ratio_max` | number | p.u. | No | LinDistFlow optimised (continuous) tap range $[\underline{t},\overline{t}]$; one side unset → `tap_ratio`; ignored by the DC model ([§5.6 bis](formulation/mathematical-formulation.md#56-bis-lindistflow-distribution-network)) |
 | `tmax_ab`          | number\|array\|string| MW          | No       | Max flow in A→B direction |
 | `tmax_ba`          | number\|array\|string| MW          | No       | Max flow in B→A direction |
 | `max_flow`, `min_flow` | number\|array\|string | MW | No | PLEXOS `Max Flow` / `Min Flow`: aliases of `tmax_ab` and `-tmax_ba` (`min_flow` is **signed**, ≤ 0). Give either the alias or `tmax_*`, not both. Never replaced by a DLR rating. See [Line limits](#line-limits) |
@@ -1283,7 +1299,7 @@ be defined manually (see §3.6 Converter).
 | `soft_emin`         | number\|array\|string| MWh         | No       | Soft minimum energy per stage (penalized slack below `emin`) |
 | `soft_emin_cost`    | number\|array\|string| $/MWh       | No       | Penalty cost per unit of `soft_emin` slack violation |
 | `use_state_variable`| boolean             | —            | No       | Enable stage/phase coupling of the battery state variable |
-| `daily_cycle`       | boolean             | —            | No       | Enforce daily cycling (initial SoC equals final SoC each day) |
+| `daily_cycle`       | boolean             | —            | No       | Enforce daily cycling (initial SoC equals final SoC each day). Default `true`; a state battery (carried across stages / phases) needs `daily_cycle: false` together with `use_state_variable: true` — `use_state_variable` alone has no effect (validation warning) |
 | `reserve_sustain_hours` | number          | h            | No       | Native BESS reserve rows: two-sided power headroom and SoC sufficiency for $T$ hours (formulation §5.9) |
 | `reserve_discharge_credit` | boolean      | —            | No       | Credit discharge in the down-reserve headroom (default false) |
 | `reserve_energy_usage_up` / `reserve_energy_usage_down` | number | MWh/MW/h | No | Expected reserve deployment energy charged to the SoC (replaces the CEN AUX `CF_*_COMP`; no bus term) |
@@ -1817,8 +1833,8 @@ A generator's contribution to reserve zones.
 | `dr_capacity_factor`   | number\|array\|string| p.u.  | No       | Down-reserve capacity factor |
 | `ur_provision_factor`  | number\|array\|string| p.u.  | No       | Up-reserve provision factor |
 | `dr_provision_factor`  | number\|array\|string| p.u.  | No       | Down-reserve provision factor |
-| `urcost`               | number\|array\|string| $/MW  | No       | Up-reserve bid cost |
-| `drcost`               | number\|array\|string| $/MW  | No       | Down-reserve bid cost |
+| `urcost`               | number\|array\|string| $/MW·h | No      | Up-reserve direct provision cost (wear, regulation VOM; **not** the opportunity cost, which the LP prices).  Must be ≥ 0 |
+| `drcost`               | number\|array\|string| $/MW·h | No      | Down-reserve direct provision cost.  Must be ≥ 0 |
 | `ur_zone_factors` / `dr_zone_factors` | array of numbers | p.u. | No | Per-zone effectiveness factor, parallel to `reserve_zones` (default 1) |
 | `shared_headroom`      | boolean             | —      | No       | One headroom row shared by all flagged provisions of the generator |
 | `offline`              | boolean             | —      | No       | Cold up reserve: no headroom row, $r \le$ urmax·(1−u) |
@@ -1826,6 +1842,45 @@ A generator's contribution to reserve zones.
 | `urmax_response` / `drmax_response` | number\|array\|string | MW | No | Native BESS only: cap on the discharge-side part (PLEXOS Max Response) |
 | `urmax_charge_response` / `drmax_charge_response` | number\|array\|string | MW | No | Native BESS only: cap on the charge-side part (PLEXOS Max Charge Response) |
 | `ur_energy_usage` / `dr_energy_usage` | number\|array\|string | MWh/MW/h | No | Native BESS only: deployment energy of this provision charged to the SoC; overrides the Battery `reserve_energy_usage_up/down` |
+| `ur_partload_cost` / `dr_partload_cost` | number\|array\|string | $/MW·h | No | SSCC known cost: part-load efficiency penalty of holding reserve, added to the provision cost (default off, ≥ 0) |
+| `ur_activation_factor` / `dr_activation_factor` | number\|array\|string | MWh/MW·h | No | SSCC: activation factor γ ∈ [0, 1], expected energy deployed per MW·h held (default 0) |
+| `ur_activation_cost` / `dr_activation_cost` | number\|array\|string | $/MWh | No | SSCC known cost: cost of the deployed energy, adds γ·cost. Unset with γ set: generator SRMC (fuel + VOM) for up, 0 for down |
+| `ur_degradation_cost` / `dr_degradation_cost` | number\|array\|string | $/MWh | No | SSCC known cost: degradation per MWh of deployed throughput (BESS), adds γ·cost (needs γ) |
+
+**SSCC known variable costs.**  The provision column cost becomes
+`urcost + ur_partload_cost + ur_activation_factor·(ur_activation_cost +
+ur_degradation_cost)` (down alike); every term is off unless set.  Each term
+is written separately as `ReserveProvision/{up,dn}_{partload,activation,degradation}_cost_sol`
+[$/h = adder × reserve held], so an SSCC cost analysis can split
+θ = known variable costs + derived maintenance delta (`gtopt_usage theta`).
+`urcost` then holds only the remaining direct (wear) cost.  The part-load
+penalty can alternatively be represented by the generator's piecewise heat
+rate (`heat_rate_segments`): holding reserve keeps the unit on a costlier
+segment, which the LP prices without an adder — use one or the other, not
+both.  The activation cost is an *expected* cost of deployment; the deployed
+energy itself is not dispatched in the LP.
+
+**Per-service costs on one unit (CPF / CSF / CTF).**  A unit that offers
+several services with different costs gets **one provision per service**
+(one zone each), all with `shared_headroom: true`.  Each provision keeps its
+own `urcost` / `drcost`, and the services share one headroom pair
+$p + \sum_s r^{up}_s \le \bar P(u)$, $p - \sum_s r^{dn}_s \ge \underline P(u)$.
+A single provision listing several zones has ONE column per direction that
+counts towards all its zones at once (nested products, `*_zone_factors`) and
+its cost is paid once — use it for nested requirements of the same service,
+not for services priced apart.  Negative `urcost` / `drcost` are rejected
+(validation and LP build).
+
+```json
+"reserve_provision_array": [
+  {"uid": 1, "name": "U1_cpf", "generator": "U1", "reserve_zones": ["cpf"],
+   "urmax": 30, "ur_provision_factor": 1, "urcost": 2.1,
+   "shared_headroom": true},
+  {"uid": 2, "name": "U1_csf", "generator": "U1", "reserve_zones": ["csf"],
+   "urmax": 60, "ur_provision_factor": 1, "urcost": 3.4,
+   "shared_headroom": true}
+]
+```
 
 ---
 
@@ -2019,6 +2074,9 @@ Commitments.
 | `startup_cost` | number\|array\|string | $/start | No | Cost per startup event |
 | `shutdown_cost` | number\|array\|string | $/stop | No | Cost per shutdown event |
 | `noload_cost` | number | $/hr | No | Fixed hourly cost when committed |
+| `startup_wear_cost` | number\|array\|string | $/start | No | Wear part of one start, kept apart from `startup_cost` (output `Commitment/startup_wear_cost`); >= 0. Default off |
+| `wear_hour_cost` | number\|array\|string | $/h | No | Operation wear `a` per committed hour (term `a·u`); >= 0. Default off |
+| `wear_load_cost` | number\|array\|string | $/MWh | No | Operation wear `b` per MWh above the committed floor (term `b·(p − Pmin·u)`), any sign (`b < 0` = low-load penalty); `a + b·(Pmax − Pmin)` must be >= 0. Output `Commitment/operation_wear_cost` ($/h). Default off |
 | `pmin` | number\|array\|string | MW | No | Minimum stable level while committed (`p ≥ pmin·u`), per stage and block. Unset: the generator's own lower bound. `Generator.pmin` stays an unconditional floor |
 | `noload_fuel` | number | fuel unit/h | No | No-load fuel burn while committed (PLEXOS `Heat Rate Base`); counted in `Fuel` offtake and fuel-basis emissions (`noload_fuel · u · Δt`), not re-priced (cost stays in `noload_cost`) |
 | `min_up_time` | number | hours | No | Minimum online duration after startup |
@@ -2036,6 +2094,7 @@ Commitments.
 | `fast_start` | boolean | — | No | Fast-start unit for `pricing_mode = "fast_start"` (unset = auto: min up and min down ≤ `fast_start_max_hours`) |
 | `commitment_period` | number \| `"auto"` | hours | No | Coarser binary variable resolution. Periods are unions of whole cells (blocks; quadrature cells on `Stage.sampling = "point"` stages): cell k joins period ⌊mid_k/P⌋, so a boundary snaps to the nearer cell end. `"auto"`: P = max(block resolution, ½·min(min_up_time, min_down_time)) |
 | `commitment_grid` | string | — | No | `"block"` (one status per block/cell) or `"overlay"` (per `commitment_period`). Default: overlay iff `commitment_period` is set. Point stages: default = uniform grid of max(`commitment_period`, 1 h) by node time; `"block"` / `"cells"` keep the previous per-node / quadrature-cell grids |
+| `commitment_breaks` | number[] | h | No | Daily (non-uniform) commitment grid: cell boundaries in hours of the day, [0, 24), strictly increasing, at least one; the last cell wraps around midnight. E.g. `[3.5, 7.5, 10.5, 14.5, 17.5, 23.5]` = 23:30–03:30, 03:30–07:30, 07:30–10:30, 10:30–14:30, 14:30–17:30, 17:30–23:30. Nodes (point stages: `Block.time`; block stages: the block midpoint) join the cell of their clock time `Stage.start_hour + t`, half-open [a, b); v / w only at cell boundaries; min up / down count cell hours; cells with no node continue the previous status; on a cyclic whole-day stage the cell straddling the period start is one cell. Precedence: unit `commitment_breaks` > `commitment_period` > `Stage.commitment_breaks` > `model_options.commitment_breaks` > `Block.commitment_cell`. Exclusive with `commitment_period` and `commitment_grid` `"block"` / `"cells"` (validation error). Ignored on non-chronological stages |
 | `ramp_allowance` | string | — | No | `"boundary"` (default: only ramp rows crossing a commitment-period boundary get the SU/SD ramp allowance) or `"period"` (every block of a commitment period gets the allowance of its period; older, looser form) |
 | `startup_trajectory` | number array | MW | No | `power_based` only: power at successive `trajectory_step` instants of the start-up, before the unit reaches `pmin` (empty = quick start) |
 | `shutdown_trajectory` | number array | MW | No | `power_based` only: power at successive instants after leaving `pmin` (last entry normally 0) |
@@ -2523,6 +2582,7 @@ relaxed by a big-M when the line is open.
 | `relax` | Relax `u` to [0, 1] (LP lower bound) |
 | `kvl_big_m` | Per-line big-M of the KVL disjunction (> 0); default `\|b\|·(θmax − θmin)` |
 | `startup_cost`, `shutdown_cost`, `hot_start_cost`, `warm_start_cost`, `cold_start_cost`, `hot_start_time`, `cold_start_time`, `min_up_time`, `min_down_time`, `max_starts`, `min_starts`, `starts_scope`, `initial_hours` | Switching costs and limits with the same meaning as on `Commitment` (switching events become v / w columns) |
+| `cycle` | `"none"` (default, chronological from `initial_status`) or `"stage"`: cyclic line commitment over each stage (typical day / week, mirrors `Commitment.cycle`): the transition at the first block wraps to the last, min up / down and start-tier windows wrap on real time steps, start / stop costs × `duration / period_hours`; `initial_status` / `initial_hours` ignored |
 
 ### 3.32 Inertia Provision
 
@@ -2576,14 +2636,34 @@ regasification and boil-off that fuels linked generators (formulation
 | `eini` / `efin` / `efin_cost` | m³, $/m³ | Initial level, end-of-horizon minimum and its shortfall penalty |
 | `soft_emin` / `soft_emin_cost` | m³, $/m³ | Soft floor and its penalty |
 | `annual_standing_loss` | p.u./year | Boil-off |
-| `delivery` | m³/stage | Scheduled cargo arrivals |
-| `sendout_max` / `sendout_min` | m³/h | Regasification rate bounds |
+| `delivery` | m³/stage | Scheduled (contracted) cargo arrivals |
+| `delivery_cost` | $/m³ | Contract purchase price of `delivery` per stage (a constant of the objective; unset = costless) |
+| `sendout_max` / `sendout_min` | m³/h | Regasification rate bounds on Σ heat_rate × generation, per block (each applies only when set) |
+| `enforce_sendout` | — | Apply `sendout_max` / `sendout_min` (default true; false ignores them, the former behaviour) |
+| `use_generator_fuel_curve` | — | Draw tank gas along each linked generator's own curve (`pmax_segments` / `heat_rate_segments`, scalar `heat_rate`, `Commitment.noload_fuel`) × the link `heat_rate` (then m³ per fuel unit); r_up backed at the top slope (default false: link `heat_rate` × P) |
+| `reserve_sustain_hours` | h | Gas backing of the linked units' up reserve: `V_end − fcr·T·Σ heat_rate·r_up ≥ emin` and, with `sendout_max`, `Σ heat_rate·(P + r_up) ≤ sendout_max` per block (unset = off, LP unchanged; 0 = send-out row only) |
+| `reserve_gas_usage` | MWh/MW/h | Expected up-reserve deployment burnt from the tank (`+fcr·a·heat_rate·Δ·r_up` in the balance; only with `reserve_sustain_hours`, default 0) |
+| `spot_cargo_volume` | m³ | Volume of one optional spot cargo |
+| `spot_cargo_max` | cargoes/stage | Spot arrival slots per stage (schedule; 0 = none) |
+| `spot_cost` | $/m³ | Spot purchase price per stage |
+| `spot_integer` | — | Whole cargoes (MIP: HiGHS / CPLEX, never CLP) when true; continuous by default |
+| `spot_annual_max` | cargoes/year | Cap on spot cargoes per planning year (8760-h windows of the horizon) |
 | `spillway_capacity` / `spillway_cost` | m³/h, $/m³ | Venting limit and penalty |
 | `use_state_variable` | — | Carry the tank level between phases |
 | `mean_production_factor` | MWh/m³ | Used to convert the state penalty `scost` |
 | `scost` | $/m³ | State-violation penalty |
 | `flow_conversion_rate` | — | m³/h × h → m³ (default 1) |
 | `generators` | — | Linked generators: `[{generator, heat_rate}]`, `heat_rate` in m³ LNG/MWh (default 1) |
+
+The linked generators burn tank gas priced by the tank balance dual
+(its shadow value), so their `gcost` should carry only the non-fuel VOM;
+the purchase cost goes on `delivery_cost` / `spot_cost`, and
+`spillway_cost` is the extra loss of venting or diverting a surplus
+cargo (not its price).  A spot cargo arrives in the first block of its
+stage and only fits if the tank has room (`emax`).  Outputs:
+`LngTerminal/spot_sol` (cargoes per stage), `spot_cost` (reduced cost),
+`spot_annual_dual`, `sendout_dual`; `lng_terminal("X").spot` is a PAMPL
+variable.  Example: [`cases/lng_spot_1b`](../cases/lng_spot_1b/README.md).
 
 ## 4. External Data Files
 

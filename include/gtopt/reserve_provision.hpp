@@ -138,6 +138,41 @@ struct ReserveProvision
   OptTBRealFieldSched ur_energy_usage {};
   OptTBRealFieldSched dr_energy_usage {};  ///< Down analogue
   /// @}
+
+  /// @name SSCC known variable-cost adders
+  /// Each field is optional and off by default.  They add to the
+  /// objective coefficient of the provision column (per MW·h held):
+  ///
+  ///   c = urcost + ur_partload_cost
+  ///         + ur_activation_factor · (ur_activation_cost
+  ///                                   + ur_degradation_cost)
+  ///
+  /// and are written separately (`ReserveProvision/up_partload_cost`,
+  /// `up_activation_cost`, `up_degradation_cost` [$/h]) so a study can
+  /// split θ = known variable costs + derived maintenance delta.
+  /// `urcost` stays the remaining direct provision cost (wear).
+  /// @{
+  /// Part-load efficiency penalty of holding reserve [$/MW·h] (thermal
+  /// unit backed off its best-efficiency point).  Alternative: model the
+  /// part-load heat rate itself with `Generator.heat_rate_segments`.
+  OptTBRealFieldSched ur_partload_cost {};
+  OptTBRealFieldSched dr_partload_cost {};  ///< Down analogue
+  /// Activation factor γ [MWh deployed per MW·h held, 0..1]: expected
+  /// energy of the reserve that is actually deployed (CEN "factor de
+  /// activación", PCP objective `C_disp + C_act·γ`).  Needed by the
+  /// activation and degradation costs; unset = 0.
+  OptTBRealFieldSched ur_activation_factor {};
+  OptTBRealFieldSched dr_activation_factor {};  ///< Down analogue
+  /// Cost of the deployed energy [$/MWh].  Unset with γ set: the
+  /// generator's SRMC (fuel + VOM) for UP reserve, 0 for DOWN reserve
+  /// (the fuel saved is not credited: no negative reserve costs).
+  OptTBRealFieldSched ur_activation_cost {};
+  OptTBRealFieldSched dr_activation_cost {};  ///< Down analogue
+  /// Degradation cost per MWh of deployed throughput [$/MWh] (BESS
+  /// cycling of activated reserve), applied to γ·r.
+  OptTBRealFieldSched ur_degradation_cost {};
+  OptTBRealFieldSched dr_degradation_cost {};  ///< Down analogue
+  /// @}
 };
 
 }  // namespace gtopt

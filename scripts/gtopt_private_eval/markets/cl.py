@@ -55,8 +55,12 @@ Costs
 
 from __future__ import annotations
 
-from ..case_data import ProjectData, SystemData
+import fnmatch
+from collections.abc import Callable, Mapping
+
+from ..case_data import PKey, ProjectData, SystemData
 from ..finance import crf
+from ..peak import PeakHours, peak_hours
 from .base import Component, Components, EvalContext, MarketModel, interp_factor
 
 KW_MONTH_TO_MW_YEAR = 12.0 * 1000.0
@@ -89,26 +93,206 @@ class Chile(MarketModel):
 
     name = "cl"
     title = "Chile SEN (costo marginal + potencia de suficiencia + SSCC)"
+    #: Cost-based market: the variable cost is the audited cost declared
+    #: to the CEN and sets the CMg, so fuel is not an independent stream;
+    #: the risky quantity is the energy margin (CMg − cost) × dispatch.
+    #: Fixed O&M, insurance and warranty are known % of capex: they are
+    #: discounted with the capital (the project WACC of the annuity).
+    stream_map = {
+        "variable": "energy",
+        "vom_extra": "energy",
+        "green_tax": "energy",
+        "fixed_om": "capital",
+        "insurance": "capital",
+        "warranty": "capital",
+    }
 
     # ── sufficiency ─────────────────────────────────────────────────
     def sufficiency_factor(
         self, tech: str, kind: str, duration_h: float | None
     ) -> float:
+        """Preliminary sufficiency / Pmax from the technology tables."""
         if kind == "Battery" or tech == "bess":
             return interp_factor(
                 self.get("storage_sufficiency", {}), duration_h
             ) * float(self.get("storage_availability", 1.0))
         return self.by_tech("sufficiency_factors", tech)
 
+    @property
+    def from_case(self) -> bool:
+        """``sufficiency_method: case`` — factors and peak from the case."""
+        return self.get("sufficiency_method", "factors") == "case"
+
+    def peaks(self, ctx: EvalContext) -> dict[int, PeakHours]:
+        """Peak hours per scenario (cached)."""
+        ckey = f"cl_peaks:{id(self)}"
+        if ckey not in ctx.cache:
+            ctx.cache[ckey] = peak_hours(
+                ctx.sysd,
+                int(self.get("peak_hours", 52)),
+                self.p.get("peak_window"),
+            )
+        out: dict[int, PeakHours] = ctx.cache[ckey]
+        return out
+
+    def peak_demand(self, ctx: EvalContext) -> float:
+        """*Demanda de punta* [MW]: ``case`` method = probability-weighted
+        mean over scenarios of the mean of the peak hours; else the
+        highest block load of the case."""
+        if not self.from_case:
+            return ctx.sysd.peak_demand_mw
+        w = ctx.sysd.case.scenario_weight
+        return sum(w.get(s, 0.0) * ph.demand_mw for s, ph in self.peaks(ctx).items())
+
+    def _durations(self, ctx: EvalContext) -> dict[PKey, float]:
+        if "cl_dur" not in ctx.cache:
+            ctx.cache["cl_dur"] = {
+                (p.scenario, p.stage, p.block): p.duration for p, _w in ctx.sysd.periods
+            }
+        out: dict[PKey, float] = ctx.cache["cl_dur"]
+        return out
+
+    def dry_scenarios(self, ctx: EvalContext) -> list[int]:
+        """The ``dry_hydrologies`` scenarios with the least hydro energy —
+        the CEN's hydro *potencia inicial* uses the 2 driest years of the
+        hydrological statistic [ds62_nt]."""
+        ckey = f"cl_dry:{id(self)}"
+        if ckey in ctx.cache:
+            dry: list[int] = ctx.cache[ckey]
+            return dry
+        hydro = set(self.get("hydro_technologies", ["hydro"]))
+        dur = self._durations(ctx)
+        energy = dict.fromkeys(ctx.sysd.scenarios, 0.0)
+        for u in ctx.sysd.units:
+            if ctx.params.technology(u.name, u.kind, u.elem_type) not in hydro:
+                continue
+            for k, q in u.gen.items():
+                energy[k[0]] = energy.get(k[0], 0.0) + q * dur.get(k, 0.0)
+        n = max(1, int(self.get("dry_hydrologies", 2)))
+        dry = sorted(energy, key=lambda s: (energy[s], s))[:n]
+        ctx.cache[ckey] = dry
+        return dry
+
+    def case_factor(
+        self,
+        ctx: EvalContext,
+        tech: str,
+        kind: str,
+        duration_h: float | None,
+        gen: Mapping[PKey, float],
+        avail: Mapping[PKey, float],
+        pmax: float,
+    ) -> float:
+        """Preliminary sufficiency / Pmax measured on the solved case.
+
+        * hydro: mean output in the peak hours of the ``dry_hydrologies``
+          driest scenarios / Pmax (NT: the 2 driest hydrological years);
+        * PV / wind (``profile_technologies``): min(lowest annual capacity
+          factor over the scenarios, mean capacity factor in the peak
+          hours) from the availability profile (the dispatch when the unit
+          has no profile);
+          — when the case cannot resolve the peak hours (they fall in
+          fewer than ``min_peak_blocks`` distinct blocks of a scenario,
+          e.g. a load-duration block layout) and ``renewable_peak_rule``
+          is ``auto`` (default), the lowest annual capacity factor alone;
+          ``min`` always applies the CEN rule, ``annual`` never does;
+        * storage and thermal: the tables (DS 70 transitory rule; fuel
+          availability × (1 − IFOR), an assumption).
+        """
+        if kind == "Battery" or tech == "bess" or pmax <= 1e-9:
+            return self.sufficiency_factor(tech, kind, duration_h)
+        peaks = self.peaks(ctx)
+        if tech in set(self.get("hydro_technologies", ["hydro"])):
+            vals = [peaks[s].mean(gen) / pmax for s in self.dry_scenarios(ctx)]
+            return min(1.0, sum(vals) / len(vals)) if vals else 0.0
+        if tech in set(self.get("profile_technologies", ["solar_pv", "wind"])):
+            if avail:
+                series: Mapping[PKey, float] = avail
+                default = 1.0
+            else:
+                series = {k: v / pmax for k, v in gen.items()}
+                default = 0.0
+            w = ctx.sysd.case.scenario_weight
+            peak_cf = sum(
+                w.get(s, 0.0) * ph.mean(series, default) for s, ph in peaks.items()
+            )
+            dur = self._durations(ctx)
+            annual: dict[int, list[float]] = {}
+            for k, d in dur.items():
+                acc = annual.setdefault(k[0], [0.0, 0.0])
+                acc[0] += series.get(k, default) * d
+                acc[1] += d
+            low = min((a / b for a, b in annual.values() if b > 0), default=0.0)
+            if not self.peak_resolved(ctx):
+                return max(0.0, low)
+            return max(0.0, min(peak_cf, low))
+        return self.sufficiency_factor(tech, kind, duration_h)
+
+    def peak_blocks(self, ctx: EvalContext) -> int:
+        """Fewest distinct blocks that hold a scenario's peak hours."""
+        peaks = self.peaks(ctx)
+        return min(
+            (len({k[1:] for k in ph.weight}) for ph in peaks.values()),
+            default=0,
+        )
+
+    def peak_resolved(self, ctx: EvalContext) -> bool:
+        """Whether PV / wind are measured in the peak hours (see
+        :meth:`case_factor`)."""
+        rule = str(self.get("renewable_peak_rule", "auto"))
+        if rule == "min":
+            return True
+        if rule == "annual":
+            return False
+        if rule != "auto":
+            raise ValueError(f"renewable_peak_rule: unknown value {rule!r}")
+        return self.peak_blocks(ctx) >= int(self.get("min_peak_blocks", 3))
+
+    def unit_factor(self, name: str) -> float | None:
+        """A unit's own preliminary sufficiency / Pmax from
+        ``unit_sufficiency_factors`` ({fnmatch pattern: factor}; the
+        first match wins), e.g. the plant's value in the CEN
+        calculation; None when no pattern matches."""
+        table = self.get("unit_sufficiency_factors", {}) or {}
+        for pat, val in table.items():
+            if fnmatch.fnmatchcase(name, str(pat)):
+                return float(val)
+        return None
+
+    def _excluded(self, name: str) -> bool:
+        pats = self.get("sufficiency_exclude", []) or []
+        return any(fnmatch.fnmatchcase(name, pat) for pat in pats)
+
+    def unit_preliminary(self, ctx: EvalContext) -> dict[str, float]:
+        """Preliminary sufficiency [MW] of every unit of the case (cached)."""
+        units = ctx.sysd.units
+        ckey = f"cl_units:{id(self)}:{id(units)}:{len(units)}"
+        if ckey in ctx.cache:
+            cached: dict[str, float] = ctx.cache[ckey]
+            return cached
+        out: dict[str, float] = {}
+        for u in ctx.sysd.units:
+            if self._excluded(u.name):
+                continue
+            tech = ctx.tech.get(u.name) or ctx.params.technology(
+                u.name, u.kind, u.elem_type
+            )
+            mw = u.available_mw if self.from_case else u.installed_mw
+            f = self.unit_factor(u.name)
+            if f is None and self.from_case:
+                f = self.case_factor(
+                    ctx, tech, u.kind, u.duration_h, u.gen, u.avail, mw
+                )
+            elif f is None:
+                f = self.sufficiency_factor(tech, u.kind, u.duration_h)
+            out[u.name] = mw * f
+        ctx.cache[ckey] = out
+        return out
+
     def preliminary(self, ctx: EvalContext, sysd: SystemData) -> float:
         """Σ preliminary sufficiency of every unit of the case [MW]."""
-        total = 0.0
-        for u in sysd.units:
-            tech = ctx.tech.get(u.name) or ctx.params.technology(u.name, u.kind)
-            total += u.installed_mw * self.sufficiency_factor(
-                tech, u.kind, u.duration_h
-            )
-        return total
+        del sysd
+        return sum(self.unit_preliminary(ctx).values())
 
     def prorate_factor(self, ctx: EvalContext) -> float:
         mode = self.get("prorate", "case")
@@ -119,7 +303,7 @@ class Chile(MarketModel):
         total = self.preliminary(ctx, ctx.sysd)
         if total <= 1e-9:
             return 1.0
-        k = ctx.sysd.peak_demand_mw / total
+        k = self.peak_demand(ctx) / total
         cap = self.get("prorate_cap")
         return k if cap is None else min(k, float(cap))
 
@@ -135,12 +319,53 @@ class Chile(MarketModel):
             * float(self.get("capacity_price_factor", 1.0))
         )
 
-    def sufficiency(self, ctx: EvalContext, proj: ProjectData) -> float:
+    def _per_project(
+        self,
+        ctx: EvalContext,
+        what: str,
+        proj: ProjectData,
+        fn: Callable[[EvalContext, ProjectData], float],
+    ) -> float:
+        """``fn(ctx, proj)`` computed once per project and evaluation.
+
+        Sufficiency and the CEN guarantee are set ex ante, over every
+        hydrology of the case (the driest scenarios, the worst month of
+        the worst hydrology).  A per-scenario view of the project (the
+        private CVaR, ``risk``) must get the same values, not ones
+        measured on its own scenario only: the first call — on the whole
+        project, by :func:`evaluate._evaluate_one` — fixes them.
+        """
+        ckey = f"cl_{what}:{id(self)}:{proj.kind}:{proj.name}"
+        if ckey not in ctx.cache:
+            ctx.cache[ckey] = float(fn(ctx, proj))
+        val: float = ctx.cache[ckey]
+        return val
+
+    def project_factor(self, ctx: EvalContext, proj: ProjectData) -> float:
+        """Preliminary sufficiency / MW of a project (its new MW)."""
+        return self._per_project(ctx, "factor", proj, self._project_factor)
+
+    def _project_factor(self, ctx: EvalContext, proj: ProjectData) -> float:
         tech = ctx.tech.get(proj.name, "thermal")
-        prelim = proj.new_mw * self.sufficiency_factor(
-            tech, proj.kind, proj.duration_h()
+        own = self.unit_factor(proj.name)
+        if own is not None:
+            return own
+        if not self.from_case:
+            return self.sufficiency_factor(tech, proj.kind, proj.duration_h())
+        gen = {r.key: r.gen for r in proj.rows if r.gen}
+        avail = {r.key: r.avail for r in proj.rows if r.avail != 1.0}
+        return self.case_factor(
+            ctx, tech, proj.kind, proj.duration_h(), gen, avail, proj.new_mw
         )
-        return prelim * self.prorate_factor(ctx) * self.capacity_price_mw_year()
+
+    def preliminary_mw(self, ctx: EvalContext, proj: ProjectData) -> float:
+        return proj.new_mw * self.project_factor(ctx, proj)
+
+    def definitive_mw(self, ctx: EvalContext, proj: ProjectData) -> float:
+        return self.preliminary_mw(ctx, proj) * self.prorate_factor(ctx)
+
+    def sufficiency(self, ctx: EvalContext, proj: ProjectData) -> float:
+        return self.definitive_mw(ctx, proj) * self.capacity_price_mw_year()
 
     # ── SSCC ────────────────────────────────────────────────────────
     def sscc(self, ctx: EvalContext, proj: ProjectData) -> float:
@@ -153,7 +378,12 @@ class Chile(MarketModel):
 
     # ── scarcity ────────────────────────────────────────────────────
     def scarcity_cap(self, sysd: SystemData) -> float | None:
-        """Price ceiling of the Chilean CMg [$/MWh] (``None`` = no cap)."""
+        """Price ceiling of the Chilean CMg [$/MWh] (``None`` = no cap).
+
+        ``"case"``: the highest variable cost of any generator of the
+        case; a number; ``"dispatched"`` is per period (see
+        :meth:`period_cap`) and returns the case-wide ceiling here.
+        """
         mode = self.p.get("scarcity_cap", "case")
         if mode is None or mode == "off":
             return None
@@ -161,12 +391,26 @@ class Chile(MarketModel):
             return float(mode)
         return sysd.max_srmc if sysd.max_srmc > 0 else None
 
+    def period_cap(self, sysd: SystemData, key: PKey) -> float | None:
+        """Ceiling of one period: with ``scarcity_cap: "dispatched"`` the
+        variable cost of the most expensive unit running in that period
+        × (1 + ``scarcity_cap_margin``) — the CMg is the cost of the
+        costliest unit dispatched; nodal loss factors lift it a little."""
+        if self.p.get("scarcity_cap", "case") != "dispatched":
+            return self.scarcity_cap(sysd)
+        top = sysd.dispatched_srmc.get(key, 0.0)
+        if top <= 0:
+            return sysd.max_srmc if sysd.max_srmc > 0 else None
+        return top * (1.0 + float(self.get("scarcity_cap_margin", 0.0)))
+
     def scarcity_rent(self, ctx: EvalContext, proj: ProjectData) -> float:
         """Σ max(λ − cap, 0)·(gen − dem)·h — the part Chile does not pay."""
-        cap = self.scarcity_cap(ctx.sysd)
-        if cap is None:
-            return 0.0
-        return sum(max(r.price - cap, 0.0) * r.net * r.hours for r in proj.rows)
+        total = 0.0
+        for r in proj.rows:
+            cap = self.period_cap(ctx.sysd, r.key)
+            if cap is not None:
+                total += max(r.price - cap, 0.0) * r.net * r.hours
+        return total
 
     # ── interface ───────────────────────────────────────────────────
     def revenues(self, ctx: EvalContext, proj: ProjectData) -> Components:
@@ -203,7 +447,22 @@ class Chile(MarketModel):
         return out
 
     def cen_guarantee_amount(self, ctx: EvalContext, proj: ProjectData) -> float:
-        """Required CEN payment guarantee [$] (DS 125 art. 157)."""
+        """Required CEN payment guarantee [$] (DS 125 art. 157); fixed
+        once per project over every hydrology (see :meth:`_per_project`)."""
+        return self._per_project(ctx, "guarantee", proj, self._cen_guarantee)
+
+    def _cen_guarantee(self, ctx: EvalContext, proj: ProjectData) -> float:
+        """Required CEN payment guarantee [$] (DS 125 art. 157).
+
+        ``months`` largest monthly energy deficits (contract withdrawals −
+        own net injection, at CMg) of the hydrology (scenario) with the
+        largest total, plus ``months`` × the monthly capacity deficit
+        (contract − definitive sufficiency, at the node price).  The
+        monthly deficits come from the case when its stages are calendar
+        months (``monthly: auto``; ``off`` forces the old estimate);
+        otherwise ``months × peak_month_factor × (mean monthly energy
+        deficit⁺ + capacity deficit⁺)``.
+        """
         g = self.get("cen_guarantee", {}) or {}
         if "amount_usd" in g:
             return float(g["amount_usd"])
@@ -217,18 +476,35 @@ class Chile(MarketModel):
             q = share * proj.energy_mwh() / hours
         if q <= 0:
             return 0.0
+        capacity = max(
+            (q - self.definitive_mw(ctx, proj))
+            * self.capacity_price_kw_month()
+            * 1000.0,
+            0.0,
+        )
+        months = float(g.get("months", 3))
+        sysd = ctx.sysd
+        if g.get("monthly", "auto") != "off" and sysd.monthly_stages():
+            by: dict[int, dict[int, float]] = {}
+            for r in proj.rows:
+                month = sysd.stage_month[r.key[1]]
+                scen = by.setdefault(r.key[0], {})
+                scen[month] = scen.get(month, 0.0) + r.price * (q - r.net) * r.dur * (
+                    sysd.scale
+                )
+            n = int(round(months))
+            worst = max(
+                (
+                    sum(sorted((max(v, 0.0) for v in m.values()), reverse=True)[:n])
+                    for m in by.values()
+                ),
+                default=0.0,
+            )
+            return worst + months * capacity
         # withdrawals at CMg minus own net position at CMg, per month
         energy = sum(r.price * (q - r.net) * r.hours for r in proj.rows) / 12.0
-        tech = ctx.tech.get(proj.name, "thermal")
-        suff = (
-            proj.new_mw
-            * self.sufficiency_factor(tech, proj.kind, proj.duration_h())
-            * self.prorate_factor(ctx)
-        )
-        capacity = (q - suff) * self.capacity_price_kw_month() * 1000.0
-        months = float(g.get("months", 3))
         factor = float(g.get("peak_month_factor", 1.0))
-        return months * factor * (max(energy, 0.0) + max(capacity, 0.0))
+        return months * factor * (max(energy, 0.0) + capacity)
 
     def supply_bond(self, ctx: EvalContext, proj: ProjectData) -> Component:
         """Fee of the supply-contract performance bond [$ / yr per year].
@@ -274,6 +550,26 @@ class Chile(MarketModel):
             out["withdrawal_charges"] = rate * share * proj.energy_mwh()
         return out
 
+    def details(self, ctx: EvalContext, proj: ProjectData) -> dict[str, float]:
+        out = super().details(ctx, proj)
+        if proj.kind == "Line":
+            return out
+        out.update(
+            sufficiency_factor=self.project_factor(ctx, proj),
+            sufficiency_preliminary_mw=self.preliminary_mw(ctx, proj),
+            sufficiency_definitive_mw=self.definitive_mw(ctx, proj),
+            prorate_factor=self.prorate_factor(ctx),
+            peak_demand_mw=self.peak_demand(ctx),
+            system_preliminary_mw=self.preliminary(ctx, ctx.sysd),
+            capacity_price_usd_kw_month=self.capacity_price_kw_month(),
+            cen_guarantee_usd=self.cen_guarantee_amount(ctx, proj),
+        )
+        if self.from_case:
+            out["dry_scenarios"] = float(len(self.dry_scenarios(ctx)))
+            out["peak_blocks"] = float(self.peak_blocks(ctx))
+            out["peak_resolved"] = float(self.peak_resolved(ctx))
+        return out
+
     def notes(self) -> list[str]:
         return [
             "energy: injections and withdrawals at the bus marginal cost;"
@@ -281,7 +577,8 @@ class Chile(MarketModel):
             " (prices above it are not paid in Chile)",
             f"capacity price {self.capacity_price_kw_month():.2f} $/kW-month"
             f" = {self.capacity_price_mw_year():,.0f} $/MW-yr",
-            f"sufficiency pro-rating: {self.get('prorate', 'case')}",
+            f"sufficiency pro-rating: {self.get('prorate', 'case')};"
+            f" method: {self.get('sufficiency_method', 'factors')}",
             f"transmission: {self.get('transmission', 'regulated')} "
             f"(rate {self.get('regulated_rate')})",
         ]

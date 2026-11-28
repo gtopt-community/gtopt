@@ -85,6 +85,9 @@ struct json_data_contract<Commitment>
                         jvtl_CommitmentPeriod>,
       json_string_null<"commitment_grid", OptName>,
       json_string_null<"ramp_allowance", OptName>,
+      json_array_null<"commitment_breaks",
+                      std::vector<gtopt::Real>,
+                      json_number_no_name<gtopt::Real>>,
       json_string_null<"cycle", OptName>,
       json_string_null<"long_transition", OptName>,
       json_array_null<"long_transition_schedule",
@@ -105,7 +108,16 @@ struct json_data_contract<Commitment>
       json_array_null<"shutdown_trajectory",
                       std::vector<gtopt::Real>,
                       json_number_no_name<gtopt::Real>>,
-      json_number_null<"trajectory_step", OptReal>>;
+      json_number_null<"trajectory_step", OptReal>,
+      json_variant_null<"startup_wear_cost",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
+      json_variant_null<"wear_hour_cost",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
+      json_variant_null<"wear_load_cost",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>>;
 
   constexpr static auto to_json_data(Commitment const& obj)
   {
@@ -141,6 +153,7 @@ struct json_data_contract<Commitment>
                                  obj.commitment_period,
                                  obj.commitment_grid,
                                  obj.ramp_allowance,
+                                 obj.commitment_breaks,
                                  obj.cycle,
                                  obj.long_transition,
                                  obj.long_transition_schedule,
@@ -155,7 +168,10 @@ struct json_data_contract<Commitment>
                                  obj.uc_formulation,
                                  obj.startup_trajectory,
                                  obj.shutdown_trajectory,
-                                 obj.trajectory_step);
+                                 obj.trajectory_step,
+                                 obj.startup_wear_cost,
+                                 obj.wear_hour_cost,
+                                 obj.wear_load_cost);
   }
 };
 

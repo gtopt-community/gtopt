@@ -182,18 +182,28 @@ namespace
       // chronological, and ``model_options.prev_stage_link = stage``
       // (default; ``none`` keeps the legacy 0).  Horizon start /
       // later-phase first stage → nullopt, and resolve_single_param
-      // emits the boundary constant.
-      if (sc.options().prev_stage_link() != PrevStageLink::stage) {
+      // emits the boundary constant.  Under ``prev_stage_link = period``
+      // a periodic stage (typical day / week, ≥ 2 blocks) wraps to its
+      // OWN last block instead: the period repeats.
+      const auto link = sc.options().prev_stage_link();
+      if (link == PrevStageLink::none) {
         return std::nullopt;
       }
-      const auto [prev_stage, prev_phase] = sc.simulation().prev_stage(stage);
-      if (prev_stage == nullptr || prev_phase != nullptr
-          || prev_stage->blocks().empty() || !prev_stage->is_chronological())
+      if (link == PrevStageLink::period && stage.is_periodic()
+          && blocks.size() >= 2)
       {
-        return std::nullopt;
+        buid = blocks.back().uid();
+        lookup_suid = stage.uid();
+      } else {
+        const auto [prev_stage, prev_phase] = sc.simulation().prev_stage(stage);
+        if (prev_stage == nullptr || prev_phase != nullptr
+            || prev_stage->blocks().empty() || !prev_stage->is_chronological())
+        {
+          return std::nullopt;
+        }
+        lookup_suid = prev_stage->uid();
+        buid = prev_stage->blocks().back().uid();
       }
-      lookup_suid = prev_stage->uid();
-      buid = prev_stage->blocks().back().uid();
     } else {
       buid = std::prev(it)->uid();
     }

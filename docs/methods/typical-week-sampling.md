@@ -196,6 +196,67 @@ m = min(min_up_time, min_down_time): m ≥ 8 h → slow, 4 h grid;
 m ≥ 4 h → medium, 3 h; otherwise fast, 1 h.  The class of every unit
 is logged and written to the conversion notes.
 
+### Daily (non-uniform) commitment grid
+
+A uniform grid cannot hold the evening peak in one cell: the study
+wants the UC peak period as ONE commitment cell, 17:30–23:30 (6 h,
+holding the hourly samples 18..23), 3 h cells at sunrise and sunset and
+4 h cells elsewhere.  `commitment_breaks` gives the daily cell
+boundaries in hours of the day:
+
+```json
+"commitment_breaks": [3.5, 7.5, 10.5, 14.5, 17.5, 23.5]
+```
+
+→ 23:30–03:30 (4 h), 03:30–07:30 (4), 07:30–10:30 sunrise (3),
+10:30–14:30 midday (4), 14:30–17:30 sunset (3), 17:30–23:30 peak (6).
+The last cell wraps around midnight.
+
+* **Where.** Per unit on `Commitment.commitment_breaks` (wins), per
+  stage on `Stage.commitment_breaks` (e.g. a different sunrise /
+  sunset pattern per month), or as the planning default
+  `model_options.commitment_breaks`.  The stage / default lists apply
+  to the units without their own grid (`commitment_period`, or the
+  legacy `commitment_grid` `"block"` / `"cells"`); a unit with both
+  `commitment_breaks` and `commitment_period` is a validation error.
+  The grid is a property of the clock (sunrise, sunset, the evening
+  peak), shared by the whole fleet, so the planning / stage level is
+  the natural home; the per-unit field keeps the existing per-unit
+  grid design (a unit may still need its own cells).
+* **Clock.** Nodes are mapped by their clock time
+  `Stage.start_hour + t` (point stages: `Block.time`; block stages: the
+  block midpoint, so both stage types share the option).  The
+  converters write `start_hour` = the `--week-start` hour (12 for the
+  Wednesday 12:00 week; days start at 0).  Cells are half-open
+  [a, b): a node exactly on a boundary starts the later cell; the
+  closing Lobatto node t = T joins the last cell.
+* **Same rules as the uniform grid.** One u per cell holding a node,
+  v / w only at cell boundaries, min up / down and start windows in the
+  cells' real hours, `ramp_allowance = "boundary"` at cell
+  boundaries, and a cell with no node continues the previous cell's
+  status.
+* **Week start.** On a cyclic stage whose length is a whole number of
+  days (168 h) and that does not start on a break, the cell straddling
+  the period start (10:30–14:30 for a Wednesday-12:00 week) is two
+  pieces, [166.5, 168] and [0, 2.5); when both hold a node they are ONE
+  cell: v / w of the first piece are fixed at 0, so u is equal on both
+  and no start / stop happens at the wrap.  A periodic grid's dropped
+  closing node (node N ≡ node 0) needs nothing more.
+* **Converters.** `tcheby2gtopt convert` and the AEMO ISP expansion
+  converter (`python -m plexos2gtopt.aemo_isp_expansion`) take
+  `--commitment-breaks 3.5,7.5,10.5,14.5,17.5,23.5` (or `study` for
+  this pattern) → `model_options.commitment_breaks` + `Stage.start_hour`;
+  `tcheby2gtopt` then skips the per-unit class grids (an explicit
+  `--commitment-period NAME=H` still wins).  `--commitment-breaks-file
+  months.csv` (rows `month,breaks`, month 1..12 or `jan`..`dec`,
+  breaks blank / `;` separated or in the following columns) writes
+  `Stage.commitment_breaks` per stage by its calendar month; months
+  missing from the file use `--commitment-breaks` (none given: an
+  error).  Helpers: `gtopt_shared.point_sampling`
+  (`parse_commitment_breaks`, `read_commitment_breaks_file`,
+  `stage_commitment_fields`).  `plp2gtopt` has no week sampler and
+  does not expose it.
+
 The previous behaviours stay reachable:
 
 | Switch | Values | Effect |
@@ -203,6 +264,8 @@ The previous behaviours stay reachable:
 | `Commitment.commitment_grid` | unset / `overlay` (default) | point stages: uniform grid by node time, as above |
 | | `block` | point stages: one status per node (previous default) |
 | | `cells` (needs `commitment_period`) | point stages: periods as unions of quadrature cells (previous overlay) |
+| `commitment_breaks` (unit / `Stage` / `model_options`) | unset (default) | the uniform grids above (unchanged) |
+| | daily boundaries | the daily non-uniform grid (this section) |
 | `Commitment.ramp_allowance` | `boundary` (gtopt default) | only ramp rows crossing a period boundary get the SU / SD allowance |
 | | `period` | every block of a commitment period gets its period's SU / SD allowance (older, looser form); the converters write `boundary` explicitly on point stages |
 | `tcheby2gtopt convert --commitment-period-rule` | `class` (default) / `none` | per-unit grids / no `commitment_period` (previous) |

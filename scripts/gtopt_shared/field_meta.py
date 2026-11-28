@@ -158,6 +158,25 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "true when period_hours is set or sampling = 'point'.",
             None,
         ),
+        (
+            "start_hour",
+            _J_NUM,
+            False,
+            "Clock time of the stage start [h after midnight, taken modulo "
+            "24], e.g. 12 for a typical week from Wednesday 12:00. Only read "
+            "by the daily commitment grid (commitment_breaks). Default 0.",
+            None,
+        ),
+        (
+            "commitment_breaks",
+            _J_ARR,
+            False,
+            "Daily commitment grid of this stage: cell boundaries in hours of "
+            "the day, [0, 24), strictly increasing (e.g. a seasonal sunrise / "
+            "sunset pattern). Overrides model_options.commitment_breaks for "
+            "units without their own grid.",
+            None,
+        ),
     ],
     "scenario_array": [
         ("uid", _J_INT, True, "Unique scenario identifier", 1),
@@ -176,6 +195,15 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             False,
             "Optional 0-based PLP hydrology class index (metadata for "
             "provenance / post-processing; not consumed by the LP solver).",
+            None,
+        ),
+        (
+            "risk_index",
+            _J_NUM,
+            False,
+            "Optional ranking index for an exogenous social-risk tail "
+            "(model_options.risk_rank_by = index), e.g. a hydrology index "
+            "wet -> dry; risk_tail picks the side.",
             None,
         ),
     ],
@@ -266,6 +294,24 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Override global Kirchhoff setting for this bus (true/false)",
             None,
         ),
+        ("vmin_pu", _J_NUM, False, "LinDistFlow minimum voltage [p.u.]", None),
+        ("vmax_pu", _J_NUM, False, "LinDistFlow maximum voltage [p.u.]", None),
+        (
+            "reference_voltage",
+            _J_NUM,
+            False,
+            "LinDistFlow fixed voltage magnitude [p.u.] (slack bus; 1.0 when "
+            "only reference_theta is set)",
+            None,
+        ),
+        (
+            "shunt_q",
+            _J_NUM,
+            False,
+            "LinDistFlow shunt reactive injection at 1 p.u. [MVAr] "
+            "(capacitive > 0; injects shunt_q·|V|²)",
+            None,
+        ),
         ("description", _J_STR, False, "Optional free-text description", None),
     ],
     "line_array": [
@@ -317,6 +363,20 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             False,
             "Phase-shift angle φ [degrees] for PSTs (default 0); "
             "shifts Kirchhoff RHS by -σ_θ·φ_rad (per-stage schedule supported)",
+            None,
+        ),
+        (
+            "tap_ratio_min",
+            _J_NUM,
+            False,
+            "LinDistFlow optimised-tap lower bound [p.u.] (unset: tap_ratio)",
+            None,
+        ),
+        (
+            "tap_ratio_max",
+            _J_NUM,
+            False,
+            "LinDistFlow optimised-tap upper bound [p.u.] (unset: tap_ratio)",
             None,
         ),
         (
@@ -795,6 +855,24 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "to this generator.",
             None,
         ),
+        (
+            "outage_fraction",
+            _J_SCHED,
+            False,
+            "Maintenance outage fraction of the unit in [0, 1] per (stage, "
+            "block): output bounds scale by 1 - f (default: no outage)",
+            None,
+        ),
+        ("qmin", _J_NUM, False, "LinDistFlow minimum reactive output [MVAr]", None),
+        ("qmax", _J_NUM, False, "LinDistFlow maximum reactive output [MVAr]", None),
+        (
+            "power_factor",
+            _J_NUM,
+            False,
+            "LinDistFlow fixed signed power factor (Q = sign·tan(acos|pf|)·P; "
+            "negative = absorbing); ignored when qmin/qmax are set",
+            None,
+        ),
         ("capacity", _J_SCHED, False, "Initial installed capacity [MW]", None),
         (
             "expcap",
@@ -1202,6 +1280,17 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         (
+            "commitment_breaks",
+            _J_ARR,
+            False,
+            "Daily commitment grid: cell boundaries in hours of the day, "
+            "[0, 24), strictly increasing, e.g. [3.5, 7.5, 10.5, 14.5, 17.5, "
+            "23.5] (cells wrap around midnight). u on these cells, v / w only "
+            "at their boundaries. Exclusive with commitment_period; wins over "
+            "Stage / model_options.commitment_breaks.",
+            None,
+        ),
+        (
             "cycle",
             _J_STR,
             False,
@@ -1326,6 +1415,29 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             _J_NUM,
             False,
             "Power-based UC: spacing of the trajectory samples [h] (default 1).",
+            None,
+        ),
+        (
+            "startup_wear_cost",
+            _J_SCHED,
+            False,
+            "Wear part of one start [$/start], kept apart from startup_cost "
+            "(output startup_wear_cost); >= 0, default off",
+            None,
+        ),
+        (
+            "wear_hour_cost",
+            _J_SCHED,
+            False,
+            "Operation wear a [$/h] per committed hour (term a·u); >= 0, default off",
+            None,
+        ),
+        (
+            "wear_load_cost",
+            _J_SCHED,
+            False,
+            "Operation wear b [$/MWh] above the committed floor (term "
+            "b·(p − Pmin·u)), any sign; a + b·(Pmax − Pmin) >= 0",
             None,
         ),
     ],
@@ -1484,6 +1596,14 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             False,
             "Fixed O&M of the expansion capacity [$/MW-year], charged with the "
             "annuity on the capacity built",
+            None,
+        ),
+        (
+            "power_factor",
+            _J_NUM,
+            False,
+            "LinDistFlow signed power factor of the served load "
+            "(negative = leading); default unity",
             None,
         ),
         (
@@ -2009,7 +2129,65 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
         ("sendout_max", _J_NUM, False, "Max regasification rate [m³/h]", None),
         ("sendout_min", _J_NUM, False, "Min regasification rate [m³/h]", None),
+        (
+            "enforce_sendout",
+            _J_BOOL,
+            False,
+            "Enforce sendout_min/sendout_max on the linked draw (default 1)",
+            None,
+        ),
+        (
+            "use_generator_fuel_curve",
+            _J_BOOL,
+            False,
+            "Draw tank gas along each linked generator's own fuel curve",
+            None,
+        ),
+        (
+            "reserve_sustain_hours",
+            _J_NUM,
+            False,
+            "Gas backing of the linked units' up reserve [h] (unset = off)",
+            None,
+        ),
+        (
+            "reserve_gas_usage",
+            _J_NUM,
+            False,
+            "Expected up-reserve deployment burnt from the tank [MWh/MW/h]",
+            None,
+        ),
         ("delivery", _J_SCHED, False, "Scheduled LNG delivery [m³/stage]", None),
+        (
+            "delivery_cost",
+            _J_SCHED,
+            False,
+            "Contract purchase price of the deliveries [$/m³]",
+            None,
+        ),
+        ("spot_cargo_volume", _J_NUM, False, "Volume of one spot cargo [m³]", None),
+        (
+            "spot_cargo_max",
+            _J_SCHED,
+            False,
+            "Spot cargo arrival slots per stage (0 = none)",
+            None,
+        ),
+        ("spot_cost", _J_SCHED, False, "Spot LNG purchase price [$/m³]", None),
+        (
+            "spot_integer",
+            _J_BOOL,
+            False,
+            "Whole spot cargoes (MIP) when 1, continuous when 0 (default 0)",
+            None,
+        ),
+        (
+            "spot_annual_max",
+            _J_NUM,
+            False,
+            "Maximum spot cargoes per planning year (8760 h)",
+            None,
+        ),
         ("spillway_cost", _J_NUM, False, "Venting penalty cost [$/m³]", 100),
         ("spillway_capacity", _J_NUM, False, "Max venting rate [m³/h]", None),
         ("use_state_variable", _J_BOOL, False, "SDDP state (1=yes, 0=no)", 1),
@@ -2970,6 +3148,66 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             False,
             "Native BESS: down deployment energy of this provision charged to "
             "the SoC [MWh/MW/h]; overrides Battery.reserve_energy_usage_down",
+            None,
+        ),
+        (
+            "ur_partload_cost",
+            _J_SCHED,
+            False,
+            "SSCC: part-load efficiency penalty of holding up reserve "
+            "[$/MW·h], added to the provision cost (default off)",
+            None,
+        ),
+        (
+            "dr_partload_cost",
+            _J_SCHED,
+            False,
+            "SSCC: part-load penalty of holding down reserve [$/MW·h]",
+            None,
+        ),
+        (
+            "ur_activation_factor",
+            _J_SCHED,
+            False,
+            "SSCC: activation factor γ in [0, 1] — MWh deployed per MW·h of "
+            "up reserve held (default 0)",
+            None,
+        ),
+        (
+            "dr_activation_factor",
+            _J_SCHED,
+            False,
+            "SSCC: activation factor γ in [0, 1] of down reserve",
+            None,
+        ),
+        (
+            "ur_activation_cost",
+            _J_SCHED,
+            False,
+            "SSCC: cost of the deployed up energy [$/MWh] (default: generator "
+            "SRMC); adds γ·cost to the provision cost",
+            None,
+        ),
+        (
+            "dr_activation_cost",
+            _J_SCHED,
+            False,
+            "SSCC: cost of the deployed down energy [$/MWh] (default 0)",
+            None,
+        ),
+        (
+            "ur_degradation_cost",
+            _J_SCHED,
+            False,
+            "SSCC: degradation cost of deployed up throughput [$/MWh] (BESS); "
+            "adds γ·cost to the provision cost",
+            None,
+        ),
+        (
+            "dr_degradation_cost",
+            _J_SCHED,
+            False,
+            "SSCC: degradation cost of deployed down throughput [$/MWh]",
             None,
         ),
     ],
@@ -4593,6 +4831,14 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             _J_NUM,
             False,
             "Hours offline before the stage starts (pre-stage state).",
+            None,
+        ),
+        (
+            "cycle",
+            _J_STR,
+            False,
+            '"none" (default) or "stage": the breaker state wraps around '
+            "each stage (typical day / week); initial_status ignored",
             None,
         ),
     ],

@@ -1,0 +1,5 @@
+# Archivo de configuracion de almacenamiento de energia (plpess.dat)
+# Numero de ESS
+ 1
+# CenNom    nd    nc    mloss[%]   Emax     DCMax  [DCMod CenPC]
+  BESS1     1.00  1.00   0.0       200.0    50.0    0

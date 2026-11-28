@@ -54,7 +54,8 @@ struct json_data_contract<LineCommitment>
       json_number_null<"cold_start_cost", OptReal>,
       json_number_null<"hot_start_time", OptReal>,
       json_number_null<"cold_start_time", OptReal>,
-      json_number_null<"initial_hours", OptReal>>;
+      json_number_null<"initial_hours", OptReal>,
+      json_string_null<"cycle", OptName>>;
 
   constexpr static auto to_json_data(LineCommitment const& obj)
   {
@@ -81,7 +82,8 @@ struct json_data_contract<LineCommitment>
                                  obj.cold_start_cost,
                                  obj.hot_start_time,
                                  obj.cold_start_time,
-                                 obj.initial_hours);
+                                 obj.initial_hours,
+                                 obj.cycle);
   }
 };
 

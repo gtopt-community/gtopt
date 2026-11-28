@@ -121,7 +121,8 @@ struct json_data_contract<Demand>
       json_variant_null<"wacc", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"fixed_om_cost",
                         OptTRealFieldSched,
-                        jvtl_TRealFieldSched>>;
+                        jvtl_TRealFieldSched>,
+      json_number_null<"power_factor", OptReal>>;
 
   constexpr static auto to_json_data(Demand const& demand)
   {
@@ -149,7 +150,8 @@ struct json_data_contract<Demand>
                                  demand.overnight_capcost,
                                  demand.economic_life,
                                  demand.wacc,
-                                 demand.fixed_om_cost);
+                                 demand.fixed_om_cost,
+                                 demand.power_factor);
   }
 };
 

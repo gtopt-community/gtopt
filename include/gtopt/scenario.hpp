@@ -50,6 +50,13 @@ struct Scenario
   /// tools can trace each scenario back to its original PLP hydrology.
   OptInt hydrology {};
 
+  /// @brief Optional ranking index of the scenario for an exogenous risk
+  /// tail (`model_options.risk_rank_by = "index"`), e.g. a hydrology
+  /// index (inflow energy, exceedance probability) or an expected
+  /// unserved energy.  `risk_tail` picks the side (`upper` = highest
+  /// values).  Not used by the default expected-cost LP.
+  OptReal risk_index {};
+
   static constexpr std::string_view class_name = "scenario";
 
   [[nodiscard]] constexpr auto is_active() const noexcept

@@ -241,6 +241,11 @@ MODEL_OPTION_KEYS: frozenset[str] = frozenset(
         "continuous_phases",
         "pricing_mode",
         "fast_start_max_hours",
+        "risk_measure",
+        "cvar_alpha",
+        "cvar_weight",
+        "risk_rank_by",
+        "risk_tail",
         "transition_integrality",
         "transition_status_rows",  # removed 2026-11-26: parsed, ignored
         "startup_tier_integrality",
@@ -262,11 +267,15 @@ MODEL_OPTION_KEYS: frozenset[str] = frozenset(
         "loss_segment_bound",
         "line_thermal_limit_mode",
         "line_direction_mode",
+        "network_model",
+        "mva_polygon_sides",
         "prev_stage_link",
         "use_line_dlr",
         "dlr_limit_mode",
         "overload_slack_bound",
         "max_overload_ratio",
+        "outage_reserve_mode",
+        "periodic_storage",
         "theta_max",
         "auto_scale",
         "state_violation_cost",
@@ -285,6 +294,7 @@ MODEL_OPTION_KEYS: frozenset[str] = frozenset(
         "reservoir_storage_integration",
         "battery_storage_integration",
         "long_transition",
+        "commitment_breaks",
     }
 )
 
@@ -420,6 +430,41 @@ OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         "(LP relaxation of the MIP) or 'fast_start' (fixed except fast-start "
         "commitments).  Dispatch is unchanged.",
         "fixed",
+    ),
+    (
+        "risk_measure",
+        "[model] Social (planner / regulator) risk measure of the scenario "
+        "costs: 'expected' (default, risk-neutral), 'cvar' (tail weighted "
+        "up) or 'trim' (tail excluded), blended with the expectation by "
+        "cvar_weight; tail of mass 1 - cvar_alpha chosen by risk_rank_by / "
+        "risk_tail.  Monolithic single-phase only.  Use instead of a risk "
+        "premium in the wacc, never on top of one.",
+        "expected",
+    ),
+    (
+        "cvar_alpha",
+        "[model] CVaR tail level alpha in [0, 1): CVaR averages the worst "
+        "(1 - alpha) share of scenario costs (default: 0.95)",
+        0.95,
+    ),
+    (
+        "cvar_weight",
+        "[model] Weight lambda in [0, 1] of CVaR in the mean-CVaR objective "
+        "(default: 0.5)",
+        0.5,
+    ),
+    (
+        "risk_rank_by",
+        "[model] Tail ranking of risk_measure: 'cost' (default, endogenous "
+        "system cost, upper-tail cvar only) or 'index' (exogenous "
+        "Scenario.risk_index, e.g. a hydrology index)",
+        "cost",
+    ),
+    (
+        "risk_tail",
+        "[model] Tail side: 'upper' (default, highest cost / index) or "
+        "'lower' (lowest index; index ranking only)",
+        "upper",
     ),
     (
         "fast_start_max_hours",
@@ -744,6 +789,13 @@ OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         None,
     ),
     (
+        "output_usage_metrics",
+        "Write the per-block usage-accounting streams (Generator/usage_on, "
+        "usage_ramp, Commitment/usage_pmin, usage_at_pmin) for gtopt_usage; "
+        "output only (default false)",
+        None,
+    ),
+    (
         "build_mode",
         'How per-cell `SystemLP` objects are assembled: `"serial"`, `"scene-parallel"`, '
         '`"full-parallel"`, `"direct-parallel"`',
@@ -1053,6 +1105,19 @@ OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         None,
     ),
     (
+        "network_model",
+        "[model] Network power-flow model: `dc` (default; transport / DC power flow) "
+        "or `lindistflow` (linearised DistFlow: squared voltages, reactive power, "
+        "taps, MVA polygons)",
+        None,
+    ),
+    (
+        "mva_polygon_sides",
+        "[model] Sides of the line MVA polygon under `lindistflow` (default 8; 0 = "
+        "only the active-power limit)",
+        None,
+    ),
+    (
         "line_direction_mode",
         "[model] Radial-line flow-direction certificate: `off` (default, today's LP), "
         "`report` (log the classification only), `structural` (one-way and dead-end "
@@ -1062,7 +1127,8 @@ OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     (
         "prev_stage_link",
         "[model] What a user-constraint `<attr>_prev` term reads at the first block of a stage "
-        "whose previous stage is in the same phase: `stage` = that stage's last block",
+        "whose previous stage is in the same phase: `stage` = that stage's last block, "
+        "`none` = 0, `period` = on a periodic stage its own last block (the cycle wraps)",
         None,
     ),
     (
@@ -1081,6 +1147,20 @@ OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         "max_overload_ratio",
         "[model] Overload headroom as a fraction of the normal threshold (slack ≤ +150 %, flow ≤ "
         "2.5 × normal)",
+        None,
+    ),
+    (
+        "outage_reserve_mode",
+        "[model] Reserve reaction to Generator.outage_fraction (maintenance): "
+        "'none' (default; only the headroom shrinks), 'proportional' "
+        "(urmax/drmax scaled by 1 - f) or 'exclude' (no reserve while f > 0)",
+        "none",
+    ),
+    (
+        "periodic_storage",
+        "[model] Storages on periodic stages: `true` = a `daily_cycle` storage starts each "
+        "periodic stage free and closes on itself, a state storage runs one real cycle and "
+        "ends at `s + n (x_last - s)`; unset / `false` = the legacy chained rules",
         None,
     ),
     (
@@ -1137,6 +1217,12 @@ OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     (
         "long_transition",
         "[model] Default Commitment.long_transition: `on`, `off` or `no_uc`",
+        None,
+    ),
+    (
+        "commitment_breaks",
+        "[model] Default daily commitment grid: cell boundaries in hours of "
+        "the day (JSON array, e.g. [3.5, 7.5, 10.5, 14.5, 17.5, 23.5])",
         None,
     ),
     (

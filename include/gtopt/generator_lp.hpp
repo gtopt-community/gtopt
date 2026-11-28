@@ -33,6 +33,8 @@ class GeneratorLP : public CapacityObjectLP<Generator>
 public:
   static constexpr std::string_view GenerationName {"generation"};
   static constexpr std::string_view CapacityName {"capacity"};
+  /// LinDistFlow reactive output column (`qmin`/`qmax` set).
+  static constexpr std::string_view QgenName {"qgen"};
   /// PAMPL-visible slack column name for the convex piecewise heat-rate
   /// encoding.  Disambiguated by segment index via the outer vector
   /// `heat_rate_slack_cols_` (one holder per segment k = 1..K-1).
@@ -47,6 +49,13 @@ public:
   /// PAMPL-visible row name for the soft-`pmin` floor
   /// `generation + unserved ≥ pmin`.
   static constexpr std::string_view PminSoftName {"pmin_soft"};
+  /// Usage-accounting output streams (`options.output_usage_metrics`).
+  static constexpr std::string_view UsageOnName {"usage_on"};
+  static constexpr std::string_view UsageRampName {"usage_ramp"};
+  /// Applied maintenance outage fraction output (`outage_fraction_sol`).
+  static constexpr std::string_view OutageFractionName {"outage_fraction"};
+  /// Dispatch above which a block counts as an operating hour [MW].
+  static constexpr double usage_on_threshold = 1e-6;
   /// Filter metadata keys published by `add_to_lp` for `sum(...)`
   /// predicate matching.
   static constexpr std::string_view TypeKey {"type"};
@@ -82,6 +91,13 @@ public:
                                  const StageLP& stage) const
   {
     return generation_cols.at({scenario.uid(), stage.uid()});
+  }
+
+  /// LinDistFlow reactive-output columns (empty unless `qmin`/`qmax`).
+  [[nodiscard]] constexpr const auto& qgen_cols_at(const ScenarioLP& scenario,
+                                                   const StageLP& stage) const
+  {
+    return find_or_empty_inner(qgen_cols, scenario, stage);
   }
 
   /// Per-(scenario, stage) map of `unserved` soft-`pmin` slack columns,
@@ -139,6 +155,29 @@ public:
   [[nodiscard]] auto param_gcost(StageUid s, BlockUid b) const
   {
     return gcost.at(s, b);
+  }
+  /// Short-run marginal cost (VOM + active-segment fuel, $/MWh) of the
+  /// generation column at (scenario, stage, block), as built by
+  /// `add_to_lp`; nullopt when the block has no generation column.
+  [[nodiscard]] std::optional<double> srmc_at(const ScenarioLP& scenario,
+                                              const StageLP& stage,
+                                              BlockUid buid) const noexcept
+  {
+    return lookup_inner(srmc_values_, scenario, stage, buid);
+  }
+  /// Available fraction `1 − outage_fraction` of the unit applied at
+  /// (scenario, stage, block); 1 when no outage is scheduled there.
+  [[nodiscard]] double available_fraction_at(const ScenarioLP& scenario,
+                                             const StageLP& stage,
+                                             BlockUid buid) const noexcept
+  {
+    return lookup_inner(available_fraction_, scenario, stage, buid)
+        .value_or(1.0);
+  }
+  /// True when the generator carries an `outage_fraction` schedule.
+  [[nodiscard]] bool has_outage_schedule() const noexcept
+  {
+    return outage_fraction.has_value();
   }
   [[nodiscard]] auto param_heat_rate(StageUid s, BlockUid b) const
   {
@@ -238,6 +277,9 @@ public:
   }
 
 private:
+  /// `options.output_usage_metrics` streams (see `add_to_output`).
+  void add_usage_to_output(OutputContext& out) const;
+
   OptTBRealSched pmin;
   OptTBRealSched pmax;
   OptTBRealSched lossfactor;
@@ -245,6 +287,12 @@ private:
   OptTBRealSched pmin_fcost;
   OptTBRealSched heat_rate;
   OptTBRealSched emission_rate;
+  /// Maintenance outage fraction `f` (see `Generator::outage_fraction`).
+  OptTBRealSched outage_fraction;
+  /// Available fraction `1 − f` applied per block (only blocks whose
+  /// `outage_fraction` is set; absent = 1).  Read by ReserveProvisionLP
+  /// (`available_fraction_at`) and written as `outage_fraction`.
+  STBIndexHolder<double> available_fraction_;
   /// Resolved per-(stage, block) fuel-uid override; backs
   /// `param_fuel_per_block` / `has_fuel_per_block`.  Mirrors
   /// `Generator.fuel_per_block` after `InputContext` array-index
@@ -256,6 +304,7 @@ private:
   STBIndexHolder<ColIndex> generation_cols;
   /// `unserved` soft-`pmin` slack columns (see `lookup_unserved_cols`).
   STBIndexHolder<ColIndex> unserved_cols;
+  STBIndexHolder<ColIndex> qgen_cols;  ///< LinDistFlow reactive output
   STBIndexHolder<RowIndex> capacity_rows;
   /// `[segment_index] -> STBIndexHolder<ColIndex>` of piecewise slack
   /// columns.  Outer vector has size `K - 1` where `K` is the number

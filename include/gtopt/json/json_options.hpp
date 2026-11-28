@@ -56,6 +56,7 @@ struct PlanningOptionsConstructor
       OptName output_format_str,
       OptName output_compression_str,
       OptInt output_round_decimals,
+      OptBool output_usage_metrics,
       OptBool use_uid_fname,
       OptName method_str,
       OptName build_mode_str,
@@ -110,6 +111,7 @@ struct PlanningOptionsConstructor
           "output_compression", *output_compression_str);
     }
     opts.output_round_decimals = output_round_decimals;
+    opts.output_usage_metrics = output_usage_metrics;
     opts.use_uid_fname = use_uid_fname;
     if (method_str) {
       opts.method = gtopt::require_enum<MethodType>("method", *method_str);
@@ -175,6 +177,7 @@ struct json_data_contract<PlanningOptions>
                        json_string_null<"output_format", OptName>,
                        json_string_null<"output_compression", OptName>,
                        json_number_null<"output_round_decimals", OptInt>,
+                       json_bool_null<"output_usage_metrics", OptBool>,
                        json_bool_null<"use_uid_fname", OptBool>,
 
                        json_string_null<"method", OptName>,
@@ -216,6 +219,7 @@ struct json_data_contract<PlanningOptions>
         detail::enum_to_opt_name(opt.output_format),
         detail::enum_to_opt_name(opt.output_compression),
         opt.output_round_decimals,
+        opt.output_usage_metrics,
         opt.use_uid_fname,
 
         detail::enum_to_opt_name(opt.method),

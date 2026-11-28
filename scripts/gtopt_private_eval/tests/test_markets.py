@@ -353,6 +353,12 @@ def test_insurance_warranty_guarantee_lines(gen_case: Callable[..., Path]) -> No
     assert out["insurance"] == pytest.approx(0.005 * 50e6)
     assert out["warranty"] == pytest.approx(0.001 * 50e6 + 2.0 * 50_000)
     assert out["guarantee_fee"] == pytest.approx([0.1 * 50e6 * 0.02] * 2 + [0.0])
+    # insurance already inside the fixed O&M: no separate line
+    ctx_in, proj_in = _ctx(
+        gen_case,
+        finance={"insurance_pct_capex": 0.005, "insurance_in_fom": True},
+    )
+    assert "insurance" not in risk_costs(ctx_in, proj_in, 50e6)
     prm = _params(
         finance={
             "insurance_pct_capex": 0.005,
@@ -406,4 +412,5 @@ def test_cl_cen_payment_guarantee(gen_case: Callable[..., Path]) -> None:
         == 0.0
     )
     proj.rows = []
+    ctx.cache.clear()  # the amount is fixed once per project
     assert m.cen_guarantee_amount(ctx, proj) == 0.0

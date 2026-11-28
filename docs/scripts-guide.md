@@ -23,6 +23,7 @@ preparing, converting, visualizing, and post-processing data for use with GTOpt.
     [gtopt2plexos](scripts/gtopt2plexos.md) — export a gtopt case to PLP /
     PSR SDDP `.dat` files / a PLEXOS dataset (+ PLEXOS solution tables)
   - [psse2gtopt](#psse2gtopt) · [full docs](scripts/psse2gtopt.md)
+  - [opendss2gtopt / gtopt2opendss](#opendss2gtopt) · [full docs](scripts/opendss2gtopt.md)
   - [pp2gtopt](#pp2gtopt) · [full docs](scripts/pp2gtopt.md)
   - [nrel118_to_gtopt](#nrel118_to_gtopt) · [full docs](scripts/nrel118_to_gtopt.md)
   - [cucdata2gtopt](#cucdata2gtopt) · [full docs](scripts/cucdata2gtopt.md)
@@ -147,6 +148,8 @@ One line per console script installed by `pip install ./scripts`:
 | `gtopt2sddp` | gtopt JSON → PSR SDDP `.dat` block study (read back by `sddp2gtopt`) | [gtopt2sddp](scripts/gtopt2sddp.md) |
 | `gtopt2plexos` | gtopt JSON → PLEXOS MasterDataSet XML + Data Files (read back by `plexos2gtopt`); gtopt results → PLEXOS solution tables | [gtopt2plexos](scripts/gtopt2plexos.md) |
 | `psse2gtopt` | PSS®E RAW → gtopt DC OPF case | [psse2gtopt](scripts/psse2gtopt.md) |
+| `opendss2gtopt` | OpenDSS `.dss` distribution circuit → gtopt (DC or LinDistFlow) case | [opendss2gtopt](scripts/opendss2gtopt.md) |
+| `gtopt2opendss` | gtopt case (+ solved dispatch) → OpenDSS script for AC validation | [opendss2gtopt](scripts/opendss2gtopt.md) |
 | `gasnet2gtopt` | `*.gasnet.json` gas network + power system → gtopt JSON with native gas elements | [gasnet2gtopt](scripts/gasnet2gtopt.md) |
 | `pp2gtopt` | pandapower network → gtopt JSON | [pp2gtopt](scripts/pp2gtopt.md) |
 | `gtopt2pp` | gtopt JSON → pandapower network | [gtopt2pp](#gtopt2pp) |
@@ -783,6 +786,29 @@ costs), loads → `Demand`.  Optional AMM side-car inputs: `--nomenclatura`
 psse2gtopt --info case.raw                 # case summary
 psse2gtopt -i case.raw -o gtopt_case        # convert
 gtopt -s gtopt_case/gtopt_case.json --set output_directory=out  # solve DC OPF
+```
+
+---
+
+## opendss2gtopt
+
+> **[→ Full documentation](scripts/opendss2gtopt.md)**
+
+Converts an **OpenDSS** distribution circuit (`.dss` script; own parser,
+no engine needed) into a gtopt planning: the phase-coordinate circuit is
+reduced to a balanced single-phase equivalent (lines, transformers,
+regulator banks with optimisable taps, loads, generators, PV, storage,
+capacitors, daily load shapes).  `--network-model lindistflow` writes
+the distribution fields (voltage limits, reactive power, taps,
+capacitors).  `gtopt2opendss` writes a gtopt case and its solved
+dispatch back as an OpenDSS script, so an AC power flow (through the
+optional `opendssdirect.py`) validates gtopt's voltages and losses.
+
+```bash
+opendss2gtopt --info IEEE13Nodeckt.dss
+opendss2gtopt IEEE13Nodeckt.dss -o ieee13 --network-model lindistflow
+gtopt ieee13/ieee13.json -d ieee13/out
+gtopt2opendss ieee13/ieee13.json -r ieee13/out --solve
 ```
 
 ---

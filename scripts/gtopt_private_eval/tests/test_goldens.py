@@ -42,7 +42,13 @@ def _params(cfg_name: str, **sets: object) -> Params:
 @pytest.mark.parametrize(("rel", "cfg"), CASES)
 def test_lp_zero_npv_planning_equivalent(rel: str, cfg: str) -> None:
     sysd = load_system(golden(rel))
-    prm = _params(cfg, finance__fom_pct_capex=0.0, finance__risk_costs=False)
+    # the theorem holds for the plan's flat (base-year) costs and prices
+    prm = _params(
+        cfg,
+        finance__fom_pct_capex=0.0,
+        finance__risk_costs=False,
+        finance__fuel_trajectory__enabled=False,
+    )
     rep = evaluate(sysd, prm, "energy_only")
     assert rep.projects
     for p in rep.projects:

@@ -1,0 +1,16 @@
+{
+  "_comment": "cases/invest_bat_1b, merchant battery: stream-specific rates (finance.stream_rates). Energy arbitrage at a merchant 10 %, fixed costs near the cost of debt 5 %. See docs/methods/private-investment-literature.md §6-§7.",
+  "finance": {
+    "wacc": 0.08,
+    "stream_rates": {
+      "method": "rate",
+      "rates": {"energy": 0.10, "contract": 0.05, "om": 0.05, "fuel": 0.04}
+    }
+  },
+  "projects": {
+    "bess": {"technology": "bess", "overnight_capcost": 200000, "power_overnight_capcost": 100000, "economic_life": 15},
+    "solar": {"technology": "solar_pv"},
+    "coal": {"technology": "coal"},
+    "gas": {"technology": "ocgt"}
+  }
+}

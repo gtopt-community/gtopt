@@ -433,6 +433,55 @@ TEST_CASE("BESS reserve: down SoC room and discharge credit")  // NOLINT
   }
 }
 
+TEST_CASE("BESS reserve: down reserve by charging needs SoC room")  // NOLINT
+{
+  // Down reserve = less discharge + more charge:
+  //   pc + r_dn <= Pc (charge side; + pd with the discharge credit) and
+  //   e + T·ηc·r_dn <= emax.  BESS 50/50 MW, emax 100, T = 1, down
+  // requirement 40 (BESS only), no must-run, shortage 1e4 $/MW.
+  BessCase c;
+  c.mustrun = 0.0;
+  c.drreq = 40.0;
+  c.g1_down = false;
+
+  SUBCASE("idle, not full: offers down reserve by charging")
+  {
+    c.demand = 0.0;
+    c.eini = 50.0;
+    const auto r = solve(c);
+    CHECK(r.pd == doctest::Approx(0.0));
+    CHECK(r.pc == doctest::Approx(0.0));
+    CHECK(r.r_dn >= 40.0 - 1e-6);  // free above the requirement (<= 50)
+    CHECK(r.r_dn <= 50.0 + 1e-6);
+    CHECK(r.obj == doctest::Approx(0.0).epsilon(1e-9));
+  }
+  SUBCASE("idle, full: no room, no down reserve")
+  {
+    c.demand = 0.0;
+    c.eini = 100.0;
+    const auto r = solve(c);
+    CHECK(r.pd == doctest::Approx(0.0));
+    CHECK(r.r_dn == doctest::Approx(0.0));
+    CHECK(r.obj == doctest::Approx(40.0 * 1.0e4));
+  }
+  SUBCASE("discharging, full: down reserve up to its discharge")
+  {
+    c.demand = 30.0;  // served by the BESS (free stored energy)
+    c.eini = 100.0;
+    for (const auto* native :
+         {R"("reserve_sustain_hours": 1.0,)",
+          R"("reserve_sustain_hours": 1.0, "reserve_discharge_credit": true,)"})
+    {
+      c.native = native;
+      const auto r = solve(c);
+      CHECK(r.pd == doctest::Approx(30.0));
+      CHECK(r.soc == doctest::Approx(70.0));
+      CHECK(r.r_dn == doctest::Approx(30.0));  // e + r <= 100
+      CHECK(r.obj == doctest::Approx(10.0 * 1.0e4));
+    }
+  }
+}
+
 TEST_CASE("BESS reserve: per-side response caps (PLEXOS Max Response)")
 // NOLINT
 {

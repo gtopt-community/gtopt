@@ -1140,9 +1140,10 @@ class GTOptWriter(
         # unset value is 1000 $/MWh): PLP has no global curtailment cost,
         # and any plp2gtopt demand without an explicit fcost must stay
         # freely dispatchable in [0, lmax].  The ESS/battery charge
-        # demands (``BatteryWriter.to_demand_array`` → ``<name>_chrg``)
-        # additionally pin ``fcost = 0`` so a user-supplied positive
-        # global cannot force them to charge at lmax.  (Commit 77a90e91
+        # demands (``System::expand_batteries`` → ``<name>_dem``) get
+        # their own fcost regime from ``Battery.charge_cost`` so a
+        # user-supplied positive global cannot force them to charge at
+        # lmax.  (Commit 77a90e91
         # tried to default the global to ``max(falla.gcost)`` via
         # ``self.central_parser``, an attribute GTOptWriter never had;
         # the AttributeError was swallowed, so the global silently stayed

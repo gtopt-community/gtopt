@@ -32,6 +32,10 @@ class BusLP : public ObjectLP<Bus>
 public:
   static constexpr std::string_view BalanceName {"balance"};
   static constexpr std::string_view ThetaName {"theta"};
+  /// LinDistFlow squared voltage magnitude `w = |V|²` [p.u.²].
+  static constexpr std::string_view VsqName {"vsq"};
+  /// LinDistFlow reactive-power balance row.
+  static constexpr std::string_view QBalanceName {"qbalance"};
   /// Metadata key published by `add_to_lp` so user-constraint filters
   /// can match buses by their `type` field (e.g. `bus[type="hydro"]`).
   static constexpr std::string_view TypeKey {"type"};
@@ -88,6 +92,22 @@ public:
     return balance_rows.at({scenario.uid(), stage.uid()});
   }
 
+  /// LinDistFlow `w` columns of (scenario, stage); empty when the
+  /// model is off or the bus is inactive.
+  [[nodiscard]] const BIndexHolder<ColIndex>& vsq_cols_at(
+      const ScenarioLP& scenario, const StageLP& stage) const
+  {
+    return find_or_empty_inner(vsq_cols, scenario, stage);
+  }
+
+  /// LinDistFlow reactive balance rows of (scenario, stage); empty when
+  /// the model is off or the bus is inactive.
+  [[nodiscard]] const BIndexHolder<RowIndex>& qbalance_rows_at(
+      const ScenarioLP& scenario, const StageLP& stage) const
+  {
+    return find_or_empty_inner(qbalance_rows, scenario, stage);
+  }
+
   [[nodiscard]]
   constexpr auto theta_cols_at(const SystemContext& sc,
                                const ScenarioLP& scenario,
@@ -116,6 +136,10 @@ public:
   }
 
 private:
+  void add_lindistflow(const ScenarioLP& scenario,
+                       const StageLP& stage,
+                       LinearProblem& lp);
+
   [[nodiscard]]
   auto lazy_add_theta(const SystemContext& sc,
                       const ScenarioLP& scenario,
@@ -125,6 +149,8 @@ private:
       -> const BIndexHolder<ColIndex>&;
 
   STBIndexHolder<RowIndex> balance_rows;
+  STBIndexHolder<ColIndex> vsq_cols;
+  STBIndexHolder<RowIndex> qbalance_rows;
   mutable STBIndexHolder<ColIndex> theta_cols;
 };
 

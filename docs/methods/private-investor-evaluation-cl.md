@@ -63,9 +63,60 @@ peaker's annuity) even without unserved energy.  `cl` therefore caps
 the price at the highest generator cost of the case (`scarcity_cap:
 "case"`, or a number) and reports the removed rent as
 `scarcity_excluded`; a case with unserved energy is flagged in the
-report.  The failure cost of the Chile cases is the CNE *costo de falla
+report.  `scarcity_cap: "dispatched"` caps each period at the cost of
+the most expensive unit *running* in it (× 1 + `scarcity_cap_margin`
+for nodal loss factors) — on a large case the highest cost of any unit
+(an emergency diesel that never runs) caps nothing.  The failure cost of the Chile cases is the CNE *costo de falla
 de larga duración* of the SEN, 0–5 % depth: **795.11 US\$/MWh**
 (short-duration: 13.73 US\$/kWh) [C36].
+
+**Declared variable cost.**  The CMg is set by the variable costs that
+the generators **declare** to the CEN (fuel and non-fuel components),
+not by market fuel prices.  `cl` therefore takes each thermal unit's
+variable cost as its declared cost.  In the demo cases the case's
+`gcost` stands in for that declared cost.  Because the declared cost
+sets the price, fuel is not a separate low-risk stream: with
+`finance.stream_rates`, `cl` nets fuel, VOM and green tax with the
+energy revenue, so the risky stream is the margin
+(CMg − declared cost) × dispatch.  Fixed O&M (2 % of capex), insurance
+and warranty are discounted with the capital, at the project WACC.  See
+[private investor evaluation §2.3](private-investor-evaluation.md#23-stream-specific-discount-rates).
+
+**Part-load specific consumption.**  The declared CEN (consumo
+específico) is one value per unit, operating configuration and fuel:
+the CNE annex *Determinación de Consumos Específicos* measures at least
+7 load points (art. 27a) but the Coordinador then establishes one CEN
+per operating mode (art. 25), and the CEN PCP PLEXOS bundles and the
+PLP files carry only that scalar (`Heat Rate`, `CosVar`).  The measured
+curves exist only as PDF test reports / CEN letters referenced by the
+Infotécnica field 11.1.41; Infotécnica also lists, for steam units only,
+operator datasheet values at potencia máxima and mínima (13.2.1, mixed
+units and certification).  So the `cl` default is flat: a declared curve
+(`pmax_segments` / `heat_rate_segments` with `Commitment.noload_fuel`)
+is used — in the dispatch and in the cash variable cost at the
+dispatched point — only when the case provides one; the CEN's split of
+a plant into configurations (e.g. TG, TG+TV, duct firing "FA") is the
+declared multi-level information available today.
+
+**Projected declared costs.**  The declared cost is
+$\mathrm{CV} = \mathrm{CEN}\cdot\mathrm{CC} + \mathrm{CVNC}$
+(specific consumption × declared fuel cost + non-fuel variable cost).
+It is re-declared whenever an input changes (NT de Costos Variables,
+art. 2-52, 2-18) [C38], and the CEN publishes the fuel cost and the
+CVNC of each unit separately (art. 2-5) [C38], [C39].  Over the project
+life `cl` uses **only** declared base × the IEA WEO 2026 fuel-price
+index (STEPS by default), applied to the fuel component CEN·CC.  It
+never uses heat rate × an estimated market fuel price, and it raises an
+error when a fuel-burning project has no declared cost (or case cost),
+or has an estimate instead.  When the declared cost is not split, the
+index applies to the whole cost and the report flags it.  The CNE uses
+the same method for its short-term node price: CEN-declared costs ×
+fuel modulation factors, 2026 = 1, for coal, LNG and Brent [C40].  Its
+factors can be passed as a user index for a cross-check.  The CMg of the
+solved case is scaled in hours set by a fuel-burning unit; this is an
+approximation, and the consistent option is to rerun gtopt with the
+projected costs.  Method, table and results:
+[private investor evaluation §1.5](private-investor-evaluation.md#15-fuel-cost-trajectories).
 
 ### 1.2 Pago por potencia de suficiencia
 
@@ -151,10 +202,57 @@ $`k = D_{\text{punta}}/\sum P^{\text{suf}}_{\text{pre}}`$ is computed **from the
 solved case** (`prorate: case`: peak of served + unserved load over all
 units of the case, existing and new) and capped at 1 (`prorate_cap`;
 the unit is not paid above its preliminary sufficiency — an
-assumption), or given (`prorate: 0.8`), or off (`none`).  The factors
-for thermal (0.85–0.92), wind (0.25) and PV (0.02, the 52 peak hours are
-in the evening) are **assumptions** from the NT rules; CEN publishes the
-per-unit values only as calculation datasets [C10].
+assumption), or given (`prorate: 0.8`), or off (`none`).  The default
+factors are the CEN 2025 definitive calculation per technology
+(capacity-weighted *Pini*/Pmax × median *Psuf pre*/*Pini*) [C41]:
+coal 0.78, CCGT 0.76, OCGT 0.82, diesel 0.92, hydro 0.60, wind 0.24,
+PV 0.26, other thermal 0.80.  PV and wind are **not** ~0: their
+initial capacity is min(lowest annual plant factor of the last 5
+years, mean plant factor in the 52 highest hours of the *annual* load
+curve) [C10, C41] — the evening *período de control de punta* bills
+the clients, not the generators' sufficiency.
+
+**From the case (`sufficiency_method: case`).**  On a real case (many
+units, several hydrologies, monthly stages) the factors and the peak
+come from the solved case instead of the tables:
+
+* *demanda de punta* = mean load of the **52 highest hours of the
+  year** (`peak_hours: 52`; `peak_window: {}` = whole year, the CEN
+  rule [C41]), per scenario, probability-weighted; each chronological
+  hour of `simulation.block_hour_map` takes its block's load (no map:
+  the highest-load blocks, by duration).  `peak_window` can restrict
+  the hours, e.g. to the clients' control period (`months: [4..9]`,
+  `hours: [19..22]`, `working_days: true`);
+* hydro (`hydro_technologies`): mean output in those hours in the
+  `dry_hydrologies` (2) scenarios with the least hydro energy — the
+  case's scenarios play the hydrologies of the NT (*"the 2 driest
+  years"*);
+* PV and wind (`profile_technologies`): min(lowest annual capacity
+  factor over the scenarios, mean capacity factor in the peak hours),
+  from the availability profile (the dispatch when there is none).
+  A case whose blocks cannot resolve the peak hours — all of them fall
+  in fewer than `min_peak_blocks` (3) distinct blocks, as with
+  load-duration blocks, where the 52 hours are one evening block —
+  uses the annual factor alone (`renewable_peak_rule: auto`; `min`
+  forces the CEN rule, `annual` the annual factor); `details` report
+  `peak_blocks` and `peak_resolved`;
+* thermal: the table; storage: the DS 70 table;
+* every unit enters the pie with the MW it has in service,
+  time-weighted over the horizon (`pmax` schedule ∧ `capacity`; a unit
+  in service half the year counts half, as the CEN sub-periods do);
+  every battery of the case is in the pie, existing or built (an
+  inline or file `pmax_discharge` schedule sets its entry); unbuilt
+  candidates are not;
+  `sufficiency_exclude` (fnmatch) drops duplicated fuel modes of one
+  plant (PLP `*_DIE` units);
+  `unit_sufficiency_factors` ({fnmatch: factor}) gives named units
+  their own factor (e.g. the plant's CEN value), in both methods.
+
+The technology of a unit is the project mapping, else the element's
+`type` field (`technology_types`: `solar` → `solar_pv`, `hydro_ror` →
+`hydro`, …, as `plp2gtopt` writes it), else name hints (`_FV`, `_EO`,
+…).  The report's `details` give per project the factor, the
+preliminary and definitive MW, the pie factor and the peak demand.
 
 Caveats: the storage factor is the 10-year transitory rule (to 2034);
 the permanent peak-shaving method gives less to long fleets of
@@ -177,7 +275,15 @@ SSCC cost ≈ 3.70 US\$/MWh of energy (Oct-2024–Oct-2025, *via press*)
 
 **In `cl`.**  If the gtopt case co-optimises reserves
 (`reserve_zone_array` / `reserve_provision_array`), the revenue is
-Σ h·Σ_z (|μ_up,z|·up + |μ_dn,z|·dn) at the zone requirement duals.
+Σ h·Σ_z (|μ_up,z|·up + |μ_dn,z|·dn) at the zone requirement duals,
+with `up` / `dn` the provisions the LP dispatched
+(`ReserveProvision/uprovision_sol`, `dprovision_sol`), never the
+nameplate or `urmax`.  For gas units fed from an `LngTerminal` with
+`reserve_sustain_hours`, those provisions are already gas-backed: up
+reserve needs gas in the tank for the sustain hours (and send-out
+headroom), down reserve needs the unit to be generating
+(r_dn ≤ P − Pmin), so an empty tank earns no SSCC.  A battery can also
+offer down reserve by charging (room below `emax`).
 Otherwise an assumption: new MW × `share` × `price` × 8760 — default
 BESS 20 %, OCGT / CCGT / hydro 10 %, at 2.9 US\$/MW-h (CSF+ mean bid).
 This is small (0.4 M\$/yr for the 84-MW battery); the market
@@ -275,9 +381,13 @@ in proportion to the deficit.
 `ppa_withdrawal_share` × the project's yearly energy (or `contract_mw`
 MW) at the project's bus; monthly energy deficit = Σ CMg·(q − net)·h /
 12, capacity deficit = (q − definitive sufficiency) × node price; amount
-= `months` (3) × `peak_month_factor` (1.0, the worst months vs the mean
-— an assumption, the representative year has no months) × (energy⁺ +
-capacity⁺), or a given `amount_usd`; yearly cost = amount × `fee_pct`
+= the `months` (3) largest monthly energy deficits⁺ of the scenario
+(hydrology) with the largest total + `months` × capacity⁺, when the
+case's stages are calendar months (`stage_array[].month`, or the
+block-hour map; `cen_guarantee.monthly: auto`); otherwise (or with
+`monthly: off`) `months` × `peak_month_factor` (1.0, an assumption) ×
+(mean monthly energy deficit⁺ + capacity⁺); or a given `amount_usd`;
+yearly cost = amount × `fee_pct`
 (1 %/yr, an assumption: one Chilean bank sheet quotes an issuance fee
 up to 1 %, min UF 3 [C34]).  Default share 0 → no guarantee.
 
@@ -396,11 +506,13 @@ only if the peak lasts more than annuity / (costo de falla − peaker
 cost) = 74 h) and [`cases/invest_cl_bat_1b`](../../cases/invest_cl_bat_1b/)
 (the battery case; its prices never exceed 90 \$/MWh).  The cost data
 are the illustrative ones of the original cases, at 8 %, fixed O&M 2 %,
-insurance and warranty per generic §1.2.
+insurance and warranty per generic §1.2, fuel at the base-year cost
+(generic §1.5 gives the fuel trajectories).
 
 ```bash
 gtopt_private_eval cases/invest_cl_screening_1b/golden/lp --market cl \
-  --config scripts/gtopt_private_eval/configs/invest_screening.json
+  --config scripts/gtopt_private_eval/configs/invest_screening.json \
+  --set finance.fuel_trajectory.enabled=false
 ```
 
 ### 3.1 Does the sufficiency payment pay the investment?
@@ -412,47 +524,52 @@ CMg (no scarcity rent) − SSCC; *cover* = sufficiency / missing money
 
 | Case | Project | Annuity | Fixed costs | Energy margin (CMg) | Scarcity rent removed | Missing money | Sufficiency | Cover | NPV M\$ / IRR |
 |---|---|--:|--:|--:|--:|--:|--:|--:|--:|
-| screening LP | base 550 MW | 146.6 | 58.1 | 118.6 | 28.0 | 86.2 | 61.1 | 0.71 | −282.4 / 6.1 % |
-| | mid 150 MW | 15.5 | 4.4 | 7.8 | 7.6 | 11.6 | 15.7 | 1.35 | 43.7 / 11.0 % |
-| | **peak 300 MW** | 15.3 | 3.7 | **0.0** | **15.3** | 18.2 | 33.3 | 1.83 | 148.3 / 19.7 % |
-| screening MIP | base 600 MW | 159.9 | 62.1 | 60.3 | 32.9 | 161.7 | 66.6 | 0.41 | −1,069.9 / 0.5 % |
-| | mid 200 MW | 20.6 | 5.5 | 6.2 | 11.0 | 19.4 | 21.0 | 1.08 | 16.8 / 8.9 % |
-| | peak 200 MW | 10.2 | 2.3 | 0.0 | 11.0 | 12.0 | 22.2 | 1.85 | 100.4 / 19.9 % |
-| battery LP | 84 MW / 289 MWh | 7.7 | 1.9 | 7.7 | 0 | 1.5 | 9.3 | 6.3 | 67.2 / 22.4 % |
-| battery MIP | 100 MW / 300 MWh | 8.2 | 2.0 | 4.9 | 0 | 4.8 | 10.2 | 2.1 | 46.1 / 17.7 % |
+| screening LP | base 550 MW | 146.6 | 58.1 | 118.6 | 28.0 | 86.2 | 52.9 | 0.61 | −374.1 / 5.5 % |
+| | mid 150 MW | 15.5 | 4.4 | 7.8 | 7.6 | 11.6 | 14.1 | 1.21 | 26.0 / 9.8 % |
+| | **peak 300 MW** | 15.3 | 3.7 | **0.0** | **15.3** | 18.2 | 30.4 | 1.67 | 119.2 / 17.6 % |
+| screening MIP | base 600 MW | 159.9 | 62.1 | 60.3 | 32.9 | 161.7 | 57.7 | 0.36 | −1,169.9 / −0.4 % |
+| | mid 200 MW | 20.6 | 5.5 | 6.2 | 11.0 | 19.4 | 18.8 | 0.97 | −6.9 / 7.6 % |
+| | peak 200 MW | 10.2 | 2.3 | 0.0 | 11.0 | 12.0 | 20.2 | 1.69 | 81.0 / 17.7 % |
+| battery LP | 84 MW / 289 MWh | 7.7 | 1.9 | 7.7 | 0 | 1.5 | 7.9 | 5.3 | 55.2 / 20.0 % |
+| battery MIP | 100 MW / 300 MWh | 8.2 | 2.0 | 4.9 | 0 | 4.8 | 8.7 | 1.8 | 33.3 / 15.2 % |
 
 * **The peaker** earns exactly nothing on energy at the Chilean CMg:
   it is marginal whenever it runs.  The LP's peak-block rent
   (795.11 and 730.40 \$/MWh in the two peak blocks) is 15.3 M\$/yr =
   its annuity (50,926 \$/MW-yr × 300 MW): this is the **endogenous
   capacity value** of the plan, **4.24 US\$/kW-month** of peaker
-  capacity (4.72 per MW of sufficiency at factor 0.9).  The
+  capacity (5.17 per MW of sufficiency at factor 0.82).  The
   administered price is **10.28 US\$/kW-month** (8.77 from the CNE
-  peak-unit study): sufficiency pays the case's peaker 1.8 × its
+  peak-unit study): sufficiency pays the case's peaker 1.7 × its
   missing money.  The gap is the price of the reference unit — the
   case's peaker costs 500 \$/kW at 8 % over 20 years, the CNE peak unit
   742 \$/kW (turbine + substation + line) at 10 % with 10 % reserve
   margin and fixed costs.  With a peaker costing what CNE assumes, the
   sufficiency payment would roughly cover it (by design of the
   peak-unit price).
-* **Mid-merit** units are slightly over-paid (1.1–1.35); **base load**
+* **Mid-merit** units are about paid (1.0–1.2); **base load**
   (here an expensive coal-like unit, 3 M\$/MW, paying 20 M\$/yr of
-  green tax) is under-paid (0.4–0.7): it depended on the inframarginal
+  green tax) is under-paid (0.4–0.6): it depended on the inframarginal
   scarcity rent that Chile does not pay.  Under the planner's prices it
   broke even; under Chilean rules it would not be built.
 * **The battery** never sees scarcity prices in its case; its energy
   margin pays its annuity (the LP optimum) and sufficiency (DS 70
-  factor 0.91 at 3.44 h) is a windfall of 6× its small missing
+  factor 0.91 at 3.44 h, pie factor 0.85) is a windfall of 5× its small missing
   money (fixed O&M + insurance + warranty).
 
 ### 3.2 The battery stack
 
 `invest_cl_bat_1b` LP, year 1: energy 7.73 (captured price 88.9
-\$/MWh), sufficiency 9.34 (84 MW × 0.91 × 123.4 \$/kW-yr), SSCC 0.43;
-fixed O&M −1.32, insurance −0.26, warranty −0.33: **EBITDA 15.58**,
-depreciation 4.41, **EBIT 11.17** (margin 64 %); NPV **67.2 M\$, IRR
-22.4 %, payback 4.2 years**; sufficiency is 53 % of revenue.  Without
+\$/MWh), sufficiency 7.94 (84 MW × 0.91 × pie 0.85 × 123.4
+\$/kW-yr), SSCC 0.43; fixed O&M −1.32, insurance −0.26, warranty
+−0.33: **EBITDA 14.18**, depreciation 4.41, **EBIT 9.77** (margin
+61 %); NPV **55.2 M\$, IRR 20.0 %, payback 4.7 years**; sufficiency is
+49 % of revenue.  Without
 sufficiency: NPV −12.8 / IRR 4.7 %.
+
+The variants below were computed with the earlier table factors (PV
+0.02, so a pie factor of 1.0 in this case); with the CEN 2025 factors
+(§1.2) sufficiency is 15 % lower and each NPV ≈ 12 M\$ lower.
 
 | Variant | NPV M\$ | IRR |
 |---|--:|--:|
@@ -477,9 +594,9 @@ M\$/yr for 51 months.
 
 | Study | Scope | Revenue split / result | This tool (battery case) |
 |---|---|---|---|
-| Fitch Ratings via Funds Society, Apr-2025 [C26] | Chilean BESS project finance | 40–50 % of revenue from capacity payments | 53 % sufficiency |
+| Fitch Ratings via Funds Society, Apr-2025 [C26] | Chilean BESS project finance | 40–50 % of revenue from capacity payments | 49 % sufficiency |
 | Systep, *Reporte Sector Eléctrico* Oct-2024 [C27] *(unverified snippet)* | generic BESS | capacity ≈ 33 % of revenue | — |
-| Americas Market Intelligence, Apr-2024 [C28] | standalone BESS, pre-DS 70 | ≈ 15 % capacity / 85 % arbitrage; capacity ≈ 90 \$/kW-yr | 123 \$/kW-yr × 0.91 |
+| Americas Market Intelligence, Apr-2024 [C28] | standalone BESS, pre-DS 70 | ≈ 15 % capacity / 85 % arbitrage; capacity ≈ 90 \$/kW-yr | 123 \$/kW-yr × 0.91 × 0.85 |
 | Saavedra et al., ISES SWC 2025 [C29] | energy only, BESS 100 MW / 400 MWh at 300 \$/kWh, 8 %, 25 y, 2023 CMg at 8 nodes | IRR 12.4–13.2 % north (spreads 125–132 \$/MWh), 8.8 % centre, 0.4 % Puerto Montt | energy + SSCC IRR 4.7 % (spread ≈ 90 \$/MWh, 15 y life) |
 | Aurora Energy Research, Apr-2025 / Jul-2026 [C30] | Chilean BESS | 5-h batteries get full capacity payment to 2034; SSCC up to 11 % of revenue; IRR ±5 pp by scenario | SSCC 2.4 % |
 
@@ -495,9 +612,9 @@ years.
    through scarcity prices (peak-load pricing, even with no unserved
    energy); Chile pays it through the administered sufficiency payment
    and does not pay the scarcity rent.  The `cl` model removes the rent
-   and adds the payment: peakers and storage gain (cover 1.8–6), base
+   and adds the payment: peakers and storage gain (cover 1.7–5), base
    load that lived on inframarginal scarcity rents loses (cover
-   0.4–0.7).  The demo's old "capacity paid twice" (VOLL prices *plus*
+   0.4–0.6).  The demo's old "capacity paid twice" (VOLL prices *plus*
    sufficiency) is gone.
 2. **Administered vs endogenous capacity price.**  The plan values a
    peaker MW at its annuity (4.24 US\$/kW-month in the case); CNE pays
@@ -622,3 +739,29 @@ the supply bonds.
 * [C37] La Tercera, "Generadoras eléctricas constituyen garantías por
   casi US\$ 700 millones para 2023" (2023).
   <https://www.latercera.com/pulso-pm/noticia/generadoras-electricas-constituyen-garantias-por-casi-us-700-millones-para-2023-un-45-mas-que-el-ano-anterior/CBTTB3GV2JFFVFNTZG5ZN2ENK4/>
+* [C38] CNE, *Norma Técnica de Coordinación y Operación, Capítulo sobre
+  la Declaración de Costos Variables*, approved by RE CNE 259/2023
+  (DO 27-Jun-2023), art. 2-5, 2-18, 2-52.
+  <https://www.cne.cl/wp-content/uploads/2023/06/Norma-Tecnica-de-Coordinacion-y-Operacion-Capitulo-sobre-la-Declaracion-de-Costos-Variables-2.pdf>
+* [C39] Coordinador Eléctrico Nacional, *Costos variables de
+  generación* (declared variable costs, fuel costs and CVNC per unit).
+  <https://www.coordinador.cl/costos-variables/>
+* [C40] CNE, REX 804/2025, *Informe Técnico Preliminar de Precio de
+  Nudo de Corto Plazo* (Dec 2025), §1.2.1–1.2.2, tables 5–8 (declared
+  variable costs from the CEN; fuel modulation factors 2026–2042).
+  <https://www.cne.cl/archivos_bajar/REX%20804-2025.PDF>
+* [C41] CEN, *Cálculo Definitivo de Potencia de Suficiencia 2025*,
+  v2.2 (Aug-2026): `PSuficiencia_def25_v2.2.xlsx` (sheets Parametros,
+  Factores, Resultados) and *Informe PSUF 2025 Definitivo* (cap. VII,
+  Tablas 10 and 13).
+  <https://www.coordinador.cl/wp-content/uploads/2026/08/PSUF_def25_v2.7z>
+* [C42] CNE Res. Ex. 59/2026, *Informe Técnico Definitivo, Precio de
+  Nudo de Corto Plazo enero 2026*, Tablas 5, 7 and 9 (LNG units, price
+  projection, weekly LNG availability per terminal).
+  <https://www.cne.cl/archivos_bajar/REX%2059-2026.PDF>; terminal
+  capacities: <https://www.gnlquintero.com/terminal/tanques-de-almacenamiento/>,
+  <https://www.gnlm.cl/regasificacion/>; LNG ship counts: CNE /
+  Energía Abierta,
+  <https://energiaabierta.cl/datasets-estadistica/numero-de-barcos-de-gnl-recibidos/>;
+  spot share: GIIGNL annual reports,
+  <https://giignl-documents.s3.fr-par.scw.cloud/public/ar-2025-annual-report.pdf>.

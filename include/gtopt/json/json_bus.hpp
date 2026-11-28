@@ -21,7 +21,11 @@ struct json_data_contract<Bus>
                        json_string_null<"description", OptName>,
                        json_number_null<"voltage", OptReal>,
                        json_number_null<"reference_theta", OptReal>,
-                       json_bool_null<"use_kirchhoff", OptBool>>;
+                       json_bool_null<"use_kirchhoff", OptBool>,
+                       json_number_null<"vmin_pu", OptReal>,
+                       json_number_null<"vmax_pu", OptReal>,
+                       json_number_null<"reference_voltage", OptReal>,
+                       json_number_null<"shunt_q", OptReal>>;
 
   constexpr static auto to_json_data(Bus const& bus)
   {
@@ -32,7 +36,11 @@ struct json_data_contract<Bus>
                                  bus.description,
                                  bus.voltage,
                                  bus.reference_theta,
-                                 bus.use_kirchhoff);
+                                 bus.use_kirchhoff,
+                                 bus.vmin_pu,
+                                 bus.vmax_pu,
+                                 bus.reference_voltage,
+                                 bus.shunt_q);
   }
 };
 

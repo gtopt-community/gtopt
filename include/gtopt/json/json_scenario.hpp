@@ -27,7 +27,8 @@ struct json_data_contract<Scenario>
                                 json_string_null<"name", OptName>,
                                 json_number_null<"active", OptBool>,
                                 json_number_null<"probability_factor", OptReal>,
-                                json_number_null<"hydrology", OptInt>>;
+                                json_number_null<"hydrology", OptInt>,
+                                json_number_null<"risk_index", OptReal>>;
 
   constexpr static auto to_json_data(Scenario const& scenario)
   {
@@ -35,7 +36,8 @@ struct json_data_contract<Scenario>
                                  scenario.name,
                                  scenario.active,
                                  scenario.probability_factor,
-                                 scenario.hydrology);
+                                 scenario.hydrology,
+                                 scenario.risk_index);
   }
 };
 

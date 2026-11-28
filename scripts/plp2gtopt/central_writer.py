@@ -141,6 +141,8 @@ class CentralWriter(BaseWriter):
             gcost = "gcost" if pcol_name in parquet_cols["gcost"] else central["gcost"]
             pmin = "pmin" if pcol_name in parquet_cols["pmin"] else central["pmin"]
             pmax = "pmax" if pcol_name in parquet_cols["pmax"] else central["pmax"]
+            # ``--mance-split``: maintenance derates moved to a schedule.
+            has_outage = pcol_name in parquet_cols.get("outage_fraction", [])
 
             plp_type = central.get("type", "unknown")
             user_overrides = (
@@ -211,6 +213,8 @@ class CentralWriter(BaseWriter):
                 "pmin": pmin,
                 "type": gen_type,
             }
+            if has_outage:
+                generator["outage_fraction"] = "outage_fraction"
             # Self-describing cogen flag — same lookup used by
             # plexos2gtopt + gtopt_marginal_units.  Bundled CSV at
             # ``scripts/gtopt_shared/data/cogen/cen_chile_cogen.csv`` carries the full

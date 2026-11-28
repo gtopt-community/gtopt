@@ -28,6 +28,9 @@ DEFAULTS: dict[str, Any] = {
         # of capex per year; per technology below [nrel_pv_insurance,
         # cne_peak_unit]; this default applies to unlisted technologies
         "insurance_pct_capex": 0.003,
+        # true: the fixed O&M (fom_pct_capex) already includes insurance
+        # (the CNE ICTGA FOM does not itemise it) -> drop the insurance line
+        "insurance_in_fom": False,
         # false: drop insurance, warranty and generic guarantee lines
         "risk_costs": True,
         # extended warranty / LTSA / augmentation reserve (per technology)
@@ -53,6 +56,18 @@ DEFAULTS: dict[str, Any] = {
             "sensitivity_year": 2030,
             "scenarios": ["conservative", "moderate", "advanced"],
         },
+        # fuel-cost trajectory: the declared variable cost of base_year
+        # (Chile: declared to the CEN; demo cases: the case gcost) x the
+        # IEA WEO 2026 fuel-price index, applied to the fuel component
+        # (fuel_trajectory.py) [iea_weo_2026, cne_nt_costos_variables];
+        # enabled false = flat costs.  price_scaling thermal_marginal
+        # scales the CMg of periods set by a fuel-burning unit.
+        "fuel_trajectory": {
+            "enabled": True,
+            "scenario": "steps",
+            "base_year": 2026,
+            "price_scaling": "thermal_marginal",
+        },
     },
     "co2": {
         # carbon price in the cash flow [$/t]; 0 = not priced in the market
@@ -72,31 +87,69 @@ DEFAULTS: dict[str, Any] = {
             "emission_rate": 0.0,
             "life": 25,
             "capex_range": [732, 1323],
+            # replacement cost of an existing unit (--existing) [cne_ictga]
+            "capex_usd_kw": 732,
             "insurance_pct_capex": 0.0025,
         },
         "wind": {
             "emission_rate": 0.0,
             "life": 25,
             "capex_range": [1380, 2326],
+            "capex_usd_kw": 1433,
             "insurance_pct_capex": 0.0025,
         },
         "bess": {
             "emission_rate": 0.0,
             "life": 15,
             "capex_range": [563, 1551],
+            # CNE 4 h: 722 $/kW ~ 180 $/kWh, all in the energy term
+            "capex_usd_kwh": 180,
             "insurance_pct_capex": 0.004,
             # extended performance warranty / augmentation reserve [assumption;
             # cf. nrel_atb_bess 2.5 % all-in FOM, pnnl_storage_2022]
             "warranty_pct_capex": 0.005,
         },
-        "ccgt": {"emission_rate": 0.39, "life": 30, "capex_range": [1144, 1213]},
-        "ocgt": {"emission_rate": 0.56, "life": 25, "capex_range": [545, 1084]},
+        "ccgt": {
+            "emission_rate": 0.39,
+            "life": 30,
+            "capex_range": [1144, 1213],
+            "capex_usd_kw": 1144,
+        },
+        "ocgt": {
+            "emission_rate": 0.56,
+            "life": 25,
+            "capex_range": [545, 1084],
+            "capex_usd_kw": 860,
+        },
         "diesel": {"emission_rate": 0.78, "life": 25, "capex_range": [576, 860]},
         "coal": {"emission_rate": 0.95, "life": 30},
         "nuclear": {"emission_rate": 0.0, "life": 40},
         "hydro": {"emission_rate": 0.0, "life": 50, "insurance_pct_capex": 0.0025},
+        "geothermal": {"emission_rate": 0.0, "life": 30},
+        "csp": {"emission_rate": 0.0, "life": 30},
         "thermal": {"emission_rate": 0.0},
         "line": {"emission_rate": 0.0, "life": 40, "insurance_pct_capex": 0.001},
+    },
+    # element ``type`` field (plp2gtopt and other converters set it) ->
+    # technology; unlisted types fall back to the name hints
+    "technology_types": {
+        "solar": "solar_pv",
+        "pv": "solar_pv",
+        "solar_pv": "solar_pv",
+        "csp": "csp",
+        "wind": "wind",
+        "hydro": "hydro",
+        "hydro_ror": "hydro",
+        "hydro_reservoir": "hydro",
+        "renewable:hydro": "hydro",
+        "geothermal": "geothermal",
+        "battery": "bess",
+        "nuclear": "nuclear",
+        "coal": "coal",
+        "ccgt": "ccgt",
+        "ocgt": "ocgt",
+        "diesel": "diesel",
+        "thermal": "thermal",
     },
     "projects": {},
     "markets": {
@@ -181,20 +234,23 @@ DEFAULTS: dict[str, Any] = {
             # a unit is not paid above its preliminary sufficiency
             # [assumption]
             "prorate_cap": 1.0,
-            # preliminary sufficiency / Pmax [ds62_nt; values: assumption
-            # from the NT rules — thermal: fuel availability x (1 − IFOR);
-            # PV: CF in the 52 evening peak hours ~ 0; wind: min(lowest
-            # annual CF, peak-hour CF)]
+            # preliminary sufficiency / Pmax of a unit in service all year
+            # [cen_psuf_2025: capacity-weighted Pini/Pmax x median
+            # Psuf_pre/Pini of each CEN technology, 2025 definitive
+            # calculation — coal 0.78, CCGT 0.76, OCGT 0.82, diesel
+            # 0.85-0.98, hydro 0.62 x 0.97, wind 0.24, PV 0.26; all
+            # thermal 0.80].  The PV / wind value is min(5-yr annual CF,
+            # CF in the 52 highest load hours of the year), NOT ~0.
             "sufficiency_factors": {
-                "coal": 0.90,
-                "ccgt": 0.85,
-                "ocgt": 0.90,
+                "coal": 0.78,
+                "ccgt": 0.76,
+                "ocgt": 0.82,
                 "diesel": 0.92,
                 "nuclear": 0.90,
                 "hydro": 0.60,
-                "wind": 0.25,
-                "solar_pv": 0.02,
-                "default": 0.90,
+                "wind": 0.24,
+                "solar_pv": 0.26,
+                "default": 0.80,
             },
             # DS 70/2023 transitory article: % of Pmax by duration (h),
             # linear in between, 0 below 1 h [ds70]
@@ -342,6 +398,15 @@ DEFAULTS: dict[str, Any] = {
             "date": "2020-12-26",
             "note": "DS 42/2020 amends DS 62 (balance timing, reserva estratégica)",
         },
+        "cen_psuf_2025": {
+            "url": "https://www.coordinador.cl/wp-content/uploads/2026/08/"
+            "PSUF_def25_v2.7z",
+            "date": "2026-08",
+            "note": "CEN Potencia de Suficiencia 2025 definitiva v2.2: "
+            "PSuficiencia_def25_v2.2.xlsx (Factores, Resultados) + report "
+            "(cap. VII: PV/wind = min(5-yr CF, CF in the 52 highest "
+            "hours of the annual load curve))",
+        },
         "ds70": {
             "url": "https://energia.gob.cl/sites/default/files/dec_70_2023.pdf",
             "date": "2024-06-05",
@@ -419,6 +484,29 @@ DEFAULTS: dict[str, Any] = {
             "date": "2025-2026",
             "note": "declared investment of sample SEIA filings, see "
             "docs/methods/private-investor-evaluation-cl.md",
+        },
+        "iea_weo_2026": {
+            "url": "https://www.iea.org/reports/world-energy-outlook-2026",
+            "date": "2026-11-19",
+            "note": "Table 2.2 wholesale fossil fuel prices by scenario (CPS,"
+            " STEPS, ARC, NZE; 2025/2035/2050; USD 2025): Japan LNG 12.6 ->"
+            " STEPS 6.8/9.9 USD/MBtu, Japan coal 117 -> 109/94 USD/t, crude 68"
+            " -> 75/70 USD/bbl; CC BY 4.0",
+        },
+        "cne_nt_costos_variables": {
+            "url": "https://www.cne.cl/wp-content/uploads/2023/06/"
+            "Norma-Tecnica-de-Coordinacion-y-Operacion-Capitulo-sobre-la-"
+            "Declaracion-de-Costos-Variables-2.pdf",
+            "date": "2023-06 (RE CNE 259/2023)",
+            "note": "art. 2-52: CV = consumo especifico neto x costo de"
+            " combustible + CVNC, declared to the CEN; fuel cost and CVNC"
+            " published per unit (art. 2-5)",
+        },
+        "cne_pncp_2025_12": {
+            "url": "https://www.cne.cl/archivos_bajar/REX%20804-2025.PDF",
+            "date": "2025-12-22 (REX 804)",
+            "note": "cross-check: CNE fuel modulation factors 2026=1 (coal,"
+            " LNG, Brent) applied to CEN-declared costs, tables 6-8",
         },
         "nrel_atb_2024": {
             "url": "https://atb.nlr.gov/electricity/2024/data",

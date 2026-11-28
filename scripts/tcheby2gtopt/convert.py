@@ -49,13 +49,16 @@ from __future__ import annotations
 import logging
 
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from typing import Any
 
 import numpy as np
 from gtopt_shared.point_sampling import (
     POINT_STORAGE_INTEGRATION,
+    commitment_breaks_options,
     commitment_period_class,
     point_storage_options,
+    stage_commitment_fields,
 )
 
 from .tcheby_db import StepSchedule, TchebySimulation, TchebySystem
@@ -87,6 +90,14 @@ class ConvertOptions:
     commitment_period_rule: str = "class"
     #: storage_integration on point stages ("none": gtopt defaults)
     point_storage_integration: str = POINT_STORAGE_INTEGRATION
+    #: daily commitment grid (hours of the day; ``model_options.
+    #: commitment_breaks``), replacing the per-unit class grids
+    commitment_breaks: list[float] | None = None
+    #: per-month daily grids (month 1..12 -> breaks; ``Stage.
+    #: commitment_breaks``); months need ``time_zero``
+    commitment_breaks_by_month: dict[int, list[float]] = field(default_factory=dict)
+    #: calendar time of hour 0 (the month of each stage)
+    time_zero: datetime | None = None
 
 
 @dataclass
@@ -227,9 +238,22 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
     if sysm.junctions:
         _hydro(sysm, grid, sim, system, notes, series, stage_const, gen_uid)
 
+    daily = bool(o.commitment_breaks or o.commitment_breaks_by_month)
     if sysm.commitments:
         system["commitment_array"] = _commitments(sysm, gen_uid, series)
-        if grid.mode == "point" and o.commitment_period_rule != "none":
+        if grid.mode == "point" and daily:
+            # the daily grid (model_options / Stage) replaces the class
+            # grids; an explicit --commitment-period NAME=H still wins
+            for e, c in zip(
+                system["commitment_array"], _kept(sysm, gen_uid), strict=True
+            ):
+                if c.name in o.commitment_periods:
+                    hours = max(float(o.commitment_periods[c.name]), 1.0)
+                    e["commitment_period"] = _r(hours)
+                    notes.append(f"commitment {c.name}: override, {hours:g} h grid")
+                e["ramp_allowance"] = "boundary"
+            notes.append("commitment: daily grid (commitment_breaks)")
+        elif grid.mode == "point" and o.commitment_period_rule != "none":
             # binaries on each unit's own uniform grid, never on the nodes
             for e, c in zip(
                 system["commitment_array"], _kept(sysm, gen_uid), strict=True
@@ -249,6 +273,9 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         else:
             notes.append("commitment time_resolution dropped")
 
+    simulation = grid.simulation()
+    if daily:
+        _daily_stages(simulation["stage_array"], offsets, o)
     fail = o.demand_fail_cost if o.demand_fail_cost is not None else sysm.fail_cost
     planning = {
         "options": {
@@ -265,13 +292,33 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
                     if grid.mode == "point"
                     else {}
                 ),
+                **commitment_breaks_options(o.commitment_breaks),
             },
         },
-        "simulation": grid.simulation(),
+        "simulation": simulation,
         "system": system,
     }
     notes.extend(f"dropped table {t}" for t in sysm.dropped)
     return Conversion(planning, notes)
+
+
+def _daily_stages(
+    stages: list[dict[str, Any]], offsets: np.ndarray, o: ConvertOptions
+) -> None:
+    """``start_hour`` (and the per-month ``commitment_breaks``) of every
+    stage: the clock hour of its start ``offsets[k]`` (hours from time
+    zero, mod 24) and the month of ``time_zero + offsets[k]``."""
+    table = o.commitment_breaks_by_month
+    if table and o.time_zero is None:
+        raise ValueError("per-month commitment breaks need time_zero")
+    for stage, off in zip(stages, offsets, strict=True):
+        clock = float(off)
+        month = None
+        if o.time_zero is not None:
+            start = o.time_zero + timedelta(hours=clock)
+            month = start.month
+            clock = start.hour + start.minute / 60.0 + start.second / 3600.0
+        stage.update(stage_commitment_fields(clock, month, table, o.commitment_breaks))
 
 
 def _hydro(  # pylint: disable=too-many-arguments,too-many-locals

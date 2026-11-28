@@ -144,6 +144,8 @@ bool AllowancePoolLP::add_to_lp(SystemContext& sc,
   // which carries duration via the StorageLP ``finp`` path).
   BIndexHolder<ColIndex> au_cols;
   const auto& energy_rows = energy_rows_at(scenario, stage);
+  // one-cycle balance on periodic stages (see balance_time_scale_at)
+  const double pool_ts = balance_time_scale_at(scenario, stage);
   const auto disc_prob = CostHelper::cost_factor(
       scenario.probability_factor(), stage.discount_factor(), 1.0);
   for (auto&& block : blocks) {
@@ -165,7 +167,7 @@ bool AllowancePoolLP::add_to_lp(SystemContext& sc,
         .context = make_block_context(scenario.uid(), stage.uid(), buid),
     });
     au_cols[buid] = col;
-    lp.set_coeff(energy_rows.at(buid), col, -1.0);
+    lp.set_coeff(energy_rows.at(buid), col, -pool_ts);
   }
   if (!au_cols.empty()) {
     auction_cols[st_key] = std::move(au_cols);

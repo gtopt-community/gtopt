@@ -149,7 +149,7 @@ class NetworkMixin:
         Empty unless ``options["falla_segments"]`` is ``all`` / ``split``.  The uid
         offset is a power of ten above every bus and central number, so
         the tier uids never clash with real demands nor with the
-        ``<battery>_chrg`` demands (uid = central number).
+        synthetic ``<battery>_dem`` battery demands (uid = central number).
         """
         if options.get("falla_segments", "first") not in ("all", "split"):
             return {}, 0
@@ -214,6 +214,7 @@ class NetworkMixin:
             maness_parser=maness,
             options=options,
             block_parser=self.parser.parsed_data.get("block_parser", None),
+            mance_parser=self.parser.parsed_data.get("mance_parser", None),
         )
 
         existing_gen = self.planning["system"].get("generator_array", [])

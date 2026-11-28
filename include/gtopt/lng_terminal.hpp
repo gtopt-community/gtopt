@@ -74,7 +74,11 @@ namespace gtopt
 struct LngGeneratorLink
 {
   SingleId generator {unknown_uid};  ///< UID of the linked generator
-  Real heat_rate {1.0};  ///< Fuel consumption rate [m³_LNG/MWh]
+  /// Fuel consumption rate [m³_LNG/MWh].  With the terminal's
+  /// ``use_generator_fuel_curve`` and a generator that has its own fuel
+  /// curve, the volume per fuel unit of that curve [m³_LNG/fuel-unit]
+  /// (1 when the curve is already in m³/MWh).
+  Real heat_rate {1.0};
 };
 
 /**
@@ -90,8 +94,12 @@ struct LngGeneratorLink
  *        − vent × duration
  * ```
  *
- * where sendout feeds linked generators via heat-rate coupling:
- * `sendout ≥ Σ_g (heat_rate_g × P_g)` over each block.
+ * where sendout feeds linked generators via heat-rate coupling,
+ * `sendout = Σ_g (heat_rate_g × P_g)` over each block, bounded by
+ * `[sendout_min, sendout_max]` when set (`enforce_sendout`, default on).
+ * Optional spot cargoes (`spot_cargo_volume`, `spot_cargo_max`,
+ * `spot_cost`, `spot_integer`, `spot_annual_max`) add
+ * `spot_cargo_volume × n_spot` to the first block of a stage.
  *
  * @see LngTerminalLP for the LP formulation
  */
@@ -145,9 +153,74 @@ struct LngTerminal
   // ── Send-out (regasification) ──────────────────────────────────────────
   OptReal sendout_max {};  ///< Max regasification rate [m³/h]
   OptReal sendout_min {};  ///< Min regasification rate [m³/h]
+  /// Enforce ``sendout_min ≤ Σ_g heat_rate_g · P_g ≤ sendout_max`` per
+  /// block (default true).  The limits apply only when set; ``false``
+  /// restores the former behaviour (limits parsed but ignored).
+  OptBool enforce_sendout {};
+
+  /// Draw the linked generators' tank gas along their own fuel curve
+  /// (default false = the link's scalar ``heat_rate`` × P).  When true and
+  /// the generator has a curve — ``pmax_segments`` / ``heat_rate_segments``
+  /// (convex piecewise incremental), a scalar ``Generator.heat_rate``, or a
+  /// committed ``Commitment.noload_fuel`` — the tank balance, the send-out
+  /// rows and the PAMPL ``fuel`` draw use
+  /// ``heat_rate_link × (h₁·P + Σₖ Δhₖ·sₖ + noload_fuel·u)`` (the same
+  /// legs as ``Fuel`` offtake), so part-load burn (no-load fuel per MWh)
+  /// and the steeper upper segments cost gas.  The up-reserve backing
+  /// (``reserve_sustain_hours``) then values r_up at the top segment's
+  /// heat rate (the most a deployed MW can burn on a convex curve).
+  /// Without a ``Fuel`` on the generator the segment slacks are priced
+  /// only through the tank balance dual.
+  OptBool use_generator_fuel_curve {};
+
+  // ── Reserve deliverability (opt-in) ────────────────────────────────────
+  /// Gas backing of the linked generators' reserves [h].  Unset
+  /// (default) => no coupling, the LP is unchanged.  When set (``>= 0``),
+  /// per block, with ``r_up_g`` the sum of generator ``g``'s up-reserve
+  /// provisions:
+  ///
+  /// ```text
+  /// reserve_up_energy:   V_b − fcr·T·Σ_g hr_g·r_up_g >= emin_b   (T > 0)
+  /// reserve_up_sendout:  Σ_g hr_g·(P_g + r_up_g)    <= sendout_max
+  /// ```
+  ///
+  /// ``V_b`` is the end-of-block tank level (it already nets the block's
+  /// deliveries and burn), so up reserve is offered only with gas in
+  /// stock to sustain it ``T`` hours.  The send-out row is emitted only
+  /// when ``sendout_max`` is set and ``enforce_sendout`` is on.  Down
+  /// reserve is gas-limited through the generic provision row
+  /// ``r_dn <= P − Pmin``: with no gas ``P = 0`` and ``r_dn = 0``.
+  OptReal reserve_sustain_hours {};
+  /// Expected up-reserve deployment [MWh per MW of provision per hour],
+  /// burnt from the tank: ``+ fcr·a·hr_g·Δ·r_up_g`` in the tank balance.
+  /// Only read when ``reserve_sustain_hours`` is set (default 0).
+  OptReal reserve_gas_usage {};
 
   // ── Delivery schedule ──────────────────────────────────────────────────
   OptTRealFieldSched delivery {};  ///< Scheduled LNG arrival [m³/stage]
+  /// Purchase (contract) price of the scheduled deliveries [$/m³] per
+  /// stage.  Priced on the fixed delivery columns, so for must-take
+  /// cargoes it is a constant of the objective (total cost right, no
+  /// effect on dispatch).  Unset = costless (former behaviour).  The
+  /// linked generators' ``gcost`` must then carry only non-fuel VOM: the
+  /// tank gas is priced by the tank balance dual (its shadow value).
+  OptTRealFieldSched delivery_cost {};
+
+  // ── Optional spot cargoes ──────────────────────────────────────────────
+  /// Volume of one spot cargo [m³] (same unit as ``delivery``).  Spot
+  /// cargoes are modelled only when this and ``spot_cargo_max`` are > 0.
+  OptReal spot_cargo_volume {};
+  /// Spot arrival slots per stage [cargoes/stage] (0 = none).
+  OptTRealFieldSched spot_cargo_max {};
+  /// Purchase cost of spot LNG [$/m³] per stage (default 0).
+  OptTRealFieldSched spot_cost {};
+  /// Whole cargoes (integer slots → MIP) when true; continuous
+  /// (fractional cargoes, LP) when unset / false.
+  OptBool spot_integer {};
+  /// Cap on spot cargoes per planning year [cargoes/year]: one row per
+  /// 8760-h window of the horizon (a stage belongs to the window of its
+  /// midpoint) within each LP (phase).
+  OptReal spot_annual_max {};
 
   // ── Venting / spill ────────────────────────────────────────────────────
   OptReal spillway_cost {};  ///< Venting penalty cost [$/m³]

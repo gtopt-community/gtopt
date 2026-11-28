@@ -331,6 +331,26 @@ option(
 
 if(GTOPT_REGISTER_PYTHON_TESTS)
 
+# ---- Test interpreter ----
+# The pytest entries need the scripts[dev] deps, so they run with the
+# interpreter the integration validators use (SelectTestPython:
+# GTOPT_TEST_PYTHON, an active venv, <repo>/.venv, ...) instead of the
+# first python3 on PATH -- a system python3 with older packages (e.g. a
+# rich whose layout differs from the TUI goldens) fails tests that pass
+# in the configured venv.  A normal variable shadows the cached
+# PYTHON_EXECUTABLE only up to the end of this block, so the install
+# step below keeps the configure-time PATH interpreter.
+set(_gtopt_select_test_python
+    "${CMAKE_CURRENT_LIST_DIR}/../integration_test/cmake/SelectTestPython.cmake")
+if(EXISTS "${_gtopt_select_test_python}")
+  include("${_gtopt_select_test_python}")
+  gtopt_select_test_python()
+  if(Python3_EXECUTABLE)
+    set(PYTHON_EXECUTABLE "${Python3_EXECUTABLE}")
+  endif()
+endif()
+message(STATUS "Scripts pytest Python: ${PYTHON_EXECUTABLE}")
+
 # ---- Helper: add_pytest_integration_test ----
 # Registers a pytest integration-test group as an individual CTest entry.
 # Analogous to add_e2e_case() in integration_test/cmake/add_e2e_case.cmake.
@@ -669,6 +689,9 @@ if(EXISTS "${_tools_dir}/test_ucjl2gtopt.py")
     )
   endif()
 endif()
+
+# Back to the cached (configure-time PATH) interpreter for the install.
+unset(PYTHON_EXECUTABLE)
 
 endif() # GTOPT_REGISTER_PYTHON_TESTS
 

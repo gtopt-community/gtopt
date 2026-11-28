@@ -176,6 +176,11 @@ class GtoptResults:
             if s is None:
                 arr[:, k[ok].astype(int)] = vals[ok]
             else:
+                # Per-stage outputs of scenario-independent columns (the
+                # expansion columns: capainst, expmod, ...) carry
+                # ``scenario = 0``; they hold for every scenario.
+                shared = ok & np.isnan(s)
+                arr[:, k[shared].astype(int)] = vals[shared]
                 ok &= ~np.isnan(s)
                 arr[s[ok].astype(int), k[ok].astype(int)] = vals[ok]
             out[int(str(uid))] = arr

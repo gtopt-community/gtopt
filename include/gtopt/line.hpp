@@ -483,6 +483,15 @@ struct Line
   OptTBRealFieldSched security_limit_ab {};
   OptTBRealFieldSched security_limit_ba {};
 
+  /// Range of an optimised (on-load) tap ratio [p.u.] under
+  /// `network_model = "lindistflow"`: the LP picks `t ∈ [tap_ratio_min,
+  /// tap_ratio_max]` per block through the exact linear change of
+  /// variable `y = w_a/t²`, `w_a/tap_ratio_max² ≤ y ≤ w_a/tap_ratio_min²`.
+  /// One bound unset → `tap_ratio` (or 1).  Both unset → fixed
+  /// `tap_ratio`.  Ignored by the DC model.
+  OptReal tap_ratio_min {};
+  OptReal tap_ratio_max {};
+
   /// True when any rating / classified limit beyond the plain flow limit
   /// is set (these lines report per-component limit duals).
   [[nodiscard]] constexpr bool has_rating_limits() const noexcept

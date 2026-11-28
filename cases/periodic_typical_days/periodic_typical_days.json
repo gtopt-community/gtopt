@@ -1,0 +1,100 @@
+{
+  "options": {
+    "annual_discount_rate": 0.0,
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "input_directory": ".",
+    "model_options": {
+      "use_single_bus": false,
+      "use_kirchhoff": false,
+      "demand_fail_cost": 1000,
+      "scale_objective": 1,
+      "periodic_storage": true,
+      "prev_stage_link": "period"
+    }
+  },
+  "simulation": {
+    "block_array": [
+      {"uid": 1, "duration": 180},
+      {"uid": 2, "duration": 180},
+      {"uid": 3, "duration": 180},
+      {"uid": 4, "duration": 180},
+      {"uid": 5, "duration": 186},
+      {"uid": 6, "duration": 186},
+      {"uid": 7, "duration": 186},
+      {"uid": 8, "duration": 186}
+    ],
+    "stage_array": [
+      {"uid": 1, "first_block": 0, "count_block": 4, "chronological": true,
+       "period_hours": 24},
+      {"uid": 2, "first_block": 4, "count_block": 4, "chronological": true,
+       "period_hours": 24}
+    ],
+    "scenario_array": [{"uid": 1, "probability_factor": 1}]
+  },
+  "system": {
+    "name": "periodic_typical_days",
+    "bus_array": [
+      {"uid": 1, "name": "b1"},
+      {"uid": 2, "name": "b2"}
+    ],
+    "line_array": [
+      {"uid": 1, "name": "l1_2", "bus_a": "b1", "bus_b": "b2",
+       "tmax_ab": 300, "tmax_ba": 300}
+    ],
+    "line_commitment_array": [
+      {"uid": 1, "name": "l1_2_ots", "line": "l1_2", "relax": true,
+       "startup_cost": 500, "cycle": "stage"}
+    ],
+    "generator_array": [
+      {"uid": 1, "name": "coal", "bus": "b1", "gcost": 30,
+       "capacity": 250},
+      {"uid": 2, "name": "gas", "bus": "b2", "gcost": 120,
+       "capacity": 300},
+      {"uid": 3, "name": "hydro", "bus": "b1", "gcost": 0,
+       "capacity": 200}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "load", "bus": "b2",
+       "lmax": [[150, 250, 300, 200], [180, 280, 320, 220]]}
+    ],
+    "junction_array": [
+      {"uid": 1, "name": "j_up"},
+      {"uid": 2, "name": "j_down", "drain": true}
+    ],
+    "waterway_array": [
+      {"uid": 1, "name": "penstock", "junction_a": 1, "junction_b": 2,
+       "fmin": 0, "fmax": 200}
+    ],
+    "flow_array": [
+      {"uid": 1, "name": "inflow", "direction": 1, "junction": 1,
+       "discharge": [[[120, 120, 120, 120], [20, 20, 20, 20]]]}
+    ],
+    "reservoir_array": [
+      {"uid": 1, "name": "lake", "junction": 1,
+       "flow_conversion_rate": 1, "capacity": 60000,
+       "emin": 0, "emax": 60000, "eini": 10000}
+    ],
+    "turbine_array": [
+      {"uid": 1, "name": "turbine", "waterway": 1, "generator": 3,
+       "production_factor": 1.0}
+    ],
+    "battery_array": [
+      {"uid": 1, "name": "bess_2h", "bus": "b2",
+       "input_efficiency": 0.95, "output_efficiency": 0.95,
+       "emin": 0, "emax": 200, "pmax_charge": 100,
+       "pmax_discharge": 100, "capacity": 200},
+      {"uid": 2, "name": "phes_long", "bus": "b2",
+       "input_efficiency": 0.9, "output_efficiency": 0.9,
+       "emin": 0, "emax": 30000, "eini": 0,
+       "pmax_charge": 150, "pmax_discharge": 150, "capacity": 30000,
+       "daily_cycle": false, "use_state_variable": true}
+    ],
+    "user_constraint_array": [
+      {"uid": 1, "name": "coal_ramp_up",
+       "expression": "generator('coal').generation - generator('coal').generation_prev <= 100"},
+      {"uid": 2, "name": "coal_ramp_dn",
+       "expression": "generator('coal').generation_prev - generator('coal').generation <= 100"}
+    ]
+  }
+}

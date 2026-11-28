@@ -1,0 +1,9 @@
+# Archivo de mantenimientos de centrales (plpmance.dat)
+# numero de centrales con mantenimientos
+ 1
+# Nombre de la central
+'Thermal2'
+#   Numero de Bloques e Intervalos
+   1                 01
+#   Mes    Bloque  NIntPot   PotMin   PotMax
+     02      003        1     0.00    80.00

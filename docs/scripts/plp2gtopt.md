@@ -207,6 +207,8 @@ the `[plp2gtopt]` section of `~/.gtopt.conf` (`--init-config` writes it).
 | `--pasada-mode {auto,hydro,flow-turbine,profile}` | `auto` | Run-of-river centrals: per-central (`auto`: solar/wind look-alikes → profile, hydro → flow + turbine), full topology, flow + turbine, or profiles |
 | `--tech-detect` / `--no-tech-detect` | on | Detect technology from central names (`_FV` → solar, `_EO` → wind, …) |
 | `--tech-overrides SPEC` | — | `name:type` pairs, or a `.json` / `.csv` file |
+| `--mance-split {off,auto,xlsm}` | `off` | Move `plpmance.dat` maintenance derates into `Generator.outage_fraction` (`f = 1 − Pmax/Pnom`, `pmax`/`pmin` back at the nominal unit). `auto`: thermal centrals, stage-uniform `Pmax < Pnom`, leading / trailing zero runs (entry / retirement) and all-zero centrals excluded. `xlsm`: the same rule on the centrals listed in the workbook's `Mant.Mayor…` (or `MantCEN`) sheet. Pair with `model_options.outage_reserve_mode` |
+| `--mance-xlsm FILE` | — | PLP input workbook for `--mance-split xlsm` |
 | `--tech-list` | — | List the known technology types and exit |
 | `--soft-storage-bounds` / `--no-...` | off | Reservoir `efin` / `emin` soft (slack at `efin_cost`) instead of hard |
 | `--spillway-cost-cap COST` | `500.0` | Cap ($/hm³) on the spill-derived `efin_cost` / `soft_emin_cost` (soft bounds only; `0` = no cap); `--vert-cost-cap` is an alias |

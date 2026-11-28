@@ -109,6 +109,18 @@ struct PlanningOptions
    * (`0` or `-1`) to disable rounding and store the full IEEE-754 binary, e.g.
    * when verifying bit-for-bit reproducibility of dispatch outputs. */
   OptInt output_round_decimals {};
+  /** @brief Emit the per-block usage-accounting streams (default false).
+   *
+   *  Output only — the LP is unchanged.  Adds `Generator/usage_on_sol`
+   *  (1 when the unit generates, else 0), `Generator/usage_ramp_sol`
+   *  (`|p_b − p_{b−1}|` [MW] on chronological stages) and, for units with
+   *  a Commitment, `Commitment/usage_pmin_sol` (committed floor [MW]) and
+   *  `Commitment/usage_at_pmin_sol` (u when the unit sits at its floor).
+   *  The `gtopt_usage` post-processor turns them (plus the standard
+   *  generation / reserve / startup / battery streams) into operating
+   *  hours, EOH, starts, reserve MW·h and BESS cycles.  See
+   *  docs/output-data.md "Usage accounting". */
+  OptBool output_usage_metrics {};
   /** @brief Use element UIDs instead of names in output filenames */
   OptBool use_uid_fname {};
 
@@ -334,6 +346,7 @@ struct PlanningOptions
     merge_opt(output_format, opts.output_format);
     merge_opt(output_compression, opts.output_compression);
     merge_opt(output_round_decimals, opts.output_round_decimals);
+    merge_opt(output_usage_metrics, opts.output_usage_metrics);
 
     merge_opt(use_uid_fname, opts.use_uid_fname);
     merge_opt(annual_discount_rate, opts.annual_discount_rate);

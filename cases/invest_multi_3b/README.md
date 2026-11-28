@@ -53,3 +53,14 @@ gtopt_cost_recovery out_lp_nodesal out_lp_shortrun out_lp --price-blocks
 
 `golden/<variant>/` holds the outputs the tool reads (used by the
 `gtopt_cost_recovery` tests).
+
+## Hydrology / weather scenarios and the social CVaR
+
+`invest_multi_scen_expected.json` and `invest_multi_scen_cvar.json`
+add three weather scenarios (sunny / cloudy / overcast, p 0.5 / 0.3 /
+0.2, solar profile scaled 1.0 / 0.6 / 0.3, `risk_index` = the scale).
+The second file sets `model_options.risk_measure = cvar`
+(α = 0.8, λ = 0.5).  HiGHS: risk neutral builds solar 661 MW and CCGT
+115 MW (objective 613,554); the CVaR plan builds solar 365 MW and CCGT
+176 MW (objective 657,614), with π̃ = 0.25 / 0.15 / 0.60.  See
+`docs/methods/investment-economics.md` §7.4.

@@ -119,4 +119,88 @@ namespace gtopt
   return out;
 }
 
+/// @name Daily commitment grid (`Commitment.commitment_breaks`)
+/// @{
+
+/// Clock hour of a time of day @p hours, reduced to [0, 24).
+[[nodiscard]] inline double clock_of_day(double hours) noexcept
+{
+  const double r = std::fmod(hours, 24.0);
+  return r < 0.0 ? r + 24.0 : r;
+}
+
+/// Cell boundaries in STAGE time of the daily grid @p breaks (hours of
+/// the day, [0, 24), strictly increasing) over a stage of length
+/// @p period that starts at clock time @p start_hour: every stage time
+/// τ in (0, period) with clock_of_day(start_hour + τ) ∈ breaks, sorted.
+/// A boundary within 1e-9 h of the stage start or end is dropped (the
+/// stage ends there anyway).  The cells of the stage are
+/// [0, τ_1), [τ_1, τ_2), ..., [τ_K, period].
+[[nodiscard]] inline std::vector<double> daily_cell_bounds(
+    std::span<const double> breaks, double start_hour, double period)
+{
+  constexpr double tol = 1e-9;
+  std::vector<double> out;
+  if (breaks.empty() || !(period > 0.0)) {
+    return out;
+  }
+  const double s = clock_of_day(start_hour);
+  for (double day = 0.0; day - 24.0 < period; day += 24.0) {
+    for (const double b : breaks) {
+      const double t = day + b - s;
+      if (t <= tol) {
+        continue;
+      }
+      if (t >= period - tol) {
+        return out;
+      }
+      out.push_back(t);
+    }
+  }
+  return out;
+}
+
+/// Cell of stage time @p t on the boundaries @p bounds (see
+/// `daily_cell_bounds`): half-open cells [τ_c, τ_{c+1}), so a time
+/// exactly on a boundary (within @p tol) belongs to the LATER cell;
+/// times past the last boundary (incl. the period end) join the last
+/// cell.  Cell 0 starts at the stage start.
+[[nodiscard]] inline std::size_t cell_of_time(std::span<const double> bounds,
+                                              double t,
+                                              double tol = 1e-9) noexcept
+{
+  return static_cast<std::size_t>(std::ranges::upper_bound(bounds, t + tol)
+                                  - bounds.begin());
+}
+
+/// True when the first and the last cell of a stage are the two pieces
+/// of ONE daily cell: the stage is a whole number of days long and does
+/// not start on a break, so on a cyclic (periodic) stage the cell
+/// straddling the period start wraps around it.  False when the stage
+/// holds a single cell (no boundary).
+[[nodiscard]] inline bool daily_cells_wrap(std::span<const double> breaks,
+                                           double start_hour,
+                                           double period) noexcept
+{
+  constexpr double tol = 1e-9;
+  if (breaks.empty() || !(period > 0.0)) {
+    return false;
+  }
+  const double days = period / 24.0;
+  if (days < 1.0 - tol || std::abs(days - std::round(days)) > tol) {
+    return false;
+  }
+  const double s = clock_of_day(start_hour);
+  const bool on_break =
+      std::ranges::any_of(breaks,
+                          [s](double b)
+                          {
+                            const double d = std::abs(b - s);
+                            return d <= tol || std::abs(d - 24.0) <= tol;
+                          });
+  return !on_break && !daily_cell_bounds(breaks, start_hour, period).empty();
+}
+
+/// @}
+
 }  // namespace gtopt

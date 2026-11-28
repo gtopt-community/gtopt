@@ -46,6 +46,15 @@ public:
   /// `reserve_provision("P").up` instead of the verbose `uprovision`.
   static constexpr std::string_view UpName {"up"};
   static constexpr std::string_view DnName {"dn"};
+  /// SSCC known variable-cost output streams [$/h] (`<dir>_<term>_cost`).
+  static constexpr std::string_view UpPartloadCostName {"up_partload_cost"};
+  static constexpr std::string_view DnPartloadCostName {"dn_partload_cost"};
+  static constexpr std::string_view UpActivationCostName {"up_activation_cost"};
+  static constexpr std::string_view DnActivationCostName {"dn_activation_cost"};
+  static constexpr std::string_view UpDegradationCostName {
+      "up_degradation_cost"};
+  static constexpr std::string_view DnDegradationCostName {
+      "dn_degradation_cost"};
 
   using Base = ObjectLP<ReserveProvision>;
 
@@ -161,6 +170,20 @@ public:
     OptTBRealSched capacity_factor;
     OptTBRealSched provision_factor;
     std::vector<double> zone_factors;  ///< per-zone effectiveness factors
+    /// SSCC known variable-cost adders (unset = off); see
+    /// `ReserveProvision::ur_partload_cost` & co.
+    OptTBRealSched partload_cost;
+    OptTBRealSched activation_factor;
+    OptTBRealSched activation_cost;
+    OptTBRealSched degradation_cost;
+    /// Unset `activation_cost` with γ set reads the generator SRMC (up
+    /// reserve) instead of 0 (down reserve).
+    bool activation_cost_is_srmc {false};
+    /// Per-block objective adders [$/MW·h] actually applied, by term —
+    /// written ×r as `<dir>_<term>_cost` (only when the term is set).
+    STBIndexHolder<double> partload_coefs;
+    STBIndexHolder<double> activation_coefs;
+    STBIndexHolder<double> degradation_coefs;
     STBIndexHolder<ColIndex> provision_cols;
     STBIndexHolder<RowIndex> provision_rows;
     STBIndexHolder<RowIndex> capacity_rows;
