@@ -382,7 +382,7 @@ def case_roundtrip_tiny_feeder(ctx: CliRun) -> None:
 
 
 @e2e("gtopt2opendss")
-def case_export_ieee_4b(ctx: CliRun) -> None:
+def case_export_ieee_4b_dss(ctx: CliRun) -> None:
     """gtopt case (ieee_4b_ori) -> balanced 3-phase OpenDSS script."""
     out = ctx.tmp_path / "ieee4b.dss"
     ctx.run([CASES_DIR / "ieee_4b_ori" / "ieee_4b_ori.json", "-o", out])
